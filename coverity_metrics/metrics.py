@@ -93,16 +93,18 @@ class CoverityMetrics:
             results = self.db.execute_query_dict(query)
         return pd.DataFrame(results)
     
-    def get_defects_by_checker_category(self, limit=20):
+    def get_defects_by_checker_category(self, limit=20, fetch_all=False):
         """Get defect count by checker category
         
         Args:
-            limit: Maximum number of categories to return
+            limit: Maximum number of categories to return (ignored if fetch_all=True)
+            fetch_all: If True, fetch all categories instead of top N
             
         Returns:
             pandas.DataFrame: Category and defect count
         """
-        query = """
+        limit_clause = "" if fetch_all else "LIMIT %s"
+        query = f"""
             SELECT 
                 cc.name as category,
                 COUNT(*) as defect_count
@@ -115,29 +117,33 @@ class CoverityMetrics:
             JOIN project p ON ps.project_id = p.id
             WHERE sd.fixed_snapshot_element_id IS NULL
                 AND p.deleted = false
-                {project_filter}
+                {{project_filter}}
             GROUP BY cc.name
             ORDER BY defect_count DESC
-            LIMIT %s
+            {limit_clause}
         """
         if self.project_name:
             query = query.format(project_filter="AND p.name = %s")
-            results = self.db.execute_query_dict(query, (self.project_name, limit))
+            params = (self.project_name,) if fetch_all else (self.project_name, limit)
+            results = self.db.execute_query_dict(query, params)
         else:
             query = query.format(project_filter="")
-            results = self.db.execute_query_dict(query, (limit,))
+            params = () if fetch_all else (limit,)
+            results = self.db.execute_query_dict(query, params)
         return pd.DataFrame(results)
     
-    def get_defects_by_checker_name(self, limit=20):
+    def get_defects_by_checker_name(self, limit=20, fetch_all=False):
         """Get defect count by specific checker
         
         Args:
-            limit: Maximum number of checkers to return
+            limit: Maximum number of checkers to return (ignored if fetch_all=True)
+            fetch_all: If True, fetch all checkers instead of top N
             
         Returns:
             pandas.DataFrame: Checker name and defect count
         """
-        query = """
+        limit_clause = "" if fetch_all else "LIMIT %s"
+        query = f"""
             SELECT 
                 ct.name as checker_name,
                 cc.name as category,
@@ -153,17 +159,19 @@ class CoverityMetrics:
             JOIN project p ON ps.project_id = p.id
             WHERE sd.fixed_snapshot_element_id IS NULL
                 AND p.deleted = false
-                {project_filter}
+                {{project_filter}}
             GROUP BY ct.name, cc.name, cp.impact
             ORDER BY defect_count DESC
-            LIMIT %s
+            {limit_clause}
         """
         if self.project_name:
             query = query.format(project_filter="AND p.name = %s")
-            results = self.db.execute_query_dict(query, (self.project_name, limit))
+            params = (self.project_name,) if fetch_all else (self.project_name, limit)
+            results = self.db.execute_query_dict(query, params)
         else:
             query = query.format(project_filter="")
-            results = self.db.execute_query_dict(query, (limit,))
+            params = () if fetch_all else (limit,)
+            results = self.db.execute_query_dict(query, params)
         return pd.DataFrame(results)
     
     def get_defect_density_by_project(self):
@@ -238,16 +246,18 @@ class CoverityMetrics:
         results = self.db.execute_query_dict(query)
         return pd.DataFrame(results)
     
-    def get_defects_by_owner(self, limit=20):
+    def get_defects_by_owner(self, limit=20, fetch_all=False):
         """Get defect count by owner
         
         Args:
-            limit: Maximum number of owners to return
+            limit: Maximum number of owners to return (ignored if fetch_all=True)
+            fetch_all: If True, fetch all owners instead of top N
             
         Returns:
             pandas.DataFrame: Owner and defect count
         """
-        query = """
+        limit_clause = "" if fetch_all else "LIMIT %s"
+        query = f"""
             SELECT 
                 COALESCE(u.username, 'Unassigned') as owner,
                 COUNT(DISTINCT dt.id) as defect_count,
@@ -258,9 +268,10 @@ class CoverityMetrics:
             LEFT JOIN dynamic_enum de ON dt.current_action_id = de.id AND de.dtype = 'Act'
             GROUP BY u.username
             ORDER BY defect_count DESC
-            LIMIT %s
+            {limit_clause}
         """
-        results = self.db.execute_query_dict(query, (limit,))
+        params = () if fetch_all else (limit,)
+        results = self.db.execute_query_dict(query, params)
         return pd.DataFrame(results)
     
     # ========== CODE QUALITY METRICS ==========
@@ -349,16 +360,18 @@ class CoverityMetrics:
         results = self.db.execute_query_dict(query)
         return pd.DataFrame(results)
     
-    def get_most_complex_functions(self, limit=20):
+    def get_most_complex_functions(self, limit=20, fetch_all=False):
         """Get most complex functions
         
         Args:
-            limit: Maximum number of functions to return
+            limit: Maximum number of functions to return (ignored if fetch_all=True)
+            fetch_all: If True, fetch all functions instead of top N
             
         Returns:
             pandas.DataFrame: Function details with complexity
         """
-        query = """
+        limit_clause = "" if fetch_all else "LIMIT %s"
+        query = f"""
             SELECT 
                 f.display_name as function_name,
                 fp.filename as file_path,
@@ -371,9 +384,10 @@ class CoverityMetrics:
             JOIN file_path fp ON stf.file_path_id = fp.id
             WHERE fm.cyclomatic_complexity IS NOT NULL
             ORDER BY fm.cyclomatic_complexity DESC, fm.line_count DESC
-            LIMIT %s
+            {limit_clause}
         """
-        results = self.db.execute_query_dict(query, (limit,))
+        params = () if fetch_all else (limit,)
+        results = self.db.execute_query_dict(query, params)
         return pd.DataFrame(results)
     
     # ========== TREND METRICS ==========
@@ -422,18 +436,20 @@ class CoverityMetrics:
         results = self.db.execute_query_dict(query, (weeks,))
         return pd.DataFrame(results)
     
-    def get_snapshot_history(self, stream_name=None, limit=20):
+    def get_snapshot_history(self, stream_name=None, limit=20, fetch_all=False):
         """Get snapshot analysis history
         
         Args:
             stream_name: Optional stream name to filter
-            limit: Maximum number of snapshots to return
+            limit: Maximum number of snapshots to return (ignored if fetch_all=True)
+            fetch_all: If True, fetch all snapshots instead of most recent N
             
         Returns:
             pandas.DataFrame: Snapshot details
         """
+        limit_clause = "" if fetch_all else "LIMIT %s"
         if stream_name:
-            query = """
+            query = f"""
                 SELECT 
                     s.name as stream_name,
                     sn.date_created,
@@ -446,11 +462,12 @@ class CoverityMetrics:
                 JOIN stream s ON sn.stream_id = s.id
                 WHERE s.name = %s
                 ORDER BY sn.date_created DESC
-                LIMIT %s
+                {limit_clause}
             """
-            results = self.db.execute_query_dict(query, (stream_name, limit))
+            params = (stream_name,) if fetch_all else (stream_name, limit)
+            results = self.db.execute_query_dict(query, params)
         else:
-            query = """
+            query = f"""
                 SELECT 
                     s.name as stream_name,
                     sn.date_created,
@@ -462,9 +479,10 @@ class CoverityMetrics:
                 FROM snapshot sn
                 JOIN stream s ON sn.stream_id = s.id
                 ORDER BY sn.date_created DESC
-                LIMIT %s
+                {limit_clause}
             """
-            results = self.db.execute_query_dict(query, (limit,))
+            params = () if fetch_all else (limit,)
+            results = self.db.execute_query_dict(query, params)
         return pd.DataFrame(results)
     
     # ========== USER ACTIVITY METRICS ==========
@@ -608,16 +626,18 @@ class CoverityMetrics:
     
     # ========== FILE HOTSPOT METRICS ==========
     
-    def get_file_hotspots(self, limit=20):
+    def get_file_hotspots(self, limit=20, fetch_all=False):
         """Get files with most defects (hotspots)
         
         Args:
-            limit: Maximum number of files to return
+            limit: Maximum number of files to return (ignored if fetch_all=True)
+            fetch_all: If True, fetch all files instead of top N hotspots
             
         Returns:
             pandas.DataFrame: File hotspots with defect counts
         """
-        query = """
+        limit_clause = "" if fetch_all else "LIMIT %s"
+        query = f"""
             SELECT 
                 fp.filename as file_path,
                 COUNT(DISTINCT sdo.stream_defect_id) as defect_count,
@@ -637,17 +657,19 @@ class CoverityMetrics:
             JOIN project p ON ps.project_id = p.id
             WHERE sd.fixed_snapshot_element_id IS NULL
                 AND p.deleted = false
-                {project_filter}
+                {{project_filter}}
             GROUP BY fp.filename, sf.current_code_line_count
             ORDER BY defect_count DESC
-            LIMIT %s
+            {limit_clause}
         """
         if self.project_name:
             query = query.format(project_filter="AND p.name = %s")
-            results = self.db.execute_query_dict(query, (self.project_name, limit))
+            params = (self.project_name,) if fetch_all else (self.project_name, limit)
+            results = self.db.execute_query_dict(query, params)
         else:
             query = query.format(project_filter="")
-            results = self.db.execute_query_dict(query, (limit,))
+            params = () if fetch_all else (limit,)
+            results = self.db.execute_query_dict(query, params)
         return pd.DataFrame(results)
     
     def get_available_projects(self):

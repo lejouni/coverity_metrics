@@ -198,7 +198,65 @@ coverity-dashboard --config my-config.json
 - Use `--instance` to generate for specific instance only (multi-instance mode)
 - Use `--single-instance-mode` to force single-instance behavior even with multiple instances
 
-For all options: `coverity-dashboard --help`
+### CLI Parameters Reference
+
+#### coverity-dashboard Parameters
+
+| Parameter | Short | Type | Default | Description |
+|-----------|-------|------|---------|-------------|
+| `--project` | `-p` | string | None | Filter metrics by specific project name |
+| `--output` | `-o` | string | `output` | Output folder path for dashboard files |
+| `--no-browser` | - | flag | False | Do not open dashboard in browser automatically |
+| `--config` | `-c` | string | `config.json` | Path to configuration file |
+| `--instance` | `-i` | string | None | Generate dashboard for specific instance only |
+| `--single-instance-mode` | - | flag | False | Force single-instance mode even with multiple instances in config |
+| `--cache` | - | flag | False | Enable caching to speed up subsequent generations |
+| `--cache-dir` | - | string | `cache` | Directory for cache files |
+| `--cache-ttl` | - | integer | `24` | Cache time-to-live in hours |
+| `--clear-cache` | - | flag | False | Clear all cached data before generating |
+| `--cache-stats` | - | flag | False | Display cache statistics and exit |
+| `--no-cache` | - | flag | False | Force refresh data from database, bypass cache |
+| `--days` | `-d` | integer | `365` | Number of days for trend analysis |
+| `--track-progress` | - | flag | False | Enable progress tracking for large operations |
+| `--resume` | - | string | None | Resume from interrupted session (provide session ID) |
+
+**Examples:**
+```bash
+# Basic dashboard with caching
+coverity-dashboard --cache
+
+# Filter by project with 180-day trends
+coverity-dashboard --project "MyApp" --days 180
+
+# Generate without browser, custom output
+coverity-dashboard --no-browser --output reports/weekly
+
+# Clear cache and regenerate
+coverity-dashboard --clear-cache --no-cache
+
+# View cache statistics
+coverity-dashboard --cache-stats
+```
+
+#### coverity-metrics Parameters
+
+**No command-line parameters available.** This tool runs with default settings and outputs to the terminal.
+
+The tool:
+- Automatically uses the first enabled instance from `config.json`
+- Prints formatted tables directly to stdout
+- Can be redirected to files: `coverity-metrics > report.txt`
+
+#### coverity-export Parameters
+
+**No command-line parameters available.** This tool runs with default settings.
+
+The tool:
+- Automatically uses the first enabled instance from `config.json`
+- Exports to `exports/` directory with timestamped filenames
+- Creates CSV files for all available metrics
+
+---
 
 #### 2. Console Metrics Report
 
@@ -208,11 +266,11 @@ For all options: `coverity-dashboard --help`
 # Generate console metrics report
 coverity-metrics
 
-# With options
-coverity-metrics --project MyProject --no-cache
-
 # Redirect to file
 coverity-metrics > daily-report.txt
+
+# Redirect with timestamp
+coverity-metrics > "report-$(date +%Y%m%d).txt"
 ```
 
 **Use Cases:**
@@ -221,6 +279,8 @@ coverity-metrics > daily-report.txt
 - SSH sessions without GUI
 - Piping to log files or other tools
 
+**Note:** This tool has no command-line parameters. To filter by project or instance, modify `config.json` before running.
+
 #### 3. CSV Export
 
 **Outputs**: Timestamped CSV files in `exports/` directory
@@ -228,9 +288,6 @@ coverity-metrics > daily-report.txt
 ```bash
 # Export metrics to CSV
 coverity-export
-
-# Custom output directory
-coverity-export --output exports/
 ```
 
 **Files Created:**
@@ -247,6 +304,8 @@ coverity-export --output exports/
 - Custom Python/R data analysis
 - Archiving historical metrics
 - Third-party tool integrations
+
+**Note:** This tool has no command-line parameters. Files are always saved to the `exports/` directory with timestamps.
 
 ---
 
@@ -307,12 +366,22 @@ metrics = CoverityMetrics(
         'user': 'postgres',
         'password': 'your_password'
     },
-    project_filter='MyProject'  # Optional
+    project_name='MyProject'  # Optional project filter
 )
 
-# Get metrics
-defect_metrics = metrics.get_defect_metrics()
-print(defect_metrics)
+# Get metrics with default limits (top N results)
+top_categories = metrics.get_defects_by_checker_category(limit=10)  # Top 10
+file_hotspots = metrics.get_file_hotspots(limit=20)  # Top 20
+
+# Get ALL data using fetch_all parameter
+all_categories = metrics.get_defects_by_checker_category(fetch_all=True)  # All categories
+all_hotspots = metrics.get_file_hotspots(fetch_all=True)  # All files with defects
+all_snapshots = metrics.get_snapshot_history(fetch_all=True)  # All snapshot history
+
+# Other methods with fetch_all support:
+# - get_defects_by_checker_name(limit=20, fetch_all=False)
+# - get_defects_by_owner(limit=20, fetch_all=False)
+# - get_most_complex_functions(limit=20, fetch_all=False)
 
 # Multi-instance usage
 instances = [
@@ -484,12 +553,20 @@ This creates timestamped CSV files in the `exports/` directory for Excel analysi
 You can also use the metrics module programmatically:
 
 ```python
-from metrics import CoverityMetrics
+from coverity_metrics import CoverityMetrics
 
-# Initialize
-metrics = CoverityMetrics()
+# Initialize with connection parameters
+connection_params = {
+    'host': 'localhost',
+    'port': 5432,
+    'database': 'coverity',
+    'user': 'postgres',
+    'password': 'your_password'
+}
 
-# Get specific metrics
+metrics = CoverityMetrics(connection_params=connection_params)
+
+# Get specific metrics (top N results)
 defects_by_severity = metrics.get_defects_by_severity()
 print(defects_by_severity)
 
@@ -497,9 +574,13 @@ print(defects_by_severity)
 density = metrics.get_defect_density_by_project()
 print(density)
 
-# Get file hotspots
+# Get top 10 file hotspots
 hotspots = metrics.get_file_hotspots(limit=10)
 print(hotspots)
+
+# Get ALL file hotspots (not just top 10)
+all_hotspots = metrics.get_file_hotspots(fetch_all=True)
+print(f"Found {len(all_hotspots)} files with defects")
 
 # Get overall summary
 summary = metrics.get_overall_summary()
@@ -514,25 +595,25 @@ All methods return pandas DataFrames for easy manipulation:
 **Defect Metrics:**
 - `get_total_defects_by_project()`
 - `get_defects_by_severity()`
-- `get_defects_by_checker_category(limit=20)`
-- `get_defects_by_checker_name(limit=20)`
+- `get_defects_by_checker_category(limit=20, fetch_all=False)`
+- `get_defects_by_checker_name(limit=20, fetch_all=False)`
 - `get_defect_density_by_project()`
-- `get_file_hotspots(limit=20)`
+- `get_file_hotspots(limit=20, fetch_all=False)`
 
 **Triage Metrics:**
 - `get_defects_by_triage_status()`
 - `get_defects_by_classification()`
-- `get_defects_by_owner(limit=20)`
+- `get_defects_by_owner(limit=20, fetch_all=False)`
 
 **Code Quality Metrics:**
 - `get_code_metrics_by_stream()`
 - `get_function_complexity_distribution()`
-- `get_most_complex_functions(limit=20)`
+- `get_most_complex_functions(limit=20, fetch_all=False)`
 
 **Trend Metrics:**
 - `get_defect_trend_weekly(weeks=12)`
 - `get_file_count_trend_weekly(weeks=12)`
-- `get_snapshot_history(stream_name=None, limit=20)`
+- `get_snapshot_history(stream_name=None, limit=20, fetch_all=False)`
 
 **User Activity:**
 - `get_user_login_statistics(days=30)`
@@ -548,6 +629,12 @@ All methods return pandas DataFrames for easy manipulation:
 **Summary:**
 - `get_overall_summary()`
 - `get_available_projects()` - List all available projects
+
+**Note on `fetch_all` parameter:**
+- When `fetch_all=False` (default): Returns top N results based on the `limit` parameter
+- When `fetch_all=True`: Returns ALL available results (ignores `limit`)
+- Use `fetch_all=True` for complete data exports or comprehensive analysis
+- Example: `metrics.get_file_hotspots(fetch_all=True)` returns ALL files with defects, not just top 20
 
 ## Recommended Metrics for Different Use Cases
 
@@ -660,15 +747,3 @@ For issues or questions:
 1. Check the Coverity documentation for database schema details
 2. Review the SQL queries in `metrics.py` to understand data sources
 3. Use `schema_explorer.py` to investigate your specific database structure
-
-## Future Enhancements
-
-Potential additions:
-- Export to Excel/CSV/JSON
-- Visualization charts and graphs
-- Email report generation
-- Scheduled report automation
-- Comparison between time periods
-- Custom alert thresholds
-- REST API for metrics
-- Web dashboard interface

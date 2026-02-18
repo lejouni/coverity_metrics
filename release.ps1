@@ -99,7 +99,7 @@ param(
 
   # Git/GitHub release options
   [switch]$CreateGitHubRelease,
-  [string]$GitHubRepo = 'yourusername/coverity-metrics',
+  [string]$GitHubRepo = 'lejouni/coverity_metrics',
   [string]$GitHubToken,
   [switch]$SkipGitTag,
   [string]$TagPrefix = 'v',
@@ -175,6 +175,47 @@ function Update-Version {
     default { $a[2] += 1 }
   }
   return ($a -join '.')
+}
+
+function Update-ReleaseDates {
+  param(
+    [Parameter(Mandatory=$true)][string]$Version,
+    [Parameter(Mandatory=$true)][string]$RootPath
+  )
+  $releaseDate = Get-Date -Format "yyyy-MM-dd"
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  
+  # Update CHANGELOG.md
+  $changelogPath = Join-Path $RootPath 'CHANGELOG.md'
+  if (Test-Path $changelogPath) {
+    $changelogContent = Get-Content -Raw -LiteralPath $changelogPath
+    # Replace patterns like "## [1.0.0] - 2026-01-XX" or "## [1.0.0] - YYYY-MM-DD"
+    $changelogNew = $changelogContent -replace "## \[$Version\] - \d{4}-\d{2}-XX", "## [$Version] - $releaseDate"
+    $changelogNew = $changelogNew -replace "## \[$Version\] - YYYY-MM-DD", "## [$Version] - $releaseDate"
+    
+    if ($DryRun) {
+      Write-Host "[DRY-RUN] Would update date in CHANGELOG.md to $releaseDate" -ForegroundColor Yellow
+    } else {
+      [System.IO.File]::WriteAllText($changelogPath, $changelogNew, $utf8NoBom)
+      Write-Host "Updated CHANGELOG.md: [$Version] - $releaseDate" -ForegroundColor Green
+    }
+  }
+  
+  # Update RELEASE_NOTES.md
+  $releaseNotesPath = Join-Path $RootPath 'RELEASE_NOTES.md'
+  if (Test-Path $releaseNotesPath) {
+    $releaseNotesContent = Get-Content -Raw -LiteralPath $releaseNotesPath
+    # Replace patterns like "### Version 1.0.0 - YYYY-MM-DD"
+    $releaseNotesNew = $releaseNotesContent -replace "### Version $Version - YYYY-MM-DD", "### Version $Version - $releaseDate"
+    $releaseNotesNew = $releaseNotesNew -replace "### Version $Version - \d{4}-\d{2}-XX", "### Version $Version - $releaseDate"
+    
+    if ($DryRun) {
+      Write-Host "[DRY-RUN] Would update date in RELEASE_NOTES.md to $releaseDate" -ForegroundColor Yellow
+    } else {
+      [System.IO.File]::WriteAllText($releaseNotesPath, $releaseNotesNew, $utf8NoBom)
+      Write-Host "Updated RELEASE_NOTES.md: Version $Version - $releaseDate" -ForegroundColor Green
+    }
+  }
 }
 
 function New-GitTagAndPush {
@@ -254,6 +295,9 @@ Write-Host "Current version: $currentVersion -> Next version: $nextVersion" -For
 
 # Update version in pyproject.toml and __version__.py
 Set-ProjectVersion -PyProjectPath $pyproj -Version $nextVersion
+
+# Update release dates in CHANGELOG.md and RELEASE_NOTES.md
+Update-ReleaseDates -Version $nextVersion -RootPath $root
 
 if (-not $SkipBuild) {
   # Clean existing artifacts
