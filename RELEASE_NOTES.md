@@ -2,6 +2,14 @@
 
 ## Version History
 
+### Version 1.0.2 - 2026-02-18
+
+**Feature Update**
+
+#### Features
+- Added `fetch_all` parameter support
+- Enhanced documentation
+
 ### Version 1.0.0 - 2026-02-18
 
 **Initial Release**

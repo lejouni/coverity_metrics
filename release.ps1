@@ -189,15 +189,41 @@ function Update-ReleaseDates {
   $changelogPath = Join-Path $RootPath 'CHANGELOG.md'
   if (Test-Path $changelogPath) {
     $changelogContent = Get-Content -Raw -LiteralPath $changelogPath
-    # Replace patterns like "## [1.0.0] - 2026-01-XX" or "## [1.0.0] - YYYY-MM-DD"
-    $changelogNew = $changelogContent -replace "## \[$Version\] - \d{4}-\d{2}-XX", "## [$Version] - $releaseDate"
-    $changelogNew = $changelogNew -replace "## \[$Version\] - YYYY-MM-DD", "## [$Version] - $releaseDate"
+    
+    # Check if version entry already exists
+    if ($changelogContent -match "## \[$Version\]") {
+      # Update existing entry date
+      $changelogNew = $changelogContent -replace "## \[$([regex]::Escape($Version))\] - \d{4}-\d{2}-\d{2}", "## [$Version] - $releaseDate"
+      $changelogNew = $changelogNew -replace "## \[$([regex]::Escape($Version))\] - \d{4}-\d{2}-XX", "## [$Version] - $releaseDate"
+      $changelogNew = $changelogNew -replace "## \[$([regex]::Escape($Version))\] - YYYY-MM-DD", "## [$Version] - $releaseDate"
+      $action = "Updated existing"
+    } else {
+      # Create new version entry at the top
+      $newEntry = @"
+
+## [$Version] - $releaseDate
+
+### Added
+- Added ``fetch_all`` parameter to metrics methods for retrieving all data instead of just top N results
+- Enhanced CLI parameter documentation in README
+
+### Changed
+- Updated Python library usage examples in README
+
+### Fixed
+- Bug fixes and improvements
+
+"@
+      # Insert after the "adheres to Semantic Versioning" line
+      $changelogNew = $changelogContent -replace "(and this project adheres to \[Semantic Versioning\].*?\r?\n)", "`$1$newEntry"
+      $action = "Created new"
+    }
     
     if ($DryRun) {
-      Write-Host "[DRY-RUN] Would update date in CHANGELOG.md to $releaseDate" -ForegroundColor Yellow
+      Write-Host "[DRY-RUN] Would $action entry in CHANGELOG.md for version $Version dated $releaseDate" -ForegroundColor Yellow
     } else {
       [System.IO.File]::WriteAllText($changelogPath, $changelogNew, $utf8NoBom)
-      Write-Host "Updated CHANGELOG.md: [$Version] - $releaseDate" -ForegroundColor Green
+      Write-Host "$action CHANGELOG.md entry: [$Version] - $releaseDate" -ForegroundColor Green
     }
   }
   
@@ -205,15 +231,41 @@ function Update-ReleaseDates {
   $releaseNotesPath = Join-Path $RootPath 'RELEASE_NOTES.md'
   if (Test-Path $releaseNotesPath) {
     $releaseNotesContent = Get-Content -Raw -LiteralPath $releaseNotesPath
-    # Replace patterns like "### Version 1.0.0 - YYYY-MM-DD"
-    $releaseNotesNew = $releaseNotesContent -replace "### Version $Version - YYYY-MM-DD", "### Version $Version - $releaseDate"
-    $releaseNotesNew = $releaseNotesNew -replace "### Version $Version - \d{4}-\d{2}-XX", "### Version $Version - $releaseDate"
+    
+    # Check if version entry already exists
+    if ($releaseNotesContent -match "### Version $Version") {
+      # Update existing entry date
+      $releaseNotesNew = $releaseNotesContent -replace "### Version $([regex]::Escape($Version)) - \d{4}-\d{2}-\d{2}", "### Version $Version - $releaseDate"
+      $releaseNotesNew = $releaseNotesNew -replace "### Version $([regex]::Escape($Version)) - \d{4}-\d{2}-XX", "### Version $Version - $releaseDate"
+      $releaseNotesNew = $releaseNotesNew -replace "### Version $([regex]::Escape($Version)) - YYYY-MM-DD", "### Version $Version - $releaseDate"
+      $action = "Updated existing"
+    } else {
+      # Create new version entry at the top
+      $newEntry = @"
+
+### Version $Version - $releaseDate
+
+**Release Update**
+
+#### Features
+- Added ``fetch_all`` parameter to metrics methods for complete data retrieval
+- Enhanced documentation with CLI parameter reference tables
+
+#### Improvements
+- Updated README with comprehensive parameter documentation
+- Improved Python library usage examples
+
+"@
+      # Insert after "## Version History" line
+      $releaseNotesNew = $releaseNotesContent -replace "(## Version History\r?\n)", "`$1$newEntry"
+      $action = "Created new"
+    }
     
     if ($DryRun) {
-      Write-Host "[DRY-RUN] Would update date in RELEASE_NOTES.md to $releaseDate" -ForegroundColor Yellow
+      Write-Host "[DRY-RUN] Would $action entry in RELEASE_NOTES.md for version $Version dated $releaseDate" -ForegroundColor Yellow
     } else {
       [System.IO.File]::WriteAllText($releaseNotesPath, $releaseNotesNew, $utf8NoBom)
-      Write-Host "Updated RELEASE_NOTES.md: Version $Version - $releaseDate" -ForegroundColor Green
+      Write-Host "$action RELEASE_NOTES.md entry: Version $Version - $releaseDate" -ForegroundColor Green
     }
   }
 }

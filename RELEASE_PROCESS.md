@@ -146,12 +146,59 @@ coverity-export --help
 ## What the Script Does
 
 1. **Version Bump**: Updates version in `pyproject.toml` and `coverity_metrics/__version__.py`
-2. **Clean Build**: Removes old `dist/`, `build/`, `*.egg-info`
-3. **Build Package**: Creates wheel and source distribution in `dist/`
-4. **Upload**: Publishes to PyPI or TestPyPI via `twine`
-5. **Git Tag** (if `-CreateGitHubRelease`): Creates and pushes git tag
-6. **GitHub Release** (if `-CreateGitHubRelease`): Creates GitHub release with notes
-7. **Verify Install**: Creates temp venv, installs package, tests CLI
+2. **Update Release Dates**: Automatically updates or creates version entries in `CHANGELOG.md` and `RELEASE_NOTES.md` with today's date
+3. **Clean Build**: Removes old `dist/`, `build/`, `*.egg-info`
+4. **Build Package**: Creates wheel and source distribution in `dist/`
+5. **Upload**: Publishes to PyPI or TestPyPI via `twine`
+6. **Git Tag** (if `-CreateGitHubRelease`): Creates and pushes git tag
+7. **GitHub Release** (if `-CreateGitHubRelease`): Creates GitHub release with notes
+8. **Verify Install**: Creates temp venv, installs package, tests CLI
+
+## Automatic Changelog Management
+
+The release script automatically manages version entries in `CHANGELOG.md` and `RELEASE_NOTES.md`:
+
+### If Version Entry Exists
+
+If the version being released already has an entry with a placeholder date (e.g., `YYYY-MM-DD` or `2026-01-XX`), the script will:
+- Update the date to today's date in `YYYY-MM-DD` format
+- Leave all content unchanged
+- Example: `## [1.0.2] - YYYY-MM-DD` → `## [1.0.2] - 2026-02-18`
+
+### If Version Entry Doesn't Exist
+
+If the version being released has no entry yet, the script will:
+- Create a new version section at the top (below the header)
+- Add today's date
+- Include template content for: Added, Changed, Fixed sections
+
+**⚠️ Important**: When auto-generated entries are created, they contain generic placeholder content. You should:
+1. **Before releasing**: Manually edit `CHANGELOG.md` and `RELEASE_NOTES.md` to add meaningful descriptions
+2. **Or after auto-create**: Review and update the auto-generated content before the next release
+
+### Best Practice Workflow
+
+**Option 1: Update Before Release (Recommended)**
+```powershell
+# 1. Manually update CHANGELOG.md and RELEASE_NOTES.md with next version
+#    Use placeholder date: YYYY-MM-DD
+#    Add all changes, features, fixes
+
+# 2. Run release - it will update the date automatically
+./release.ps1 -NewVersion 1.1.0 -Repository pypi
+```
+
+**Option 2: Let Script Auto-Create**
+```powershell
+# 1. Run release - script creates entries with generic content
+./release.ps1 -NewVersion 1.1.0 -Repository pypi
+
+# 2. After release, update CHANGELOG.md and RELEASE_NOTES.md
+#    Add proper descriptions of changes
+#    Commit and push the updates
+```
+
+**Option 1 is recommended** as it ensures accurate release notes from the start.
 
 ## Troubleshooting
 

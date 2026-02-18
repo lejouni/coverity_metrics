@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-02-18
+
+### Added
+- Added `fetch_all` parameter to metrics methods
+
+### Changed
+- Updated documentation
+
 ## [1.0.0] - 2026-02-18
 
 ### Added
@@ -84,9 +92,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependencies**: psycopg2-binary, pandas, matplotlib, seaborn, jinja2, plotly, tqdm, python-dateutil, openpyxl
 - **Installation**: `pip install -e .` for editable/development mode
 - **Entry Points**: 
-  - `coverity-dashboard` Ã¢â€ â€™ `coverity_metrics.cli.dashboard:main`
-  - `coverity-metrics` Ã¢â€ â€™ `coverity_metrics.cli.report:main`
-  - `coverity-export` Ã¢â€ â€™ `coverity_metrics.cli.export:main`
+  - `coverity-dashboard` ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ `coverity_metrics.cli.dashboard:main`
+  - `coverity-metrics` ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ `coverity_metrics.cli.report:main`
+  - `coverity-export` ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ `coverity_metrics.cli.export:main`
 
 ---
 
