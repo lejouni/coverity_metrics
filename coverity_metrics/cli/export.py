@@ -6,7 +6,7 @@ import os
 import json
 import sys
 from datetime import datetime
-from metrics import CoverityMetrics
+from coverity_metrics.metrics import CoverityMetrics
 import pandas as pd
 
 def load_connection_params(config_file='config.json'):

@@ -138,6 +138,10 @@ cache/
 test_cache/
 *.cache
 
+# Release testing venv
+.pkgtest/
+.pkgtest_*/
+
 # Session/progress tracking files
 *.session
 *.progress

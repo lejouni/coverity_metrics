@@ -4,14 +4,14 @@
 
 ### 1. Generate Full Metrics Report
 ```bash
-python main.py
+coverity-metrics
 ```
 
 This generates a comprehensive console report with all metrics.
 
-### 2. Generate HTML Dashboard (NEW!)
+### 2. Generate HTML Dashboard
 ```bash
-python generate_dashboard.py
+coverity-dashboard
 ```
 
 Creates an interactive HTML dashboard with:
@@ -28,20 +28,20 @@ The dashboard will be saved to `output/dashboard.html` and can optionally open i
 **Filter by Project:**
 ```bash
 # View metrics for a specific project only
-python generate_dashboard.py --project "feature"
+coverity-dashboard --project "feature"
 
 # Generate with custom output location
-python generate_dashboard.py --output reports/my_dashboard.html
+coverity-dashboard --output reports/my_dashboard.html
 
 # Skip browser auto-open
-python generate_dashboard.py --no-browser
+coverity-dashboard --no-browser
 ```
 
 Without `--project` filter, the tool automatically generates dashboards for all projects.
 
 ### 3. Export Metrics to CSV
 ```bash
-python export_metrics.py
+coverity-export
 ```
 
 Exports all metrics to CSV files in the `exports/` folder.

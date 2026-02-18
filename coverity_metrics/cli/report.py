@@ -6,8 +6,8 @@ import sys
 import json
 import os
 from datetime import datetime
-from metrics import CoverityMetrics
-from db_connection import CoverityDatabase
+from coverity_metrics.metrics import CoverityMetrics
+from coverity_metrics.db_connection import CoverityDatabase
 
 def load_connection_params(config_file='config.json'):
     """Load database connection parameters from config.json

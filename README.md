@@ -53,22 +53,38 @@ The tool provides the following metric categories:
 
 ## Installation
 
-1. **Clone or download this repository**
+### From Source (Recommended)
 
-2. **Install required packages**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+# Clone or download this repository
+git clone https://github.com/yourusername/coverity-metrics.git
+cd coverity-metrics
 
-   Required packages:
-   - `psycopg2-binary` - PostgreSQL database adapter
-   - `pandas` - Data analysis and manipulation
-   - `matplotlib` - Plotting library (for future visualizations)
-   - `seaborn` - Statistical data visualization
-   - `python-dateutil` - Date/time utilities
-   - `openpyxl` - Excel file support for CSV exports
-   - `jinja2` - HTML template engine for dashboard generation
-   - `plotly` - Interactive charts and visualizations
+# Install the package with all dependencies
+pip install -e .
+```
+
+This installs the package in editable mode, making the CLI commands (`coverity-dashboard`, `coverity-metrics`, `coverity-export`) available system-wide.
+
+### From PyPI (Future)
+
+```bash
+# When published to PyPI
+pip install coverity-metrics
+```
+
+### Requirements
+
+The package includes these dependencies (automatically installed):
+- `psycopg2-binary` - PostgreSQL database adapter
+- `pandas` - Data analysis and manipulation
+- `matplotlib` - Plotting library
+- `seaborn` - Statistical data visualization
+- `python-dateutil` - Date/time utilities
+- `openpyxl` - Excel file support for CSV exports
+- `jinja2` - HTML template engine for dashboard generation
+- `plotly` - Interactive charts and visualizations
+- `tqdm` - Progress bars
 
 ## Configuration
 
@@ -122,35 +138,56 @@ The tool works with the following key Coverity database tables:
 
 ## Usage
 
-### Generate Full Report
+After installation, you can use the package in two ways: **Command-Line Interface (CLI)** or **Python Library**.
 
-Run the main script to generate a comprehensive metrics report:
+### Command-Line Interface (CLI)
+
+The package provides three CLI commands for different use cases:
+
+| Command | Purpose | Output | Best For |
+|---------|---------|--------|----------|
+| **coverity-dashboard** | Visual HTML dashboard | Interactive HTML files with charts | Presentations, visual analysis, sharing |
+| **coverity-metrics** | Console text report | Terminal output (stdout) | Quick checks, CI/CD, piping |
+| **coverity-export** | Data export | CSV files | Excel analysis, archiving, integrations |
+
+**Key Differences:**
+
+- **coverity-dashboard**: Creates beautiful interactive HTML dashboards with Plotly charts, saved to `output/` directory. Auto-opens in browser for easy viewing. Supports multi-instance aggregation.
+
+- **coverity-metrics**: Prints all metrics as formatted text tables directly to your terminal. No files created. Great for quick command-line checks or redirecting to log files (`coverity-metrics > report.txt`).
+
+- **coverity-export**: Exports raw metric data to timestamped CSV files in `exports/` directory. Perfect for importing into Excel, Power BI, or custom analysis tools.
+
+**Note**: All three tools require direct PostgreSQL database access. CSV exports cannot be used as input to generate dashboards—they're export-only for external analysis.
+
+---
+
+#### 1. Generate Dashboard (Main Tool)
 
 ```bash
-python main.py
-```
+# Basic usage - auto-detects instance type from config.json
+coverity-dashboard
 
-This will output all available metrics to the console.
-
-### Generate HTML Dashboard
-
-**NEW SIMPLIFIED USAGE!** The dashboard generator now auto-detects multi-instance configurations and generates comprehensive reports automatically:
-
-```bash
-# Simple usage - automatically detects configuration and generates everything
-python generate_dashboard.py
-
-# Filter by specific project across all instances (if multi-instance)
-python generate_dashboard.py --project "MyProject"
+# Filter by specific project across all instances
+coverity-dashboard --project "MyProject"
 
 # Generate for specific instance only
-python generate_dashboard.py --instance Production
+coverity-dashboard --instance Production
 
 # Change trend analysis period (default: 365 days)
-python generate_dashboard.py --days 180
+coverity-dashboard --days 180
 
 # Custom output folder
-python generate_dashboard.py --output reports/2026
+coverity-dashboard --output reports/2026
+
+# Enable caching for better performance
+coverity-dashboard --cache --cache-ttl 86400
+
+# Generate without opening browser
+coverity-dashboard --no-browser  
+
+# Use different configuration file
+coverity-dashboard --config my-config.json
 ```
 
 **Auto-Detection Behavior:**
@@ -161,22 +198,135 @@ python generate_dashboard.py --output reports/2026
 - Use `--instance` to generate for specific instance only (multi-instance mode)
 - Use `--single-instance-mode` to force single-instance behavior even with multiple instances
 
-**Additional Options:**
+For all options: `coverity-dashboard --help`
+
+#### 2. Console Metrics Report
+
+**Outputs**: Text tables printed to terminal (no files created)
 
 ```bash
-# Generate without opening browser
-python generate_dashboard.py --no-browser  
+# Generate console metrics report
+coverity-metrics
 
-# Force single-instance mode even if config.json has multiple instances
-python generate_dashboard.py --single-instance-mode
+# With options
+coverity-metrics --project MyProject --no-cache
 
-# Use different configuration file
-python generate_dashboard.py --config my-config.json
+# Redirect to file
+coverity-metrics > daily-report.txt
 ```
 
+**Use Cases:**
+- Quick command-line checks
+- Automated CI/CD pipelines
+- SSH sessions without GUI
+- Piping to log files or other tools
 
+#### 3. CSV Export
 
-The dashboard includes:
+**Outputs**: Timestamped CSV files in `exports/` directory
+
+```bash
+# Export metrics to CSV
+coverity-export
+
+# Custom output directory
+coverity-export --output exports/
+```
+
+**Files Created:**
+- `defects_by_project_YYYYMMDD_HHMMSS.csv`
+- `defects_by_severity_YYYYMMDD_HHMMSS.csv`
+- `defect_density_YYYYMMDD_HHMMSS.csv`
+- `file_hotspots_YYYYMMDD_HHMMSS.csv`
+- `code_metrics_YYYYMMDD_HHMMSS.csv`
+- ...and more
+
+**Use Cases:**
+- Excel pivot tables and analysis
+- Power BI / Tableau dashboards
+- Custom Python/R data analysis
+- Archiving historical metrics
+- Third-party tool integrations
+
+---
+
+### Typical Workflow
+
+**Daily Quick Check:**
+```bash
+# Fast terminal check
+coverity-metrics
+```
+
+**Weekly Team Review:**
+```bash
+# Generate visual dashboard for presentation
+coverity-dashboard --cache
+# Opens interactive HTML in browser
+```
+
+**Monthly Executive Report:**
+```bash
+# Visual dashboard
+coverity-dashboard --days 90 --cache
+
+# Export data for custom Excel charts
+coverity-export
+```
+
+**Complete Analysis Workflow:**
+```bash
+# 1. Quick overview in terminal
+coverity-metrics
+
+# 2. Generate interactive dashboard
+coverity-dashboard --cache --no-browser
+
+# 3. Export raw data for deep analysis
+coverity-export
+
+# Now you have:
+# - Console output for quick reference
+# - HTML dashboard (output/dashboard.html) for presentations
+# - CSV files (exports/*.csv) for custom Excel analysis
+```
+
+### Python Library Usage
+
+You can also use the package programmatically in your Python code:
+
+```python
+from coverity_metrics import CoverityMetrics, MultiInstanceMetrics, InstanceConfig
+
+# Single instance usage
+metrics = CoverityMetrics(
+    connection_params={
+        'host': 'localhost',
+        'port': 5432,
+        'database': 'coverity',
+        'user': 'postgres',
+        'password': 'your_password'
+    },
+    project_filter='MyProject'  # Optional
+)
+
+# Get metrics
+defect_metrics = metrics.get_defect_metrics()
+print(defect_metrics)
+
+# Multi-instance usage
+instances = [
+    InstanceConfig("Production", {...connection_params...}),
+    InstanceConfig("Development", {...connection_params...})
+]
+
+multi = MultiInstanceMetrics(instances)
+aggregated = multi.get_aggregated_metrics()
+```
+
+See [INSTALL.md](INSTALL.md) for detailed API examples.
+
+### Dashboard Features
 - **Project Filtering**: View metrics for all projects or filter by specific project
 - **Project Navigation**: Easy navigation between project-specific dashboards
 - **Tabbed Interface**: Organized into Overview, Code Quality, and Performance tabs
@@ -249,27 +399,24 @@ Configure multiple Coverity instances in `config.json`:
 #   - Aggregated dashboard across all instances
 #   - Individual dashboard for each instance
 #   - Project dashboards for all projects in each instance
-python generate_dashboard.py
+coverity-dashboard
 
 # Filter by specific project across all instances
-python generate_dashboard.py --project MyApp
+coverity-dashboard --project MyApp
 
 # Generate for specific instance only (with all its projects)
-python generate_dashboard.py --instance Production
+coverity-dashboard --instance Production
 
 # Generate specific project on specific instance only
-python generate_dashboard.py --instance Production --project MyApp
+coverity-dashboard --instance Production --project MyApp
 
 # Use custom configuration file
-python generate_dashboard.py --config my-config.json
-
-# Test connectivity to all configured instances
-python multi_instance_metrics.py
+coverity-dashboard --config my-config.json
 ```
 
 **What Gets Generated Automatically:**
 
-When you run `python generate_dashboard.py` with a multi-instance config.json:
+When you run `coverity-dashboard` with a multi-instance config.json:
 1. **Aggregated Dashboard** (`output/dashboard_aggregated.html`) - Combined view of all instances
 2. **Instance Dashboards** (`output/{InstanceName}/dashboard.html`) - One per instance
 3. **Project Dashboards** (`output/{InstanceName}/dashboard_{ProjectName}.html`) - All projects for each instance
@@ -290,19 +437,19 @@ For detailed multi-instance setup and usage, see [MULTI_INSTANCE_GUIDE.md](MULTI
 
 ```bash
 # Enable caching (24-hour TTL by default)
-python generate_dashboard.py --cache
+coverity-dashboard --cache
 
 # Custom cache TTL (48 hours)
-python generate_dashboard.py --cache --cache-ttl 48
+coverity-dashboard --cache --cache-ttl 48
 
 # View cache statistics
-python generate_dashboard.py --cache-stats
+coverity-dashboard --cache-stats
 
 # Clear expired cache entries
-python generate_dashboard.py --clear-cache
+coverity-dashboard --clear-cache
 
 # Force refresh (bypass cache)
-python generate_dashboard.py --no-cache
+coverity-dashboard --no-cache
 ```
 
 **Performance Benefits:**
@@ -314,10 +461,10 @@ python generate_dashboard.py --no-cache
 
 ```bash
 # Enable progress tracking (for resumable operations)
-python generate_dashboard.py --cache --track-progress
+coverity-dashboard --cache --track-progress
 
 # Resume interrupted session
-python generate_dashboard.py --cache --resume SESSION_ID
+coverity-dashboard --cache --resume SESSION_ID
 ```
 
 For detailed caching configuration, performance tuning, and troubleshooting, see [CACHING_GUIDE.md](CACHING_GUIDE.md)
@@ -327,7 +474,7 @@ For detailed caching configuration, performance tuning, and troubleshooting, see
 Export all metrics to CSV files:
 
 ```bash
-python export_metrics.py
+coverity-export
 ```
 
 This creates timestamped CSV files in the `exports/` directory for Excel analysis.
@@ -485,15 +632,6 @@ class CoverityMetrics:
 - For large databases, some queries may take time
 - Consider adding database indexes on frequently queried columns
 - Use the `limit` parameter to restrict result sizes
-
-## Data Insights
-
-Based on initial schema investigation, this Coverity instance has:
-- **88 defects** detected across streams
-- **376 files** under analysis
-- **929 functions** tracked
-- **3 streams** configured
-- **2 projects** active
 
 ## Security Notes
 

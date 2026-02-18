@@ -3,7 +3,7 @@ Coverity Metrics Module
 Provides various metrics calculations based on Coverity database
 """
 from datetime import datetime, timedelta
-from db_connection import CoverityDatabase
+from coverity_metrics.db_connection import CoverityDatabase
 import pandas as pd
 from tqdm import tqdm
 

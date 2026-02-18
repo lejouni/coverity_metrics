@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coverity-metrics"
+version = "1.0.0"
+description = "Comprehensive metrics and dashboard generator for Coverity static analysis"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Jouni Lehto"}
+]
+keywords = [
+    "coverity",
+    "static-analysis",
+    "metrics",
+    "dashboard",
+    "code-quality",
+    "security"
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Quality Assurance",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "psycopg2-binary>=2.9.0",
+    "pandas>=2.0.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "python-dateutil>=2.8.0",
+    "openpyxl>=3.1.0",
+    "jinja2>=3.1.0",
+    "plotly>=5.18.0",
+    "tqdm>=4.66.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/lejouni/coverity_metrics"
+Documentation = "https://github.com/lejouni/coverity_metrics/blob/main/README.md"
+Repository = "https://github.com/lejouni/coverity_metrics"
+"Bug Tracker" = "https://github.com/lejouni/coverity_metrics/issues"
+
+[project.scripts]
+coverity-dashboard = "coverity_metrics.cli.dashboard:main"
+coverity-metrics = "coverity_metrics.cli.report:main"
+coverity-export = "coverity_metrics.cli.export:main"
+
+[tool.setuptools]
+packages = ["coverity_metrics", "coverity_metrics.cli"]
+
+[tool.setuptools.package-data]
+coverity_metrics = [
+    "templates/*.html",
+    "static/css/*.css",
+    "static/js/*.js",
+]
+
+[tool.black]
+line-length = 120
+target-version = ['py38', 'py39', 'py310', 'py311']
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --cov=coverity_metrics"

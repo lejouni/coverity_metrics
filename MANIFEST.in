@@ -1,0 +1,11 @@
+include README.md
+include LICENSE
+include requirements.txt
+include config.json.example
+include *.md
+
+recursive-include coverity_metrics/templates *.html
+recursive-include coverity_metrics/static *.css *.js
+recursive-exclude coverity_metrics/__pycache__ *
+recursive-exclude coverity_metrics *.pyc
+recursive-exclude coverity_metrics *.pyo

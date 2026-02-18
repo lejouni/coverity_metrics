@@ -19,12 +19,12 @@ The caching system provides significant performance improvements for large Cover
 ### Enable Caching
 ```bash
 # Generate with caching enabled (24-hour TTL)
-python generate_dashboard.py --cache
+coverity-dashboard --cache
 ```
 
 ### View Cache Statistics
 ```bash
-python generate_dashboard.py --cache-stats
+coverity-dashboard --cache-stats
 ```
 
 Output:
@@ -40,7 +40,7 @@ Cache Statistics:
 ### Clear Cache
 ```bash
 # Remove all cached data
-python generate_dashboard.py --cache --clear-cache
+coverity-dashboard --cache --clear-cache
 ```
 
 ---
@@ -50,16 +50,16 @@ python generate_dashboard.py --cache --clear-cache
 ### Without Caching
 ```bash
 # First run: 30 minutes for 10 instances × 100 projects
-python generate_dashboard.py
+coverity-dashboard
 ```
 
 ### With Caching
 ```bash
 # First run: 30 minutes (same as without caching)
-python generate_dashboard.py --cache
+coverity-dashboard --cache
 
 # Subsequent runs: ~2 minutes (95% faster!)
-python generate_dashboard.py --cache
+coverity-dashboard --cache
 ```
 
 **Time Savings:**
@@ -74,19 +74,19 @@ python generate_dashboard.py --cache
 ### Custom Cache Directory
 ```bash
 # Store cache in custom location
-python generate_dashboard.py --cache --cache-dir /data/coverity-cache
+coverity-dashboard --cache --cache-dir /data/coverity-cache
 ```
 
 ### Custom Cache TTL
 ```bash
 # Cache expires after 48 hours instead of default 24
-python generate_dashboard.py --cache --cache-ttl 48
+coverity-dashboard --cache --cache-ttl 48
 ```
 
 ### Force Refresh (Bypass Cache)
 ```bash
 # Ignore cache and fetch fresh data
-python generate_dashboard.py --cache --no-cache
+coverity-dashboard --cache --no-cache
 ```
 
 ---
@@ -97,7 +97,7 @@ For very large deployments, enable progress tracking to resume if the process is
 
 ### Enable Progress Tracking
 ```bash
-python generate_dashboard.py --cache --track-progress
+coverity-dashboard --cache --track-progress
 ```
 
 Output:
@@ -112,7 +112,7 @@ Session saved: 20260218_143022
 ### Resume Interrupted Session
 ```bash
 # Resume from where it left off
-python generate_dashboard.py --cache --resume 20260218_143022
+coverity-dashboard --cache --resume 20260218_143022
 ```
 
 Output:
@@ -168,32 +168,30 @@ cache.clear_cache(instance_name="Production", project_name="MyApp")
 # Update dashboards daily, using cache for speed
 
 # Clear yesterday's cache
-python generate_dashboard.py --cache --clear-cache
+coverity-dashboard --cache --clear-cache
 
 # Generate fresh dashboards (will be cached)
-python generate_dashboard.py --multi-instance --aggregated --all-projects \
-    --cache --cache-ttl 24 --no-browser
+coverity-dashboard --cache --cache-ttl 24 --no-browser
 ```
 
 ### On-Demand Dashboard (Fast)
 ```bash
 # Use cached data for quick dashboard
-python generate_dashboard.py --multi-instance --aggregated --cache
+coverity-dashboard --cache
 ```
 
 ### Weekly Full Refresh
 ```bash
 #!/bin/bash
-# Weekly:complete refresh ignoring cache
+# Weekly complete refresh ignoring cache
 
-python generate_dashboard.py --multi-instance --aggregated --all-projects \
-    --cache --no-cache --track-progress
+coverity-dashboard --cache --no-cache --track-progress
 ```
 
 ### Development/Testing (No Cache)
 ```bash
 # Always fetch fresh data during development
-python generate_dashboard.py --project MyApp --no-cache
+coverity-dashboard --project MyApp --no-cache
 ```
 
 ---
@@ -245,7 +243,7 @@ Each cache file contains:
 ### Cache Not Being Used
 ```bash
 # Check cache stats
-python generate_dashboard.py --cache-stats
+coverity-dashboard --cache-stats
 
 # Enable debug logging
 export PYTHONPATH=.
@@ -259,7 +257,7 @@ python -c "import logging; logging.basicConfig(level=logging.DEBUG); \
 ### Cache Taking Too Much Space
 ```bash
 # Remove expired entries
-python generate_dashboard.py --cache --clear-cache
+coverity-dashboard --cache --clear-cache
 
 # Or manually remove old cache
 rm -rf cache/metrics/*
@@ -284,7 +282,7 @@ python -c "from metrics_cache import ProgressTracker; \
 ```bash
 # Clear all cache and start fresh
 rm -rf cache/
-python generate_dashboard.py --multi-instance --aggregated --cache
+coverity-dashboard --cache
 ```
 
 ---
@@ -373,6 +371,5 @@ The caching system is essential for large Coverity deployments. Enable it with `
 
 For production use:
 ```bash
-python generate_dashboard.py --multi-instance --aggregated --all-projects \
-    --cache --cache-ttl 24 --track-progress --no-browser
+coverity-dashboard --cache --cache-ttl 24 --track-progress --no-browser
 ```

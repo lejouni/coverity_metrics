@@ -104,16 +104,16 @@ The dashboard generator **automatically detects** when you have multiple instanc
 # - Aggregated dashboard (all instances combined)
 # - Per-instance dashboards (one for each enabled instance)
 # - Per-project dashboards (one for each project across all instances)
-python generate_dashboard.py
+coverity-dashboard
 
 # Generate dashboards for specific project across all instances
-python generate_dashboard.py --project MyApp
+coverity-dashboard --project MyApp
 
 # Generate dashboard for specific instance only
-python generate_dashboard.py --instance Production
+coverity-dashboard --instance Production
 
 # Force single-instance mode (disables auto-detection)
-python generate_dashboard.py --single-instance-mode
+coverity-dashboard --single-instance-mode
 ```
 
 ### How Auto-Detection Works
@@ -126,17 +126,14 @@ python generate_dashboard.py --single-instance-mode
 ### Advanced Commands
 
 ```bash
-# Test multi-instance connectivity
-python multi_instance_metrics.py
-
 # Generate with custom time range (365 days default)
-python generate_dashboard.py --days 180
+coverity-dashboard --days 180
 
 # Don't open browser automatically
-python generate_dashboard.py --no-browser
+coverity-dashboard --no-browser
 
 # Bypass cache for fresh data
-python generate_dashboard.py --no-cache
+coverity-dashboard --no-cache
 ```
 
 ### Dashboard Views
@@ -147,7 +144,7 @@ When running in multi-instance mode (automatic when 2+ instances configured), th
 
 ```bash
 # Default command generates ALL of these:
-python generate_dashboard.py
+coverity-dashboard
 
 # Output files created:
 output/
@@ -186,7 +183,7 @@ Generated automatically for each project in each instance:
 
 To generate only for specific project:
 ```bash
-python generate_dashboard.py --project MyApp
+coverity-dashboard --project MyApp
 ```
 
 ## Dashboard Features
@@ -268,7 +265,7 @@ Use environment variables instead of storing passwords in config:
 
 ```bash
 export COVERITY_PROD_PASSWORD="actual_password"
-python generate_dashboard.py --multi-instance
+coverity-dashboard
 ```
 
 ## Performance Considerations
@@ -310,10 +307,10 @@ echo "Generating Coverity Metrics Dashboards..."
 # - Aggregated dashboard
 # - Per-instance dashboards
 # - Per-project dashboards
-python generate_dashboard.py --no-browser
+coverity-dashboard --no-browser
 
 # Critical project across all instances
-python generate_dashboard.py --project CriticalApp --no-browser
+coverity-dashboard --project CriticalApp --no-browser
 
 echo "Dashboards generated successfully!"
 ```
@@ -417,7 +414,7 @@ To migrate from single-instance setup:
 3. **Test with single instance** (auto-detection recognizes single instance):
    ```bash
    # If only one instance in config.json, works same as before
-   python generate_dashboard.py
+   coverity-dashboard
    ```
 
 4. **Add second instance** to config.json - auto-detection automatically switches to multi-instance mode:
@@ -441,7 +438,7 @@ To migrate from single-instance setup:
 5. **Generate multi-instance dashboards** with same command:
    ```bash
    # Now automatically generates aggregated + per-instance dashboards
-   python generate_dashboard.py
+   coverity-dashboard
    ```
 
 

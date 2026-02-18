@@ -10,10 +10,10 @@ import logging
 import json
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader
-from metrics import CoverityMetrics
+from coverity_metrics.metrics import CoverityMetrics
 import webbrowser
 from tqdm import tqdm
-from metrics_cache import MetricsCache, ProgressTracker, collect_metrics_with_cache
+from coverity_metrics.metrics_cache import MetricsCache, ProgressTracker, collect_metrics_with_cache
 
 # Configure logging
 logging.basicConfig(
@@ -199,8 +199,8 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         depth = 0
     css_path = '../' * depth + 'static/css/dashboard.css'
     
-    # Set up Jinja2 environment
-    template_dir = os.path.join(os.path.dirname(__file__), 'templates')
+    # Set up Jinja2 environment (templates are in parent package directory)
+    template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
     env = Environment(loader=FileSystemLoader(template_dir))
     
     # Load template
@@ -387,8 +387,8 @@ def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_a
         depth = 0
     css_path = '../' * depth + 'static/css/dashboard.css'
     
-    # Set up Jinja2 environment
-    template_dir = os.path.join(os.path.dirname(__file__), 'templates')
+    # Set up Jinja2 environment (templates are in parent package directory)
+    template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
     env = Environment(loader=FileSystemLoader(template_dir))
     
     # Load aggregated template
@@ -431,10 +431,10 @@ def main():
     parser = argparse.ArgumentParser(
         description='Generate Coverity Metrics HTML Dashboard (auto-detects multi-instance from config.json)',
         epilog='Examples:\n'
-               '  python generate_dashboard.py                    # Auto-detect and generate all\n'
-               '  python generate_dashboard.py --project MyApp    # Filter by project\n'
-               '  python generate_dashboard.py --instance Prod    # Specific instance only\n'
-               '  python generate_dashboard.py --days 365         # Change trend period\n',
+               '  coverity-dashboard                    # Auto-detect and generate all\n'
+               '  coverity-dashboard --project MyApp    # Filter by project\n'
+               '  coverity-dashboard --instance Prod    # Specific instance only\n'
+               '  coverity-dashboard --days 365         # Change trend period\n',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('--project', '-p', type=str, 
@@ -541,7 +541,7 @@ def main():
         # MULTI-INSTANCE MODE (automatic)
         # ========================================================================
         if is_multi_instance and not args.single_instance_mode:
-            from multi_instance_metrics import MultiInstanceMetrics
+            from coverity_metrics.multi_instance_metrics import MultiInstanceMetrics
             
             multi_metrics = MultiInstanceMetrics(args.config)
             instance_names = multi_metrics.get_instance_names()

@@ -7,7 +7,7 @@ import os
 from typing import List, Dict, Optional
 import pandas as pd
 from tqdm import tqdm
-from metrics import CoverityMetrics
+from coverity_metrics.metrics import CoverityMetrics
 
 
 class InstanceConfig:
