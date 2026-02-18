@@ -1,0 +1,48 @@
+{
+  "instances": [
+    {
+      "name": "Production",
+      "description": "Production Coverity Instance",
+      "enabled": true,
+      "database": {
+        "host": "coverity-prod.company.com",
+        "port": 5432,
+        "database": "cim",
+        "user": "coverity_ro",
+        "password": "your_password_here"
+      },
+      "color": "#2c3e50"
+    },
+    {
+      "name": "Development",
+      "description": "Development Coverity Instance",
+      "enabled": true,
+      "database": {
+        "host": "coverity-dev.company.com",
+        "port": 5432,
+        "database": "cim",
+        "user": "coverity_ro",
+        "password": "your_password_here"
+      },
+      "color": "#3498db"
+    },
+    {
+      "name": "QA",
+      "description": "QA Coverity Instance",
+      "enabled": true,
+      "database": {
+        "host": "coverity-qa.company.com",
+        "port": 5432,
+        "database": "cim",
+        "user": "coverity_ro",
+        "password": "your_password_here"
+      },
+      "color": "#27ae60"
+    }
+  ],
+  "default_instance": "Production",
+  "aggregated_view": {
+    "enabled": true,
+    "name": "All Instances"
+  }
+}

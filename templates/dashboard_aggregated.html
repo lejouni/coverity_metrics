@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coverity Metrics - Aggregated Multi-Instance Dashboard</title>
+    <link rel="stylesheet" href="{{ css_path }}">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>📊 Coverity Metrics Dashboard</h1>
+            <p class="subtitle">Aggregated View Across All Instances</p>
+            <p class="subtitle" style="font-size: 0.9rem; opacity: 0.8;">Generated: {{ timestamp }}</p>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Instance Navigation -->
+        <div class="section" style="margin-bottom: 1.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border-radius: 8px; color: white;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                <div>
+                    <h2 style="margin: 0; color: white;">🌐 Multi-Instance Navigator</h2>
+                    <p style="margin: 0.5rem 0 0 0; opacity: 0.9; font-size: 0.9rem;">Select an instance to view detailed metrics</p>
+                </div>
+                <div style="min-width: 250px;">
+                    <label for="instance-selector" style="display: block; font-size: 0.85rem; margin-bottom: 0.5rem; opacity: 0.9;">Jump to Instance:</label>
+                    <select id="instance-selector" style="width: 100%; padding: 0.75rem; border-radius: 4px; border: none; font-size: 1rem; cursor: pointer; background: white; color: #2c3e50;">
+                        <option value="">-- Select Instance --</option>
+                        {% for inst in instance_configs %}
+                        <option value="{{ inst.name }}/dashboard.html" data-color="{{ inst.color }}">{{ inst.name }} - {{ inst.description }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Instance Cards -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+            {% for inst in instance_configs %}
+            <a href="{{ inst.name }}/dashboard.html" style="text-decoration: none; color: inherit;">
+                <div style="background: white; border-left: 4px solid {{ inst.color }}; padding: 1rem; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.3s; cursor: pointer;" 
+                     onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)';"
+                     onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)';">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span style="display: inline-block; width: 16px; height: 16px; background-color: {{ inst.color }}; border-radius: 50%;"></span>
+                        <strong style="font-size: 1.1rem;">{{ inst.name }}</strong>
+                    </div>
+                    <p style="margin: 0; font-size: 0.85rem; color: #7f8c8d;">{{ inst.description }}</p>
+                    <div style="margin-top: 0.75rem; font-size: 0.8rem; color: {{ inst.color }}; font-weight: 600;">
+                        View Dashboard →
+                    </div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+
+        <!-- Instance Overview Cards -->
+        <div class="summary-grid">
+            <div class="summary-card">
+                <div class="label">Total Instances</div>
+                <div class="value">{{ summary.total_instances }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Total Projects</div>
+                <div class="value">{{ summary.total_projects }}</div>
+            </div>
+            <div class="summary-card danger">
+                <div class="label">Total Defects</div>
+                <div class="value">{{ summary.total_defects }}</div>
+            </div>
+            <div class="summary-card warning">
+                <div class="label">High Severity</div>
+                <div class="value">{{ summary.high_severity_defects }}</div>
+            </div>
+        </div>
+
+        <!-- Analysis Versions Section -->
+        {% if analysis_versions and analysis_versions|length > 0 %}
+        <div class="section" style="margin-bottom: 1.5rem;">
+            <div style="background: linear-gradient(135deg, #00b09b 0%, #96c93d 100%); padding: 1rem; border-radius: 8px; color: white;">
+                <h3 style="margin: 0 0 0.75rem 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <span>📊</span>
+                    <span>Top Analysis Versions Used - All Instances</span>
+                </h3>
+                <div style="background: rgba(255, 255, 255, 0.15); border-radius: 6px; padding: 0.75rem; max-height: 400px; overflow-y: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.3);">
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">#</th>
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Analysis Version</th>
+                                <th style="text-align: center; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Total Snapshots</th>
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Instances</th>
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">First Used</th>
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Last Used</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ver in analysis_versions %}
+                            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.15);">
+                                <td style="padding: 0.5rem; opacity: 0.8;">{{ loop.index }}</td>
+                                <td style="padding: 0.5rem; font-weight: 500;">{{ ver.version }}</td>
+                                <td style="padding: 0.5rem; text-align: center; font-weight: 600;">
+                                    <span style="background: rgba(255, 255, 255, 0.2); padding: 0.25rem 0.75rem; border-radius: 12px;">
+                                        {{ ver.snapshot_count }}
+                                    </span>
+                                </td>
+                                <td style="padding: 0.5rem; opacity: 0.8; font-size: 0.85rem;">
+                                    {% if ver.instances %}
+                                        <span title="{{ ver.instances|join(', ') }}">
+                                            {{ ver.instances|length }} instance{{ 's' if ver.instances|length > 1 else '' }}
+                                        </span>
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </td>
+                                <td style="padding: 0.5rem; opacity: 0.8; font-size: 0.85rem;">
+                                    {% if ver.first_used %}
+                                        {{ ver.first_used.strftime('%Y-%m-%d %H:%M') if ver.first_used.strftime else ver.first_used }}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </td>
+                                <td style="padding: 0.5rem; opacity: 0.8; font-size: 0.85rem;">
+                                    {% if ver.last_used %}
+                                        {{ ver.last_used.strftime('%Y-%m-%d %H:%M') if ver.last_used.strftime else ver.last_used }}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Defects by Instance Chart -->
+        <div class="section">
+            <h2 class="section-title">Defects by Coverity Instance</h2>
+            <div class="chart-container" id="instance-chart"></div>
+            
+            <table class="data-table" style="margin-top: 2rem;">
+                <thead>
+                    <tr>
+                        <th>Instance</th>
+                        <th>Description</th>
+                        <th>Total Defects</th>
+                        <th>High Severity</th>
+                        <th>Medium Severity</th>
+                        <th>Low Severity</th>
+                        <th>Projects</th>
+                        <th>Streams</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for inst in defects_by_instance %}
+                    <tr style="cursor: pointer;" onclick="window.location.href='{{ inst.instance_name }}/dashboard.html';" 
+                        onmouseover="this.style.backgroundColor='#f8f9fa';" 
+                        onmouseout="this.style.backgroundColor='';">
+                        <td>
+                            <span style="display: inline-block; width: 12px; height: 12px; background-color: {{ inst.color }}; border-radius: 2px; margin-right: 8px;"></span>
+                            <a href="{{ inst.instance_name }}/dashboard.html" style="text-decoration: none; color: #3498db; font-weight: bold;">{{ inst.instance_name }}</a>
+                        </td>
+                        <td>{{ inst.description }}</td>
+                        <td class="metric-number">{{ inst.total_defects }}</td>
+                        <td class="metric-number">{{ inst.high_severity }}</td>
+                        <td class="metric-number">{{ inst.medium_severity }}</td>
+                        <td class="metric-number">{{ inst.low_severity }}</td>
+                        <td>{{ inst.total_projects }}</td>
+                        <td>{{ inst.total_streams }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Aggregated Severity Distribution -->
+        <div class="section">
+            <h2 class="section-title">Aggregated Defect Severity Distribution</h2>
+            <div class="grid-2col">
+                <div class="chart-container" id="severity-chart"></div>
+                <div>
+                    <h3 style="margin-bottom: 1rem;">Severity Breakdown</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Severity</th>
+                                <th>Count</th>
+                                <th>Percentage</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in defects_by_severity %}
+                            <tr>
+                                <td><span class="severity-badge severity-{{ row.severity.lower().replace(' ', '-') }}">{{ row.severity }}</span></td>
+                                <td class="metric-number">{{ row.count }}</td>
+                                <td>{{ "%.1f"|format((row.count / summary.total_defects * 100) if summary.total_defects > 0 else 0) }}%</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- All Projects Across Instances -->
+        {% if all_projects|length > 0 %}
+        <div class="section">
+            <h2 class="section-title">All Projects Across Instances (Top 50)</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Project Name</th>
+                        <th>Instance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for proj in all_projects[:50] %}
+                    <tr>
+                        <td>{{ proj.project_name }}</td>
+                        <td>
+                            <span style="display: inline-block; width: 12px; height: 12px; background-color: {{ proj.instance_color }}; border-radius: 2px; margin-right: 8px;"></span>
+                            {{ proj.instance_name }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if all_projects|length > 50 %}
+                    <tr>
+                        <td colspan="2" style="text-align: center; font-style: italic; color: #7f8c8d;">
+                            ... and {{ all_projects|length - 50 }} more projects
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Instance Legend -->
+        <div class="section" style="background: linear-gradient(135deg, #f5f7fa, #c3cfe2); padding: 1.5rem; border-radius: 8px;">
+            <h3 style="margin-bottom: 1rem;">Instance Color Legend</h3>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                {% for inst in instance_configs %}
+                <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: white; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <span style="display: inline-block; width: 20px; height: 20px; background-color: {{ inst.color }}; border-radius: 3px;"></span>
+                    <div>
+                        <strong>{{ inst.name }}</strong>
+                        {% if inst.description %}
+                        <div style="font-size: 0.85rem; color: #7f8c8d;">{{ inst.description }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+    </div>
+
+    <footer>
+        <div class="container">
+            <p>Coverity Metrics Dashboard © 2026 | Multi-Instance Aggregated View</p>
+            <p>Aggregated data from {{ summary.total_instances }} Coverity instance{{ 's' if summary.total_instances != 1 else '' }}</p>
+        </div>
+    </footer>
+
+    <script>
+        // Instance selector dropdown
+        document.getElementById('instance-selector').addEventListener('change', function() {
+            if (this.value) {
+                window.location.href = this.value;
+            }
+        });
+
+        // Instance Comparison Chart
+        var instanceData = [{
+            x: [{% for inst in defects_by_instance %}'{{ inst.instance_name }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for inst in defects_by_instance %}{{ inst.total_defects }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            type: 'bar',
+            marker: {
+                color: [{% for inst in defects_by_instance %}'{{ inst.color }}'{% if not loop.last %}, {% endif %}{% endfor %}]
+            },
+            text: [{% for inst in defects_by_instance %}{{ inst.total_defects }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            textposition: 'auto',
+            hovertemplate: '<b>%{x}</b><br>Total Defects: %{y}<extra></extra>'
+        }];
+
+        var instanceLayout = {
+            title: 'Defect Count by Instance',
+            height: 400,
+            xaxis: {title: 'Instance'},
+            yaxis: {title: 'Defect Count'},
+            showlegend: false
+        };
+
+        Plotly.newPlot('instance-chart', instanceData, instanceLayout, {responsive: true});
+
+        // Severity Distribution Pie Chart
+        var severityData = [{
+            values: [{% for row in defects_by_severity %}{{ row.count }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            labels: [{% for row in defects_by_severity %}'{{ row.severity }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            type: 'pie',
+            marker: {
+                colors: ['#16a085', '#e74c3c', '#27ae60', '#f39c12']
+            },
+            hole: 0.4
+        }];
+
+        var severityLayout = {
+            title: 'Severity Distribution (All Instances)',
+            height: 400,
+            showlegend: true
+        };
+
+        Plotly.newPlot('severity-chart', severityData, severityLayout, {responsive: true});
+    </script>
+</body>
+</html>

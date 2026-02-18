@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coverity Metrics Dashboard - {{ timestamp }}</title>
+    <link rel="stylesheet" href="{{ css_path }}">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <!-- Breadcrumb Navigation -->
+            {% if current_instance %}
+            <div style="margin-bottom: 1rem; font-size: 0.9rem;">
+                <a href="../dashboard_aggregated.html" style="color: #3498db; text-decoration: none;">🌐 All Instances</a>
+                <span style="color: #7f8c8d; margin: 0 0.5rem;">›</span>
+                <span style="color: #2c3e50; font-weight: 600;">{{ current_instance }}</span>
+                {% if current_project %}
+                <span style="color: #7f8c8d; margin: 0 0.5rem;">›</span>
+                <span style="color: #2c3e50; font-weight: 600;">{{ current_project }}</span>
+                {% endif %}
+            </div>
+            {% endif %}
+            
+            <h1>Coverity Metrics Dashboard</h1>
+            <div class="subtitle">
+                Comprehensive Static Analysis Metrics
+                {% if current_instance %}
+                <span style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 0.25rem 0.75rem; border-radius: 4px; font-size: 0.85rem; margin-left: 0.5rem; font-weight: 600;">
+                    Instance: {{ current_instance }}
+                </span>
+                {% endif %}
+                {% if current_project %}
+                 - <strong>Project: {{ current_project }}</strong>
+                {% else %}
+                 - <strong>All Projects</strong>
+                {% endif %}
+            </div>
+            <div class="timestamp">Generated: {{ timestamp }}</div>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Back to Aggregated View Button -->
+        {% if current_instance %}
+        <div style="margin-bottom: 1.5rem;">
+            <a href="../dashboard_aggregated.html" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1.25rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 6px; font-weight: 600; transition: all 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
+               onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)';"
+               onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)';">
+                <span>←</span>
+                <span>Back to All Instances</span>
+            </a>
+        </div>
+        {% endif %}
+        
+        <!-- Project Filter Navigation -->
+        {% if all_projects %}
+        <div class="section" style="margin-bottom: 1.5rem;">
+            <div class="project-filter-container">
+                <label for="project-input" class="project-filter-label">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 3h7l1 2h9a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"></path>
+                    </svg>
+                    Filter by Project:
+                </label>
+                <div class="project-select-wrapper">
+                    <input type="text" 
+                           id="project-input" 
+                           class="project-input" 
+                           placeholder="Type to search or click to select..." 
+                           list="project-list"
+                           value="{% if current_project %}{{ current_project }}{% else %}All Projects{% endif %}" />
+                    <datalist id="project-list">
+                        {% if current_instance %}
+                        <option value="All Projects" data-url="dashboard.html">All Projects ({{ all_projects|length }})</option>
+                        {% for project in all_projects|sort %}
+                        <option value="{{ project }}" data-url="dashboard_{{ project.replace(' ', '_') }}.html">{{ project }}</option>
+                        {% endfor %}
+                        {% else %}
+                        <option value="All Projects" data-url="dashboard.html">All Projects ({{ all_projects|length }})</option>
+                        {% for project in all_projects|sort %}
+                        <option value="{{ project }}" data-url="dashboard_{{ project.replace(' ', '_') }}.html">{{ project }}</option>
+                        {% endfor %}
+                        {% endif %}
+                    </datalist>
+                    <button id="project-dropdown-btn" class="project-dropdown-btn" type="button" title="Show all projects">
+                        <svg width="16" height="16" viewBox="0 0 12 12">
+                            <path fill="currentColor" d="M6 9L1 4h10z"/>
+                        </svg>
+                    </button>
+                </div>
+                {% if current_project %}
+                <div class="current-project-badge">
+                    <span class="badge-label">Viewing:</span>
+                    <span class="badge-value">{{ current_project }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Instance Information Section -->
+        {% if current_instance and instance_info %}
+        <div class="section" style="margin-bottom: 1.5rem;">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem; border-radius: 8px; color: white;">
+                <h3 style="margin: 0 0 0.75rem 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <span>⚙️</span>
+                    <span>Instance Information</span>
+                </h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; font-size: 0.9rem;">
+                    {% if instance_info.coverity_version %}
+                    <div>
+                        <div style="opacity: 0.8; font-size: 0.85rem;">Coverity Version</div>
+                        <div style="font-weight: 600; margin-top: 0.25rem;">{{ instance_info.coverity_version }}</div>
+                        {% if instance_info.coverity_build %}
+                        <div style="opacity: 0.7; font-size: 0.75rem; margin-top: 0.1rem;">Build: {{ instance_info.coverity_build }}</div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if instance_info.db_uptime_formatted %}
+                    <div>
+                        <div style="opacity: 0.8; font-size: 0.85rem;">Database Uptime</div>
+                        <div style="font-weight: 600; margin-top: 0.25rem;">{{ instance_info.db_uptime_formatted }}</div>
+                        {% if instance_info.db_start_time %}
+                        <div style="opacity: 0.7; font-size: 0.75rem; margin-top: 0.1rem;">Started: {{ instance_info.db_start_time.strftime('%Y-%m-%d %H:%M') if instance_info.db_start_time.strftime else instance_info.db_start_time }}</div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if instance_info.first_snapshot %}
+                    <div>
+                        <div style="opacity: 0.8; font-size: 0.85rem;">System Active Period</div>
+                        <div style="font-weight: 600; margin-top: 0.25rem;">{{ instance_info.usage_period_days }} days</div>
+                        <div style="opacity: 0.7; font-size: 0.75rem; margin-top: 0.1rem;">Since: {{ instance_info.first_snapshot.strftime('%Y-%m-%d') if instance_info.first_snapshot.strftime else instance_info.first_snapshot }}</div>
+                    </div>
+                    {% endif %}
+                    
+                    {% if instance_info.last_activity_formatted %}
+                    <div>
+                        <div style="opacity: 0.8; font-size: 0.85rem;">Last Activity</div>
+                        <div style="font-weight: 600; margin-top: 0.25rem;">{{ instance_info.last_activity_formatted }}</div>
+                        {% if instance_info.last_snapshot %}
+                        <div style="opacity: 0.7; font-size: 0.75rem; margin-top: 0.1rem;">{{ instance_info.last_snapshot.strftime('%Y-%m-%d %H:%M') if instance_info.last_snapshot.strftime else instance_info.last_snapshot }}</div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if instance_info.database_name %}
+                    <div>
+                        <div style="opacity: 0.8; font-size: 0.85rem;">Database</div>
+                        <div style="font-weight: 600; margin-top: 0.25rem;">{{ instance_info.database_name }}</div>
+                        {% if instance_info.active_connections %}
+                        <div style="opacity: 0.7; font-size: 0.75rem; margin-top: 0.1rem;">{{ instance_info.active_connections }} active connections</div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    
+                    {% if instance_info.system_unique_id %}
+                    <div>
+                        <div style="opacity: 0.8; font-size: 0.85rem;">System ID</div>
+                        <div style="font-weight: 600; margin-top: 0.25rem;">{{ instance_info.system_unique_id }}</div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Main Content Tabs -->
+        <div class="content-tabs">
+            <div class="tab-buttons">
+                <button class="tab-button active" data-tab="overview">Overview</button>
+                <button class="tab-button" data-tab="code-quality">Code Quality</button>
+                <button class="tab-button" data-tab="trends">Trends & Progress</button>
+                {% if not current_project %}
+                <button class="tab-button" data-tab="performance">Performance & Analytics</button>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Overview Tab -->
+        <div id="overview-tab" class="tab-content active">
+        <!-- Summary Cards -->
+        <div class="summary-grid">
+            <div class="summary-card">
+                <div class="label">Total Projects</div>
+                <div class="value">{{ summary.total_projects }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Active Streams</div>
+                <div class="value">{{ summary.total_streams }}</div>
+            </div>
+            <div class="summary-card danger">
+                <div class="label">Active Defects</div>
+                <div class="value">{{ summary.total_defects }}</div>
+            </div>
+            <div class="summary-card warning">
+                <div class="label">High Severity</div>
+                <div class="value">{{ summary.high_severity_defects }}</div>
+            </div>
+            <div class="summary-card info">
+                <div class="label">Total Files</div>
+                <div class="value">{{ summary.total_files }}</div>
+            </div>
+            <div class="summary-card success">
+                <div class="label">Lines of Code</div>
+                <div class="value">{{ "{:,}".format(summary.total_loc) }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Functions</div>
+                <div class="value">{{ summary.total_functions }}</div>
+            </div>
+            <div class="summary-card">
+                <div class="label">Active Users</div>
+                <div class="value">{{ summary.total_users }}</div>
+            </div>
+        </div>
+
+        {% if high_severity_alert %}
+        <div class="alert alert-danger">
+            <strong>Alert!</strong> {{ summary.high_severity_defects }} high-severity defects require immediate attention.
+        </div>
+        {% endif %}
+
+        <!-- Analysis Versions Section -->
+        {% if analysis_versions and analysis_versions|length > 0 %}
+        <div class="section" style="margin-bottom: 1.5rem;">
+            <div style="background: linear-gradient(135deg, #00b09b 0%, #96c93d 100%); padding: 1rem; border-radius: 8px; color: white;">
+                <h3 style="margin: 0 0 0.75rem 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <span>📊</span>
+                    <span>Top Analysis Versions Used</span>
+                    {% if current_project %}
+                    <span style="opacity: 0.7; font-size: 0.9rem; font-weight: normal;">- Project: {{ current_project }}</span>
+                    {% elif current_instance %}
+                    <span style="opacity: 0.7; font-size: 0.9rem; font-weight: normal;">- Instance: {{ current_instance }}</span>
+                    {% else %}
+                    <span style="opacity: 0.7; font-size: 0.9rem; font-weight: normal;">- All Instances</span>
+                    {% endif %}
+                </h3>
+                <div style="background: rgba(255, 255, 255, 0.15); border-radius: 6px; padding: 0.75rem; max-height: 400px; overflow-y: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.3);">
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">#</th>
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Analysis Version</th>
+                                <th style="text-align: center; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Snapshots</th>
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">First Used</th>
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Last Used</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ver in analysis_versions %}
+                            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.15);">
+                                <td style="padding: 0.5rem; opacity: 0.8;">{{ loop.index }}</td>
+                                <td style="padding: 0.5rem; font-weight: 500;">{{ ver.version }}</td>
+                                <td style="padding: 0.5rem; text-align: center; font-weight: 600;">
+                                    <span style="background: rgba(255, 255, 255, 0.2); padding: 0.25rem 0.75rem; border-radius: 12px;">
+                                        {{ ver.snapshot_count }}
+                                    </span>
+                                </td>
+                                <td style="padding: 0.5rem; opacity: 0.8; font-size: 0.85rem;">
+                                    {% if ver.first_used %}
+                                        {{ ver.first_used.strftime('%Y-%m-%d %H:%M') if ver.first_used.strftime else ver.first_used }}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </td>
+                                <td style="padding: 0.5rem; opacity: 0.8; font-size: 0.85rem;">
+                                    {% if ver.last_used %}
+                                        {{ ver.last_used.strftime('%Y-%m-%d %H:%M') if ver.last_used.strftime else ver.last_used }}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Defects by Severity -->
+        <div class="section">
+            <h2 class="section-title">Defects by Severity</h2>
+            <div class="chart-container" id="severity-chart"></div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Severity</th>
+                        <th>Count</th>
+                        <th>Percentage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in defects_by_severity %}
+                    <tr>
+                        <td>
+                            <span class="severity-badge severity-{{ row.impact|lower }}">
+                                {{ row.impact }}
+                            </span>
+                        </td>
+                        <td class="metric-number">{{ row.defect_count }}</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: {{ (row.defect_count / summary.total_defects * 100)|round(1) }}%"></div>
+                            </div>
+                            {{ (row.defect_count / summary.total_defects * 100)|round(1) }}%
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Defects by Project -->
+        <div class="section">
+            <h2 class="section-title">Defects by Project</h2>
+            <div class="chart-container" id="project-chart"></div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Project Name</th>
+                        <th>Total Defects</th>
+                        <th>Active</th>
+                        <th>Fixed</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in defects_by_project %}
+                    <tr>
+                        <td><strong>{{ row.project_name }}</strong></td>
+                        <td class="metric-number">{{ row.defect_count }}</td>
+                        <td><span class="severity-badge severity-high">{{ row.active_defects }}</span></td>
+                        <td><span class="severity-badge severity-low">{{ row.fixed_defects }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Two Column Layout -->
+        <div class="grid-2col">
+            <!-- Defects by Category -->
+            <div class="section">
+                <h2 class="section-title">Top Defect Categories</h2>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Category</th>
+                            <th>Count</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in defects_by_category[:10] %}
+                        <tr>
+                            <td>{{ row.category }}</td>
+                            <td class="metric-number">{{ row.defect_count }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Defect Density -->
+            <div class="section">
+                <h2 class="section-title">Defect Density (per KLOC)</h2>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Stream</th>
+                            <th>Defects/KLOC</th>
+                            <th>Total LOC</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in defect_density %}
+                        <tr>
+                            <td>{{ row.stream_name }}</td>
+                            <td class="metric-number">
+                                <span class="{% if row.defects_per_kloc > 5 %}metric-increase{% elif row.defects_per_kloc < 2 %}metric-decrease{% endif %}">
+                                    {{ row.defects_per_kloc }}
+                                </span>
+                            </td>
+                            <td>{{ "{:,}".format(row.total_loc) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- File Hotspots -->
+        <div class="section">
+            <h2 class="section-title">File Hotspots - Top Problem Files</h2>
+            {% if file_hotspots|length > 0 %}
+            <div class="alert alert-warning">
+                <strong>Attention Required:</strong> These files have the highest defect concentrations.
+            </div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>File Path</th>
+                        <th>Defect Count</th>
+                        <th>LOC</th>
+                        <th>Defects/KLOC</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in file_hotspots[:15] %}
+                    <tr>
+                        <td><code>{{ row.file_path }}</code></td>
+                        <td class="metric-number {% if row.defect_count > 10 %}metric-increase{% endif %}">
+                            {{ row.defect_count }}
+                        </td>
+                        <td>{{ row.loc }}</td>
+                        <td class="metric-number {% if row.defects_per_kloc > 50 %}metric-increase{% endif %}">
+                            {{ row.defects_per_kloc }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="alert alert-success">
+                No significant file hotspots detected. Great job!
+            </div>
+            {% endif %}
+        </div>
+
+        </div>
+        <!-- End Overview Tab -->
+
+        <!-- Code Quality Tab -->
+        <div id="code-quality-tab" class="tab-content">
+            
+        <!-- Code Quality Metrics -->
+        <div class="section">
+            <h2 class="section-title">Code Quality Metrics by Stream</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Stream</th>
+                        <th>Files</th>
+                        <th>Total LOC</th>
+                        <th>Avg File LOC</th>
+                        <th>Comment Ratio</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in code_metrics %}
+                    <tr>
+                        <td><strong>{{ row.stream_name }}</strong></td>
+                        <td>{{ row.file_count }}</td>
+                        <td>{{ "{:,}".format(row.total_loc) }}</td>
+                        <td>{{ row.avg_file_loc|round(0)|int }}</td>
+                        <td>
+                            <span class="{% if row.comment_ratio_pct < 10 %}metric-increase{% else %}metric-decrease{% endif %}">
+                                {{ row.comment_ratio_pct }}%
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Function Complexity -->
+        {% if complexity_distribution|length > 0 %}
+        <div class="section">
+            <h2 class="section-title">Function Complexity Distribution</h2>
+            <div class="chart-container" id="complexity-chart"></div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Complexity Range</th>
+                        <th>Function Count</th>
+                        <th>Average Complexity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in complexity_distribution %}
+                    <tr>
+                        <td>{{ row.complexity_range }}</td>
+                        <td class="metric-number">{{ row.function_count }}</td>
+                        <td>{{ row.avg_complexity }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Top Checkers -->
+        <div class="section">
+            <h2 class="section-title">Top Defect Checkers</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Checker Name</th>
+                        <th>Category</th>
+                        <th>Impact</th>
+                        <th>Count</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in top_checkers[:15] %}
+                    <tr>
+                        <td>{{ row.checker_name }}</td>
+                        <td>{{ row.category }}</td>
+                        <td>
+                            <span class="severity-badge severity-{{ row.impact|lower }}">
+                                {{ row.impact }}
+                            </span>
+                        </td>
+                        <td class="metric-number">{{ row.defect_count }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        </div>
+        <!-- End Code Quality Tab -->
+
+        <!-- Trends & Progress Tab -->
+        <div id="trends-tab" class="tab-content">
+            
+        <!-- Triage Progress Summary -->
+        {% if triage_summary %}
+        <div class="section">
+            <h2 class="section-title">Current Triage Progress</h2>
+            <div class="summary-grid" style="margin-bottom: 2rem;">
+                <div class="summary-card">
+                    <div class="label">Total Outstanding</div>
+                    <div class="value">{{ triage_summary.total_defects }}</div>
+                </div>
+                <div class="summary-card success">
+                    <div class="label">Classified</div>
+                    <div class="value">{{ triage_summary.classified_count }}</div>
+                </div>
+                <div class="summary-card warning">
+                    <div class="label">Unclassified</div>
+                    <div class="value">{{ triage_summary.unclassified_count }}</div>
+                </div>
+                <div class="summary-card info">
+                    <div class="label">Triage Completion</div>
+                    <div class="value" style="font-size: 2rem;">{{ (triage_summary.triage_completion_percentage|round(1)) if triage_summary.triage_completion_percentage else '0' }}%</div>
+                </div>
+            </div>
+
+            <div class="grid-2col" style="margin-bottom: 2rem;">
+                <div class="summary-card">
+                    <div class="label">Bugs Confirmed</div>
+                    <div class="value danger">{{ triage_summary.bug_count }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">False Positives</div>
+                    <div class="value success">{{ triage_summary.false_positive_count }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Intentional</div>
+                    <div class="value">{{ triage_summary.intentional_count }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Action Assigned</div>
+                    <div class="value">{{ triage_summary.action_assigned_count }}</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Trend Summary with Velocity Indicators -->
+        {% if trend_summary and trend_summary.total_new %}
+        <div class="section">
+            <h2 class="section-title">📊 Defect Introduction vs Fix Velocity ({{ trend_period_text }})</h2>
+            <div class="alert {% if trend_summary.trend_direction == 'improving' %}alert-success{% elif trend_summary.trend_direction == 'declining' %}alert-danger{% else %}alert-info{% endif %}">
+                <strong>Trend Status:</strong> 
+                {% if trend_summary.trend_direction == 'improving' %}
+                    ✅ <strong>IMPROVING</strong> - Fixing defects faster than introducing new ones
+                {% elif trend_summary.trend_direction == 'declining' %}
+                    ⚠️ <strong>DECLINING</strong> - Introducing defects faster than fixing them
+                {% else %}
+                    ℹ️ <strong>STABLE</strong> - Introduction and fix rates are balanced
+                {% endif %}
+            </div>
+            
+            <div class="summary-grid" style="margin-bottom: 2rem;">
+                <div class="summary-card {% if trend_summary.avg_new_per_day and trend_summary.avg_fixed_per_day and trend_summary.avg_new_per_day > trend_summary.avg_fixed_per_day %}warning{% endif %}">
+                    <div class="label">Avg New Defects/Day</div>
+                    <div class="value" style="font-size: 2.5rem; color: #e74c3c;">
+                        {{ (trend_summary.avg_new_per_day|round(1)) if trend_summary.avg_new_per_day else '0' }}
+                        <span style="font-size: 1rem;">↑</span>
+                    </div>
+                </div>
+                <div class="summary-card {% if trend_summary.avg_fixed_per_day and trend_summary.avg_new_per_day and trend_summary.avg_fixed_per_day > trend_summary.avg_new_per_day %}success{% endif %}">
+                    <div class="label">Avg Fixed Defects/Day</div>
+                    <div class="value" style="font-size: 2.5rem; color: #27ae60;">
+                        {{ (trend_summary.avg_fixed_per_day|round(1)) if trend_summary.avg_fixed_per_day else '0' }}
+                        <span style="font-size: 1rem;">↓</span>
+                    </div>
+                </div>
+                <div class="summary-card {% if trend_summary.net_change and trend_summary.net_change > 0 %}danger{% elif trend_summary.net_change and trend_summary.net_change < 0 %}success{% endif %}">
+                    <div class="label">Net Change (90 days)</div>
+                    <div class="value" style="font-size: 2.5rem;">
+                        {{ ('+' if trend_summary.net_change > 0 else '') if trend_summary.net_change else '' }}{{ trend_summary.net_change if trend_summary.net_change else '0' }}
+                    </div>
+                </div>
+                <div class="summary-card info">
+                    <div class="label">Fix Rate Efficiency</div>
+                    <div class="value" style="font-size: 2.5rem;">
+                        {{ (trend_summary.fix_rate_pct|round(1)) if trend_summary.fix_rate_pct else '0' }}%
+                    </div>
+                </div>
+            </div>
+            
+            <div class="grid-2col" style="margin-top: 1.5rem;">
+                <div class="summary-card">
+                    <div class="label">Total New (90d)</div>
+                    <div class="value">{{ trend_summary.total_new }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Total Fixed (90d)</div>
+                    <div class="value">{{ trend_summary.total_fixed }}</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Cumulative Defect Trends -->
+        {% if cumulative_trends|length > 0 %}
+        <div class="section">
+            <h2 class="section-title">Cumulative Defect Introduction & Fix Trends</h2>
+            <div class="chart-container" id="cumulative-trends-chart"></div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Daily New</th>
+                        <th>Daily Fixed</th>
+                        <th>Cumulative New</th>
+                        <th>Cumulative Fixed</th>
+                        <th>Cumulative Net</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in cumulative_trends[-20:] %}
+                    <tr>
+                        <td>{{ row.snapshot_date }}</td>
+                        <td class="metric-number {% if row.daily_new > 5 %}metric-increase{% endif %}">
+                            {{ row.daily_new }}
+                        </td>
+                        <td class="metric-number metric-decrease">{{ row.daily_fixed }}</td>
+                        <td class="metric-number">{{ row.cumulative_new }}</td>
+                        <td class="metric-number">{{ row.cumulative_fixed }}</td>
+                        <td class="metric-number {% if row.cumulative_net > 0 %}metric-increase{% else %}metric-decrease{% endif %}">
+                            {{ '+' if row.cumulative_net > 0 else '' }}{{ row.cumulative_net }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Defect Velocity Daily -->
+        {% if defect_velocity|length > 0 %}
+        <div class="section">
+            <h2 class="section-title">Daily Defect Introduction & Fix Velocity</h2>
+            <div class="chart-container" id="velocity-chart"></div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>New</th>
+                        <th>Fixed</th>
+                        <th>Net Change</th>
+                        <th>Outstanding</th>
+                        <th>Fix Efficiency %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in defect_velocity[-30:] %}
+                    <tr>
+                        <td>{{ row.snapshot_date }}</td>
+                        <td class="metric-number {% if row.new_count > 10 %}metric-increase{% endif %}">
+                            {{ row.new_count }}
+                        </td>
+                        <td class="metric-number metric-decrease">{{ row.fixed_count }}</td>
+                        <td class="metric-number {% if row.net_change > 0 %}metric-increase{% else %}metric-decrease{% endif %}">
+                            {{ '+' if row.net_change > 0 else '' }}{{ row.net_change }}
+                        </td>
+                        <td class="metric-number">{{ row.outstanding|int }}</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: {{ [row.fix_efficiency_pct, 100]|min }}%"></div>
+                            </div>
+                            {{ row.fix_efficiency_pct }}%
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Fix Rate Metrics -->
+        {% if fix_rate_metrics %}
+        <div class="section">
+            <h2 class="section-title">Fix Rate & Velocity ({{ trend_period_text }})</h2>
+            <div class="grid-2col" style="margin-bottom: 2rem;">
+                <div class="summary-card">
+                    <div class="label">Total Defects</div>
+                    <div class="value">{{ fix_rate_metrics.total_defects }}</div>
+                </div>
+                <div class="summary-card success">
+                    <div class="label">Fixed Defects</div>
+                    <div class="value">{{ fix_rate_metrics.fixed_defects }}</div>
+                </div>
+                <div class="summary-card info">
+                    <div class="label">Fix Rate</div>
+                    <div class="value" style="font-size: 2rem;">{{ fix_rate_metrics.fix_rate_percentage }}%</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Avg Days to Fix</div>
+                    <div class="value" style="font-size: 2rem;">{{ (fix_rate_metrics.avg_days_to_fix|round(1)) if fix_rate_metrics.avg_days_to_fix else 'N/A' }}</div>
+                </div>
+            </div>
+
+            <div class="grid-2col">
+                <div class="summary-card">
+                    <div class="label">Median Fix Time</div>
+                    <div class="value">{{ (fix_rate_metrics.median_days_to_fix|round(1)) if fix_rate_metrics.median_days_to_fix else 'N/A' }} days</div>
+                </div>
+                <div class="summary-card success">
+                    <div class="label">Fastest Fix</div>
+                    <div class="value">{{ (fix_rate_metrics.min_days_to_fix|round(1)) if fix_rate_metrics.min_days_to_fix else 'N/A' }} days</div>
+                </div>
+                <div class="summary-card warning">
+                    <div class="label">Slowest Fix</div>
+                    <div class="value">{{ (fix_rate_metrics.max_days_to_fix|round(1)) if fix_rate_metrics.max_days_to_fix else 'N/A' }} days</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Defect Trends Over Time -->
+        {% if defect_trends|length > 0 %}
+        <div class="section">
+            <h2 class="section-title">Defect Trends Over Time ({{ trend_period_text }})</h2>
+            <div class="chart-container" id="defect-trends-chart"></div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Period</th>
+                        <th>New Defects</th>
+                        <th>Fixed Defects</th>
+                        <th>Outstanding</th>
+                        <th>Net Change</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in defect_trends %}
+                    <tr>
+                        <td>{{ row.period }}</td>
+                        <td class="metric-number {% if row.new_defects > 10 %}metric-increase{% endif %}">
+                            {{ row.new_defects or 0 }}
+                        </td>
+                        <td class="metric-number metric-decrease">{{ row.fixed_defects or 0 }}</td>
+                        <td class="metric-number">{{ row.outstanding_defects|int }}</td>
+                        <td class="metric-number {% if row.net_change > 0 %}metric-increase{% else %}metric-decrease{% endif %}">
+                            {{ '+' if row.net_change > 0 else '' }}{{ row.net_change or 0 }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Defect Aging Distribution -->
+        {% if defect_aging|length > 0 %}
+        <div class="section">
+            <h2 class="section-title">Outstanding Defect Age Distribution</h2>
+            <div class="alert alert-info">
+                <strong>Info:</strong> This shows how long outstanding defects have been open.
+            </div>
+            <div class="chart-container" id="aging-chart"></div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Age Range</th>
+                        <th>Defect Count</th>
+                        <th>Avg Age (Days)</th>
+                        <th>High</th>
+                        <th>Medium</th>
+                        <th>Low</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in defect_aging %}
+                    <tr>
+                        <td><strong>{{ row.age_range }}</strong></td>
+                        <td class="metric-number">{{ row.defect_count }}</td>
+                        <td>{{ row.avg_age_days }}</td>
+                        <td><span class="severity-badge severity-high">{{ row.high_severity }}</span></td>
+                        <td><span class="severity-badge severity-medium">{{ row.medium_severity }}</span></td>
+                        <td><span class="severity-badge severity-low">{{ row.low_severity }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Triage Trends Over Time -->
+        {% if triage_trends|length > 0 %}
+        <div class="section">
+            <h2 class="section-title">Triage Activity Trends ({{ trend_period_text }})</h2>
+            <div class="chart-container" id="triage-trends-chart"></div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Classification</th>
+                        <th>Action</th>
+                        <th>Count</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in triage_trends[:50] %}
+                    <tr>
+                        <td>{{ row.detected_date }}</td>
+                        <td>
+                            <span class="severity-badge {% if row.classification == 'Bug' %}severity-high{% elif row.classification == 'False Positive' %}severity-low{% else %}severity-medium{% endif %}">
+                                {{ row.classification }}
+                            </span>
+                        </td>
+                        <td>{{ row.action }}</td>
+                        <td class="metric-number">{{ row.count }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        </div>
+        <!-- End Trends Tab -->
+
+        {% if not current_project %}
+        <!-- Performance Tab -->
+        <div id="performance-tab" class="tab-content">
+
+        <!-- Database Statistics -->
+        <div class="section">
+            <h2 class="section-title">Database Statistics</h2>
+            <div class="summary-grid" style="margin-bottom: 2rem;">
+                <div class="summary-card info">
+                    <div class="label">Database Size</div>
+                    <div class="value" style="font-size: 2rem;">{{ db_stats.db_size }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Total Snapshots</div>
+                    <div class="value">{{ db_stats.total_snapshots }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Avg Commit Time</div>
+                    <div class="value" style="font-size: 2rem;">{{ commit_stats.avg_duration_minutes }}m</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Total Commits</div>
+                    <div class="value">{{ commit_stats.total_commits }}</div>
+                </div>
+            </div>
+
+            <h3 style="margin: 2rem 0 1rem 0;">Largest Database Tables</h3>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Table Name</th>
+                        <th>Size</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in largest_tables %}
+                    <tr>
+                        <td><code>{{ row.table_name }}</code></td>
+                        <td class="metric-number">{{ row.size }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Commit Performance -->
+        <div class="section">
+            <h2 class="section-title">Analysis/Commit Performance</h2>
+            <div class="grid-2col" style="margin-bottom: 2rem;">
+                <div class="summary-card">
+                    <div class="label">Min Commit Time</div>
+                    <div class="value success">{{ commit_stats.min_duration_minutes }} min</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Max Commit Time</div>
+                    <div class="value danger">{{ commit_stats.max_duration_minutes }} min</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Avg Files/Commit</div>
+                    <div class="value">{{ commit_stats.avg_files_per_commit|int }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Avg New Defects/Commit</div>
+                    <div class="value">{{ commit_stats.avg_new_defects_per_commit|int }}</div>
+                </div>
+            </div>
+
+            <h3 style="margin: 2rem 0 1rem 0;">Recent Snapshot Performance</h3>
+            <table class="data-table" id="snapshot-performance-table">
+                <thead>
+                    <tr>
+                        <th class="sortable" onclick="sortTable(0, 'snapshot-performance-table', 'date')">Date ▲▼</th>
+                        <th class="sortable" onclick="sortTable(1, 'snapshot-performance-table', 'text')">Stream ▲▼</th>
+                        <th class="sortable" onclick="sortTable(2, 'snapshot-performance-table', 'number')">Total Defects ▲▼</th>
+                        <th class="sortable" onclick="sortTable(3, 'snapshot-performance-table', 'number')">New/Eliminated ▲▼</th>
+                        <th class="sortable" onclick="sortTable(4, 'snapshot-performance-table', 'number')">Files ▲▼</th>
+                        <th class="sortable" onclick="sortTable(5, 'snapshot-performance-table', 'number')">Duration ▲▼</th>
+                        <th class="sortable" onclick="sortTable(6, 'snapshot-performance-table', 'number')">Queue Time ▲▼</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in snapshot_performance %}
+                    <tr>
+                        <td>{{ row.date_created.strftime('%Y-%m-%d %H:%M') if row.date_created else 'N/A' }}</td>
+                        <td>{{ row.stream_name }}</td>
+                        <td class="metric-number">{{ row.total_defect_count or 0 }}</td>
+                        <td>
+                            <span class="severity-badge severity-high">+{{ row.new_defect_count or 0 }}</span>
+                            <span class="severity-badge severity-low">-{{ row.eliminated_defect_count or 0 }}</span>
+                        </td>
+                        <td>{{ row.total_file_count or 0 }}</td>
+                        <td class="metric-number">{{ row.duration_minutes or 0 }} min</td>
+                        <td>{{ row.queue_time_minutes or 0 }} min</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Defect Discovery Rate -->
+        {% if defect_discovery|length > 0 %}
+        <div class="section">
+            <h2 class="section-title">Defect Discovery Rate ({{ trend_period_text }})</h2>
+            <div class="chart-container" id="discovery-chart"></div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Snapshots</th>
+                        <th>New Defects</th>
+                        <th>Eliminated</th>
+                        <th>Files Analyzed</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in defect_discovery[:30] %}
+                    <tr>
+                        <td>{{ row.snapshot_date }}</td>
+                        <td>{{ row.snapshot_count }}</td>
+                        <td class="metric-number {% if row.new_defects > 10 %}metric-increase{% endif %}">
+                            {{ row.new_defects or 0 }}
+                        </td>
+                        <td class="metric-number metric-decrease">{{ row.eliminated_defects or 0 }}</td>
+                        <td>{{ row.files_analyzed or 0 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        </div>
+        <!-- End Performance Tab -->
+        {% endif %}
+
+    </div>
+    <!-- End main container -->
+
+    <footer>
+        <div class="container">
+            <p>Coverity Metrics Dashboard &copy; 2026 | Generated from PostgreSQL Database</p>
+            <p>For questions or issues, consult the project documentation.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Severity Chart
+        var severityData = [{
+            values: [{% for row in defects_by_severity %}{{ row.defect_count }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            labels: [{% for row in defects_by_severity %}'{{ row.impact }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            type: 'pie',
+            marker: {
+                colors: ['#e74c3c', '#f39c12', '#27ae60', '#16a085']
+            },
+            hole: 0.4
+        }];
+
+        var severityLayout = {
+            title: 'Defect Distribution by Severity',
+            height: 350,
+            showlegend: true
+        };
+
+        Plotly.newPlot('severity-chart', severityData, severityLayout, {responsive: true});
+
+        // Project Chart
+        var projectData = [{
+            x: [{% for row in defects_by_project %}'{{ row.project_name }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in defects_by_project %}{{ row.active_defects }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'Active',
+            type: 'bar',
+            marker: {color: '#e74c3c'}
+        }, {
+            x: [{% for row in defects_by_project %}'{{ row.project_name }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in defects_by_project %}{{ row.fixed_defects }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'Fixed',
+            type: 'bar',
+            marker: {color: '#27ae60'}
+        }];
+
+        var projectLayout = {
+            title: 'Defects by Project',
+            barmode: 'stack',
+            height: 350,
+            xaxis: {title: 'Project'},
+            yaxis: {title: 'Defect Count'}
+        };
+
+        Plotly.newPlot('project-chart', projectData, projectLayout, {responsive: true});
+
+        {% if complexity_distribution|length > 0 %}
+        // Complexity Chart
+        var complexityData = [{
+            x: [{% for row in complexity_distribution %}'{{ row.complexity_range }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in complexity_distribution %}{{ row.function_count }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            type: 'bar',
+            marker: {
+                color: '#3498db'
+            }
+        }];
+
+        var complexityLayout = {
+            title: 'Function Complexity Distribution',
+            height: 350,
+            xaxis: {title: 'Complexity Range'},
+            yaxis: {title: 'Number of Functions'}
+        };
+
+        Plotly.newPlot('complexity-chart', complexityData, complexityLayout, {responsive: true});
+        {% endif %}
+
+        {% if defect_discovery|length > 0 %}
+        // Defect Discovery Rate Chart
+        var discoveryData = [{
+            x: [{% for row in defect_discovery|reverse %}'{{ row.snapshot_date }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in defect_discovery|reverse %}{{ row.new_defects or 0 }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'New Defects',
+            type: 'scatter',
+            mode: 'lines+markers',
+            marker: {color: '#e74c3c'},
+            line: {width: 2}
+        }, {
+            x: [{% for row in defect_discovery|reverse %}'{{ row.snapshot_date }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in defect_discovery|reverse %}{{ row.eliminated_defects or 0 }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'Eliminated Defects',
+            type: 'scatter',
+            mode: 'lines+markers',
+            marker: {color: '#27ae60'},
+            line: {width: 2}
+        }];
+
+        var discoveryLayout = {
+            title: 'Defect Discovery Trend',
+            height: 400,
+            xaxis: {title: 'Date'},
+            yaxis: {title: 'Defect Count'},
+            showlegend: true
+        };
+
+        Plotly.newPlot('discovery-chart', discoveryData, discoveryLayout, {responsive: true});
+        {% endif %}
+
+        {% if defect_trends|length > 0 %}
+        // Defect Trends Chart
+        var defectTrendsData = [{
+            x: [{% for row in defect_trends %}'{{ row.period }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in defect_trends %}{{ row.new_defects or 0 }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'New Defects',
+            type: 'scatter',
+            mode: 'lines+markers',
+            marker: {color: '#e74c3c', size: 8},
+            line: {width: 3}
+        }, {
+            x: [{% for row in defect_trends %}'{{ row.period }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in defect_trends %}{{ row.fixed_defects or 0 }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'Fixed Defects',
+            type: 'scatter',
+            mode: 'lines+markers',
+            marker: {color: '#27ae60', size: 8},
+            line: {width: 3}
+        }, {
+            x: [{% for row in defect_trends %}'{{ row.period }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in defect_trends %}{{ row.outstanding_defects|int }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'Outstanding',
+            type: 'scatter',
+            mode: 'lines',
+            marker: {color: '#3498db'},
+            line: {width: 2, dash: 'dot'}
+        }];
+
+        var defectTrendsLayout = {
+            title: 'Defect Trends - New vs Fixed vs Outstanding',
+            height: 450,
+            xaxis: {title: 'Period'},
+            yaxis: {title: 'Defect Count'},
+            showlegend: true,
+            legend: {x: 0.01, y: 0.99}
+        };
+
+        Plotly.newPlot('defect-trends-chart', defectTrendsData, defectTrendsLayout, {responsive: true});
+        {% endif %}
+
+        {% if cumulative_trends|length > 0 %}
+        // Cumulative Trends Chart
+        var cumulativeTrendsData = [{
+            x: [{% for row in cumulative_trends %}'{{ row.snapshot_date }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in cumulative_trends %}{{ row.cumulative_new }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'Cumulative New',
+            type: 'scatter',
+            mode: 'lines',
+            fill: 'tozeroy',
+            marker: {color: '#e74c3c'},
+            line: {width: 2}
+        }, {
+            x: [{% for row in cumulative_trends %}'{{ row.snapshot_date }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in cumulative_trends %}{{ row.cumulative_fixed }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'Cumulative Fixed',
+            type: 'scatter',
+            mode: 'lines',
+            fill: 'tozeroy',
+            marker: {color: '#27ae60'},
+            line: {width: 2}
+        }, {
+            x: [{% for row in cumulative_trends %}'{{ row.snapshot_date }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in cumulative_trends %}{{ row.cumulative_net }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'Cumulative Net',
+            type: 'scatter',
+            mode: 'lines+markers',
+            marker: {color: '#f39c12', size: 6},
+            line: {width: 3, dash: 'dash'},
+            yaxis: 'y2'
+        }];
+
+        var cumulativeTrendsLayout = {
+            title: 'Cumulative Defect Introduction vs Fix Trend',
+            height: 450,
+            xaxis: {title: 'Date'},
+            yaxis: {title: 'Cumulative Count', side: 'left'},
+            yaxis2: {
+                title: 'Net Defects',
+                overlaying: 'y',
+                side: 'right',
+                zeroline: true,
+                zerolinecolor: '#95a5a6',
+                zerolinewidth: 2
+            },
+            showlegend: true,
+            legend: {x: 0.01, y: 0.99}
+        };
+
+        Plotly.newPlot('cumulative-trends-chart', cumulativeTrendsData, cumulativeTrendsLayout, {responsive: true});
+        {% endif %}
+
+        {% if defect_velocity|length > 0 %}
+        // Daily Velocity Chart
+        var velocityData = [{
+            x: [{% for row in defect_velocity %}'{{ row.snapshot_date }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in defect_velocity %}{{ row.new_count }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'New Defects',
+            type: 'bar',
+            marker: {color: '#e74c3c'}
+        }, {
+            x: [{% for row in defect_velocity %}'{{ row.snapshot_date }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in defect_velocity %}{{ -row.fixed_count }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'Fixed Defects',
+            type: 'bar',
+            marker: {color: '#27ae60'}
+        }, {
+            x: [{% for row in defect_velocity %}'{{ row.snapshot_date }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in defect_velocity %}{{ row.fix_efficiency_pct }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'Fix Efficiency %',
+            type: 'scatter',
+            mode: 'lines+markers',
+            marker: {color: '#3498db', size: 8},
+            line: {width: 2},
+            yaxis: 'y2'
+        }];
+
+        var velocityLayout = {
+            title: 'Daily Defect Introduction vs Fix Velocity',
+            height: 450,
+            barmode: 'relative',
+            xaxis: {title: 'Date'},
+            yaxis: {title: 'Defect Count', zeroline: true},
+            yaxis2: {
+                title: 'Fix Efficiency %',
+                overlaying: 'y',
+                side: 'right',
+                range: [0, 100]
+            },
+            showlegend: true
+        };
+
+        Plotly.newPlot('velocity-chart', velocityData, velocityLayout, {responsive: true});
+        {% endif %}
+
+        {% if defect_aging|length > 0 %}
+        // Defect Aging Chart
+        var agingData = [{
+            x: [{% for row in defect_aging %}'{{ row.age_range }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in defect_aging %}{{ row.defect_count }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            type: 'bar',
+            marker: {
+                color: [{% for row in defect_aging %}'{{ '#e74c3c' if row.avg_age_days > 180 else '#f39c12' if row.avg_age_days > 90 else '#3498db' }}'{% if not loop.last %}, {% endif %}{% endfor %}]
+            },
+            text: [{% for row in defect_aging %}'{{ row.defect_count }} defects'{% if not loop.last %}, {% endif %}{% endfor %}],
+            textposition: 'auto'
+        }];
+
+        var agingLayout = {
+            title: 'Outstanding Defect Age Distribution',
+            height: 400,
+            xaxis: {title: 'Age Range'},
+            yaxis: {title: 'Number of Defects'},
+            showlegend: false
+        };
+
+        Plotly.newPlot('aging-chart', agingData, agingLayout, {responsive: true});
+        {% endif %}
+
+        {% if triage_trends|length > 0 %}
+        // Triage Trends Chart - Group by classification over time
+        var triageByDate = {};
+        {% for row in triage_trends %}
+        if (!triageByDate['{{ row.detected_date }}']) {
+            triageByDate['{{ row.detected_date }}'] = {};
+        }
+        triageByDate['{{ row.detected_date }}']['{{ row.classification }}'] = {{ row.count }};
+        {% endfor %}
+
+        var triageDates = Object.keys(triageByDate).sort();
+        var bugCounts = [];
+        var fpCounts = [];
+        var unclassifiedCounts = [];
+        var otherCounts = [];
+
+        triageDates.forEach(date => {
+            bugCounts.push(triageByDate[date]['Bug'] || 0);
+            fpCounts.push(triageByDate[date]['False Positive'] || 0);
+            unclassifiedCounts.push(triageByDate[date]['Unclassified'] || 0);
+            otherCounts.push((triageByDate[date]['Intentional'] || 0) + (triageByDate[date]['Ignore'] || 0));
+        });
+
+        var triageTrendsData = [{
+            x: triageDates,
+            y: bugCounts,
+            name: 'Bugs',
+            type: 'scatter',
+            mode: 'lines+markers',
+            stackgroup: 'one',
+            marker: {color: '#e74c3c'}
+        }, {
+            x: triageDates,
+            y: fpCounts,
+            name: 'False Positives',
+            type: 'scatter',
+            mode: 'lines+markers',
+            stackgroup: 'one',
+            marker: {color: '#27ae60'}
+        }, {
+            x: triageDates,
+            y: unclassifiedCounts,
+            name: 'Unclassified',
+            type: 'scatter',
+            mode: 'lines+markers',
+            stackgroup: 'one',
+            marker: {color: '#95a5a6'}
+        }, {
+            x: triageDates,
+            y: otherCounts,
+            name: 'Other',
+            type: 'scatter',
+            mode: 'lines+markers',
+            stackgroup: 'one',
+            marker: {color: '#3498db'}
+        }];
+
+        var triageTrendsLayout = {
+            title: 'Triage Activity Over Time',
+            height: 400,
+            xaxis: {title: 'Date'},
+            yaxis: {title: 'Defect Count'},
+            showlegend: true
+        };
+
+        Plotly.newPlot('triage-trends-chart', triageTrendsData, triageTrendsLayout, {responsive: true});
+        {% endif %}
+
+        // Table sorting functionality
+        let sortDirections = {};
+        
+        function sortTable(columnIndex, tableId, dataType) {
+            const table = document.getElementById(tableId);
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            
+            // Initialize sort direction for this column
+            const sortKey = tableId + '-' + columnIndex;
+            if (!sortDirections[sortKey]) {
+                sortDirections[sortKey] = 'asc';
+            }
+            
+            // Toggle sort direction
+            const isAscending = sortDirections[sortKey] === 'asc';
+            sortDirections[sortKey] = isAscending ? 'desc' : 'asc';
+            
+            rows.sort((a, b) => {
+                let aValue = a.cells[columnIndex].textContent.trim();
+                let bValue = b.cells[columnIndex].textContent.trim();
+                
+                // Handle different data types
+                if (dataType === 'number') {
+                    // Extract numbers from text (e.g., "42 min" -> 42)
+                    aValue = parseFloat(aValue.replace(/[^0-9.-]/g, '')) || 0;
+                    bValue = parseFloat(bValue.replace(/[^0-9.-]/g, '')) || 0;
+                    return isAscending ? aValue - bValue : bValue - aValue;
+                } else if (dataType === 'date') {
+                    aValue = new Date(aValue);
+                    bValue = new Date(bValue);
+                    return isAscending ? aValue - bValue : bValue - aValue;
+                } else {
+                    // Text comparison
+                    return isAscending ? 
+                        aValue.localeCompare(bValue) : 
+                        bValue.localeCompare(aValue);
+                }
+            });
+            
+            // Re-append sorted rows
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+        // Project filter functionality with datalist
+        const projectInput = document.getElementById('project-input');
+        const projectList = document.getElementById('project-list');
+        const projectDropdownBtn = document.getElementById('project-dropdown-btn');
+        
+        if (projectInput && projectList) {
+            // Build project map from datalist options
+            const projectMap = new Map();
+            Array.from(projectList.options).forEach(option => {
+                const projectName = option.value;
+                const url = option.getAttribute('data-url');
+                if (url) {
+                    projectMap.set(projectName, url);
+                }
+            });
+            
+            // Handle input change - navigate when a valid project is selected
+            let navigationTimeout;
+            projectInput.addEventListener('input', function() {
+                clearTimeout(navigationTimeout);
+                
+                const value = this.value.trim();
+                
+                // Check if the entered value matches a project
+                if (projectMap.has(value)) {
+                    navigationTimeout = setTimeout(() => {
+                        window.location.href = projectMap.get(value);
+                    }, 500); // Small delay to allow for further typing
+                }
+            });
+            
+            // Handle Enter key or blur to immediately navigate
+            projectInput.addEventListener('change', function() {
+                const value = this.value.trim();
+                if (projectMap.has(value)) {
+                    window.location.href = projectMap.get(value);
+                }
+            });
+            
+            // Show datalist when clicking dropdown button
+            if (projectDropdownBtn) {
+                projectDropdownBtn.addEventListener('click', function() {
+                    projectInput.focus();
+                    projectInput.click();
+                    // Trigger the dropdown by simulating user interaction
+                    projectInput.value = '';
+                    projectInput.dispatchEvent(new Event('input'));
+                });
+            }
+            
+            // Clear input on focus for easier searching
+            projectInput.addEventListener('focus', function() {
+                this.select();
+            });
+        }
+
+        // Tab switching functionality
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', function() {
+                const tabName = this.getAttribute('data-tab');
+                
+                // Hide all tab contents
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+                
+                // Remove active class from all buttons
+                document.querySelectorAll('.tab-button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                
+                // Show selected tab content
+                document.getElementById(tabName + '-tab').classList.add('active');
+                
+                // Add active class to clicked button
+                this.classList.add('active');
+            });
+        });
+    </script>
+</body>
+</html>
