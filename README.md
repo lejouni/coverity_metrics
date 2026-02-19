@@ -6,7 +6,44 @@ A Python-based project to generate comprehensive metrics from Coverity's Postgre
 
 This tool analyzes Coverity static analysis data stored in PostgreSQL and generates various metrics to help you understand code quality, defect trends, and development team activity.
 
+**Quick Start:**
+```bash
+# Install
+pip install -e .
+
+# Configure
+cp config.json.example config.json
+# Edit config.json with your database credentials
+
+# Generate interactive dashboard
+coverity-dashboard
+
+# View technical debt and security metrics
+# Check the "Trends & Progress" tab for technical debt estimation
+# Check the "OWASP Top 10" and "CWE Top 25" tabs (project-level) for security
+# Check the "Leaderboards" tab for team performance rankings
+```
+
+**What You Get:**
+- 📊 Interactive HTML dashboards with Plotly visualizations
+- 💰 Technical debt estimation (estimated hours/days to remediate)
+- 🔒 OWASP Top 10 2025 security compliance mapping
+- 🛡️ CWE Top 25 2025 dangerous weakness tracking
+- 🏆 Team and project leaderboards for gamification
+- 📈 Defect velocity and trend analysis
+- 🎯 File hotspots and complexity metrics
+- 👥 User activity and triage progress
+
 ## Features
+
+**🆕 Latest Enhancements (2025):**
+- **💰 Technical Debt Estimation**: Automated calculation of remediation effort (hours/days/weeks) based on defect severity
+- **🔒 OWASP Top 10 2025**: Map defects to the latest OWASP web application security risks using CWE codes
+- **🛡️ CWE Top 25 2025**: Track MITRE's most dangerous software weaknesses with industry rankings
+- **🏆 Competitive Leaderboards**: Rank projects and users by fix velocity, improvements, and triage activity
+- **📊 Enhanced Trends**: Defect velocity, cumulative trends, and fix-vs-introduction rate analysis
+
+---
 
 The tool provides the following metric categories:
 
@@ -33,20 +70,46 @@ The tool provides the following metric categories:
 - **Weekly Defect Trend**: Defect count trends over time
 - **Weekly File Count Trend**: Codebase growth tracking
 - **Snapshot History**: Analysis run history with defect changes
+- **Defect Velocity Trends**: Introduction vs fix rates over time
+- **Cumulative Trend Analysis**: Long-term defect accumulation patterns
+- **Technical Debt Estimation**: Hours/days/weeks to remediate all defects
+  - Based on defect impact levels (High=4h, Medium=2h, Low=1h, Unspecified=0.5h)
+  - Breakdown by severity with visual indicators
+  - Total person-weeks capacity needed
 
 ### 5. **User Activity Metrics**
 - **Login Statistics**: User engagement with the system
 - **Active Triagers**: Most active users in defect triage
 - **Session Analytics**: Average session duration per user
 
-### 6. **Performance Metrics** (NEW!)
+### 6. **Security Compliance Metrics** (NEW!)
+- **OWASP Top 10 2025**: Map defects to OWASP security categories
+  - CWE-based mapping to 10 critical web application security risks
+  - Severity breakdown (High/Medium/Low) per category
+  - Coverage analysis showing which OWASP categories affect your code
+  - Project-level security dashboards
+- **CWE Top 25 2025**: Track MITRE's Most Dangerous Software Weaknesses
+  - 25 ranked weaknesses based on real-world vulnerability data
+  - Defect counts mapped to specific CWE IDs
+  - Industry-standard danger scores and rankings
+  - Helps prioritize remediation by recognized danger levels
+
+### 7. **Competitive Leaderboards** (NEW!)
+- **Top Projects by Fix Rate**: Projects ranked by defect elimination velocity
+- **Most Improved Projects**: Projects with best defect reduction trends
+- **Top Projects by Triage Activity**: Most active triage engagement
+- **Top Fixers (Users)**: Developers who eliminated the most defects
+- **Top Triagers (Users)**: Most active users in defect classification
+- **Most Collaborative Users**: Users working across multiple projects
+
+### 8. **Performance Metrics**
 - **Database Statistics**: Database size and growth tracking
 - **Commit Performance**: Analysis duration (min/max/average times)
 - **Snapshot Performance**: Recent commit performance with queue times
 - **Defect Discovery Rate**: Daily/weekly defect discovery trends
 - **System Analytics**: Largest tables, resource utilization
 
-### 7. **Summary Metrics**
+### 9. **Summary Metrics**
 - Overall counts: projects, streams, defects, files, functions, LOC
 - High severity defect counts
 - Active user counts
@@ -128,13 +191,18 @@ cp config.json.example config.json
 The tool works with the following key Coverity database tables:
 
 - **defect**, **stream_defect**, **defect_instance** - Defect information
-- **checker**, **checker_properties** - Checker and severity data
+- **checker**, **checker_properties** - Checker and severity data (includes CWE codes)
 - **triage_state**, **defect_triage** - Triage information
 - **stream**, **stream_file**, **stream_function** - Code structure
-- **snapshot** - Analysis snapshots
+- **snapshot**, **snapshot_element** - Analysis snapshots and defect lifecycle
 - **project**, **project_stream** - Project organization
 - **users**, **user_login** - User activity
 - **weekly_issue_count**, **weekly_file_count** - Trend data
+- **dynamic_enum** - Classification, action, and severity enumerations
+
+**NEW - Security Metrics Support:**
+- **checker_properties.cwe** - CWE (Common Weakness Enumeration) codes used for OWASP Top 10 and CWE Top 25 mapping
+- **dynamic_enum** - Severity values (Major, Moderate, Minor, Unspecified) mapped to security risk levels
 
 ## Usage
 
@@ -378,6 +446,20 @@ all_categories = metrics.get_defects_by_checker_category(fetch_all=True)  # All 
 all_hotspots = metrics.get_file_hotspots(fetch_all=True)  # All files with defects
 all_snapshots = metrics.get_snapshot_history(fetch_all=True)  # All snapshot history
 
+# NEW! Technical Debt Estimation
+tech_debt = metrics.get_technical_debt_summary()
+print(f"Total effort: {tech_debt['total_hours']} hours ({tech_debt['total_days']} days)")
+print(f"High impact: {tech_debt['breakdown']['High']['hours']} hours")
+
+# NEW! Security Compliance Metrics
+owasp_metrics = metrics.get_owasp_top10_metrics()  # OWASP Top 10 2025
+cwe_metrics = metrics.get_cwe_top25_metrics()      # CWE Top 25 2025
+
+# NEW! Leaderboard Metrics
+top_fixers = metrics.get_top_users_by_fixes(days=30, limit=10)
+top_projects = metrics.get_top_projects_by_fix_rate(days=30, limit=10)
+improved_projects = metrics.get_most_improved_projects(days=90, limit=10)
+
 # Other methods with fetch_all support:
 # - get_defects_by_checker_name(limit=20, fetch_all=False)
 # - get_defects_by_owner(limit=20, fetch_all=False)
@@ -398,14 +480,36 @@ See [INSTALL.md](INSTALL.md) for detailed API examples.
 ### Dashboard Features
 - **Project Filtering**: View metrics for all projects or filter by specific project
 - **Project Navigation**: Easy navigation between project-specific dashboards
-- **Tabbed Interface**: Organized into Overview, Code Quality, and Performance tabs
-- Summary cards with key metrics
-- Interactive charts for severity distribution, project comparison
-- File hotspots with detailed tables
+- **Tabbed Interface**: Organized into multiple specialized views:
+  - **Overview**: Summary metrics, defect distribution, severity analysis
+  - **Code Quality**: Complexity metrics, hotspots, code coverage
+  - **Performance & Analytics**: Database stats, commit performance
+  - **Trends & Progress**: Velocity trends, triage progress, **technical debt estimation**
+  - **Leaderboards**: 🏆 Competitive rankings (projects, users, fixers, triagers)
+  - **OWASP Top 10**: 🔒 Security compliance (project-level only)
+  - **CWE Top 25**: 🛡️ Dangerous weakness tracking (project-level only)
+- Summary cards with key metrics and visual indicators
+- Interactive Plotly charts for severity distribution, project comparison
+- File hotspots with detailed tables and defects per KLOC
 - Code quality metrics visualization
 - Function complexity distribution
 - Top defect checkers and categories
-- **Performance metrics** (NEW!):
+- **Technical Debt Metrics** (NEW!):
+  - Total estimated hours/days/weeks to fix all defects
+  - Breakdown by impact level (High/Medium/Low/Unspecified)
+  - Industry-standard effort estimates per severity
+  - Visual cards with color-coded severity indicators
+- **Security Compliance** (NEW!):
+  - OWASP Top 10 2025 categories with CWE mappings
+  - CWE Top 25 2025 most dangerous weaknesses
+  - Severity breakdown per category/weakness
+  - Project-level security dashboards only
+- **Leaderboard Rankings** (NEW!):
+  - Top 10 projects by fix velocity, improvement, triage activity
+  - Top 10 users by actual fixes (code eliminations)
+  - Top 10 triagers by classification activity
+  - Most collaborative users across projects
+- **Performance metrics**:
   - Database size and statistics
   - Commit/analysis performance (min/max/average times)
   - Recent snapshot performance with queue times
@@ -614,6 +718,22 @@ All methods return pandas DataFrames for easy manipulation:
 - `get_defect_trend_weekly(weeks=12)`
 - `get_file_count_trend_weekly(weeks=12)`
 - `get_snapshot_history(stream_name=None, limit=20, fetch_all=False)`
+- `get_defect_velocity_trend(days=90)` - NEW! Introduction vs fix rates
+- `get_cumulative_defect_trend(days=90)` - NEW! Long-term accumulation
+- `get_defect_trend_summary(days=90)` - NEW! Velocity metrics and trend direction
+- `get_technical_debt_summary()` - NEW! Estimated remediation effort
+
+**Security Compliance Metrics:**
+- `get_owasp_top10_metrics()` - NEW! OWASP Top 10 2025 category mapping
+- `get_cwe_top25_metrics()` - NEW! CWE Top 25 2025 dangerous weaknesses
+
+**Leaderboard Metrics:**
+- `get_top_projects_by_fix_rate(days=30, limit=10)` - NEW! Projects by fix velocity
+- `get_most_improved_projects(days=90, limit=10)` - NEW! Best improvement trends
+- `get_top_projects_by_triage_activity(days=30, limit=10)` - NEW! Most active triage
+- `get_top_users_by_fixes(days=30, limit=10)` - NEW! Users by actual code fixes
+- `get_top_triagers(days=30, limit=10)` - NEW! Most active triagers
+- `get_most_collaborative_users(days=30, limit=10)` - NEW! Cross-project activity
 
 **User Activity:**
 - `get_user_login_statistics(days=30)`
@@ -644,6 +764,8 @@ All methods return pandas DataFrames for easy manipulation:
 3. **Defect Density by Project** - Quality comparison across projects
 4. **Weekly Defect Trend** - Progress over time
 5. **Defects by Triage Status** - Workload and backlog
+6. **Technical Debt Summary** - NEW! Estimated remediation effort
+7. **Top Projects by Fix Rate** - NEW! Team performance ranking
 
 ### For Development Teams:
 1. **File Hotspots** - Identify problematic files
@@ -651,6 +773,8 @@ All methods return pandas DataFrames for easy manipulation:
 3. **Defects by Category** - Common error patterns
 4. **Defects by Owner** - Individual workload
 5. **Snapshot History** - Analysis run results
+6. **Top Fixers** - NEW! Recognize high performers
+7. **CWE Top 25** - NEW! Focus on dangerous weaknesses
 
 ### For Quality Assurance:
 1. **Defects by Checker** - Tool effectiveness
@@ -658,29 +782,58 @@ All methods return pandas DataFrames for easy manipulation:
 3. **Code Metrics by Stream** - Code coverage
 4. **Function Complexity** - Code maintainability
 5. **Defect Density** - Quality benchmarks
+6. **Technical Debt Summary** - NEW! Remediation planning
+
+### For Security Teams:
+1. **OWASP Top 10 Metrics** - NEW! Web application security risks
+2. **CWE Top 25 Metrics** - NEW! Most dangerous weaknesses
+3. **Defects by Severity** - Critical vulnerability counts
+4. **Security Category Defects** - Security-specific findings
+5. **Technical Debt (High Severity)** - NEW! Security fix effort estimation
 
 ### For Team Leads:
 1. **Active Triagers** - Team engagement
 2. **Defects by Owner** - Work distribution
 3. **User Login Statistics** - Tool adoption
 4. **Weekly Trends** - Team velocity
+5. **Top Fixers and Triagers** - NEW! Team performance metrics
+6. **Most Improved Projects** - NEW! Progress recognition
 
 ## Project Structure
 
 ```
 coverity_metrics/
-├── config.json            # Database configuration (create from config.json.example)
-├── config.json.example    # Configuration template
-├── db_connection.py       # Database connection handling
-├── metrics.py             # Metrics calculation logic
+├── config.json                # Database configuration (create from config.json.example)
+├── config.json.example        # Configuration template
+├── __init__.py                # Package initialization
+├── __version__.py             # Version information
+├── db_connection.py           # Database connection handling
+├── metrics.py                 # Core metrics calculation logic
+├── metrics_cache.py           # Caching implementation for performance
 ├── multi_instance_metrics.py  # Multi-instance support
-├── generate_dashboard.py  # Dashboard generator (main entry point)
-├── main.py                # CLI metrics report
-├── export_metrics.py      # CSV export utility
-├── requirements.txt       # Python dependencies
-├── templates/             # HTML dashboard templates
-├── static/                # CSS/JS assets
-└── README.md             # This file
+├── owasp_mapping.py           # NEW! OWASP Top 10 2025 CWE mappings (494 CWEs)
+├── cwe_top25_mapping.py       # NEW! CWE Top 25 2025 rankings and scores
+├── cli/
+│   ├── dashboard.py           # Dashboard generator (main CLI)
+│   ├── report.py              # CLI metrics report
+│   └── export.py              # CSV export utility
+├── templates/                 # HTML dashboard templates
+│   └── dashboard.html         # Main dashboard template with all tabs
+├── static/                    # CSS/JS assets for dashboards
+│   ├── css/
+│   └── js/
+├── cache/                     # Cache directory (auto-created)
+├── output/                    # Generated dashboards (auto-created)
+├── exports/                   # CSV exports (auto-created)
+├── requirements.txt           # Python dependencies
+├── setup.py                   # Package setup
+├── pyproject.toml             # Modern Python packaging
+├── README.md                  # This file
+├── INSTALL.md                 # Detailed installation guide
+├── USAGE_GUIDE.md             # Comprehensive usage examples
+├── MULTI_INSTANCE_GUIDE.md    # Multi-instance setup and usage
+├── CACHING_GUIDE.md           # Performance optimization guide
+└── RELEASE_NOTES.md           # Version history and changelog
 ```
 
 ## Extending the Tool

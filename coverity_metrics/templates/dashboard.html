@@ -192,6 +192,9 @@
                 {% if current_project and owasp_metrics %}
                 <button class="tab-button" data-tab="owasp">🔒 OWASP Top 10</button>
                 {% endif %}
+                {% if current_project and cwe_top25_metrics %}
+                <button class="tab-button" data-tab="cwe-top25">🛡️ CWE Top 25</button>
+                {% endif %}
             </div>
         </div>
 
@@ -584,6 +587,72 @@
                     <div class="label">Action Assigned</div>
                     <div class="value">{{ triage_summary.action_assigned_count }}</div>
                 </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Technical Debt Summary -->
+        {% if tech_debt_summary and tech_debt_summary.total_defects > 0 %}
+        <div class="section">
+            <h2 class="section-title">💰 Estimated Technical Debt</h2>
+            <p style="margin-bottom: 1.5rem; color: var(--text-color); opacity: 0.8;">
+                Estimated effort required to remediate all outstanding defects based on impact levels.
+                <strong>Formula:</strong> High (4h), Medium (2h), Low (1h), Unspecified (0.5h)
+            </p>
+            
+            <div class="summary-grid" style="margin-bottom: 2rem;">
+                <div class="summary-card warning">
+                    <div class="label">Total Estimated Hours</div>
+                    <div class="value" style="font-size: 2.5rem;">{{ tech_debt_summary.total_hours }}</div>
+                </div>
+                <div class="summary-card info">
+                    <div class="label">Work Days (8h/day)</div>
+                    <div class="value" style="font-size: 2.5rem;">{{ tech_debt_summary.total_days }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Work Weeks (5d/wk)</div>
+                    <div class="value" style="font-size: 2.5rem;">{{ tech_debt_summary.total_weeks }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Avg Hours/Defect</div>
+                    <div class="value" style="font-size: 2.5rem;">{{ tech_debt_summary.avg_hours_per_defect }}</div>
+                </div>
+            </div>
+
+            <div class="grid-2col" style="margin-bottom: 1rem;">
+                <div class="summary-card {% if tech_debt_summary.breakdown.High.defects > 0 %}danger{% endif %}">
+                    <div class="label">🔴 High Impact Debt</div>
+                    <div class="value">
+                        {{ tech_debt_summary.breakdown.High.defects }} defects
+                        <span style="font-size: 1rem; opacity: 0.8;">({{ tech_debt_summary.breakdown.High.hours }}h)</span>
+                    </div>
+                </div>
+                <div class="summary-card {% if tech_debt_summary.breakdown.Medium.defects > 0 %}warning{% endif %}">
+                    <div class="label">🟡 Medium Impact Debt</div>
+                    <div class="value">
+                        {{ tech_debt_summary.breakdown.Medium.defects }} defects
+                        <span style="font-size: 1rem; opacity: 0.8;">({{ tech_debt_summary.breakdown.Medium.hours }}h)</span>
+                    </div>
+                </div>
+                <div class="summary-card {% if tech_debt_summary.breakdown.Low.defects > 0 %}success{% endif %}">
+                    <div class="label">🟢 Low Impact Debt</div>
+                    <div class="value">
+                        {{ tech_debt_summary.breakdown.Low.defects }} defects
+                        <span style="font-size: 1rem; opacity: 0.8;">({{ tech_debt_summary.breakdown.Low.hours }}h)</span>
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">⚪ Unspecified Impact Debt</div>
+                    <div class="value">
+                        {{ tech_debt_summary.breakdown.Unspecified.defects }} defects
+                        <span style="font-size: 1rem; opacity: 0.8;">({{ tech_debt_summary.breakdown.Unspecified.hours }}h)</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="alert alert-info">
+                <strong>💡 Note:</strong> These estimates are based on industry-standard effort levels per defect impact. 
+                Actual remediation time may vary based on code complexity, team experience, and defect context.
             </div>
         </div>
         {% endif %}
@@ -1463,6 +1532,119 @@
         
         </div>
         <!-- End OWASP Tab -->
+        {% endif %}
+
+        <!-- CWE Top 25 2025 Tab (Project-level only) -->
+        {% if current_project and cwe_top25_metrics %}
+        <div id="cwe-top25-tab" class="tab-content">
+        
+        <div class="section">
+            <h2 class="section-title">🛡️ CWE Top 25 Most Dangerous Software Weaknesses (2025)</h2>
+            <p style="margin-bottom: 2rem; color: var(--text-color); opacity: 0.8;">
+                Defects mapped to MITRE's CWE Top 25 list - the most widespread and critical software weaknesses.
+                Rankings are based on real-world vulnerability data and help prioritize remediation by industry-recognized danger level.
+            </p>
+            
+            <div class="alert alert-warning">
+                <strong>🎯 Security Focus:</strong> {{ cwe_top25_metrics|length }} CWE Top 25 weaknesses detected in this project.
+            </div>
+            
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="width: 6%;">Rank</th>
+                        <th style="width: 10%;">CWE ID</th>
+                        <th style="width: 32%;">Weakness Name</th>
+                        <th style="text-align: center; width: 8%;">Score</th>
+                        <th style="text-align: center; width: 8%;">Total</th>
+                        <th style="text-align: center; width: 9%;">🔴 High</th>
+                        <th style="text-align: center; width: 9%;">🟡 Med</th>
+                        <th style="text-align: center; width: 9%;">🟢 Low</th>
+                        <th style="text-align: center; width: 9%;">⚪ Unsp</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in cwe_top25_metrics %}
+                    <tr>
+                        <td style="text-align: center;">
+                            <span class="severity-badge {% if item.rank <= 5 %}severity-high{% elif item.rank <= 15 %}severity-medium{% else %}severity-low{% endif %}" style="font-weight: 600;">
+                                #{{ item.rank }}
+                            </span>
+                        </td>
+                        <td style="font-weight: 600; color: var(--primary-color);">
+                            CWE-{{ item.cwe_id }}
+                        </td>
+                        <td>
+                            <div style="font-size: 0.95rem;">{{ item.name }}</div>
+                        </td>
+                        <td style="text-align: center; font-size: 0.9rem; opacity: 0.8;">
+                            {{ "%.2f"|format(item.score) }}
+                        </td>
+                        <td style="text-align: center; font-weight: 600; font-size: 1.1rem; color: var(--danger-color);">
+                            {{ item.total_defects }}
+                        </td>
+                        <td style="text-align: center;">
+                            {% if item.high > 0 %}
+                            <span class="severity-badge severity-high">{{ item.high }}</span>
+                            {% else %}
+                            <span style="opacity: 0.3;">-</span>
+                            {% endif %}
+                        </td>
+                        <td style="text-align: center;">
+                            {% if item.medium > 0 %}
+                            <span class="severity-badge severity-medium">{{ item.medium }}</span>
+                            {% else %}
+                            <span style="opacity: 0.3;">-</span>
+                            {% endif %}
+                        </td>
+                        <td style="text-align: center;">
+                            {% if item.low > 0 %}
+                            <span class="severity-badge severity-low">{{ item.low }}</span>
+                            {% else %}
+                            <span style="opacity: 0.3;">-</span>
+                            {% endif %}
+                        </td>
+                        <td style="text-align: center;">
+                            {% if item.unspecified > 0 %}
+                            <span style="color: var(--text-color); opacity: 0.6;">{{ item.unspecified }}</span>
+                            {% else %}
+                            <span style="opacity: 0.3;">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            
+            <div class="grid-2col" style="margin-top: 2rem;">
+                <div class="summary-card info">
+                    <div class="label">Total CWE Top 25 Defects</div>
+                    <div class="value">{{ cwe_top25_metrics|sum(attribute='total_defects') }}</div>
+                </div>
+                <div class="summary-card warning">
+                    <div class="label">High Severity CWE Issues</div>
+                    <div class="value">{{ cwe_top25_metrics|sum(attribute='high') }}</div>
+                </div>
+            </div>
+            
+            <div class="alert alert-info" style="margin-top: 2rem;">
+                <strong>📚 About CWE Top 25 2025:</strong>
+                <p style="margin: 0.5rem 0 0 0;">
+                    The CWE Top 25 Most Dangerous Software Weaknesses is a demonstrative list of the most widespread and critical weaknesses 
+                    that can lead to serious vulnerabilities in software. Compiled by MITRE using real-world vulnerability data from the 
+                    National Vulnerability Database (NVD), this list helps developers and security teams prioritize their remediation efforts.
+                </p>
+                <ul style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
+                    <li><strong>Rank:</strong> Position in MITRE's CWE Top 25 list (1-25, lower rank = more dangerous)</li>
+                    <li><strong>Score:</strong> MITRE's calculated danger score based on prevalence and impact</li>
+                    <li><strong>Total:</strong> Number of outstanding defects for this specific CWE in your project</li>
+                    <li><strong>Coverage:</strong> This table shows only CWE Top 25 entries found in your project ({{ cwe_top25_metrics|length }}/25)</li>
+                </ul>
+            </div>
+        </div>
+        
+        </div>
+        <!-- End CWE Top 25 Tab -->
         {% endif %}
 
     </div>

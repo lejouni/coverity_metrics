@@ -1,5 +1,6 @@
 # Top Fixers Metric - Fix Documentation
 
+
 ## Problem Identified
 The "Top Fixers" leaderboard was counting **triage actions** instead of **actual code fixes**.
 

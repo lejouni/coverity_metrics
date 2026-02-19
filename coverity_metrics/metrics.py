@@ -1528,6 +1528,89 @@ class CoverityMetrics:
             result = self.db.execute_query_dict(query)
         return result[0] if result else {}
     
+    def get_technical_debt_summary(self):
+        """Calculate estimated technical debt based on defect impact levels
+        
+        Estimation formula:
+        - High impact: 4 hours per defect
+        - Medium impact: 2 hours per defect  
+        - Low impact: 1 hour per defect
+        - Unspecified: 0.5 hours per defect
+        
+        Returns:
+            dict: Technical debt statistics including total hours, days, and breakdown by impact
+        """
+        query = """
+            SELECT 
+                cp.impact,
+                COUNT(DISTINCT sd.id) as defect_count,
+                CASE cp.impact
+                    WHEN 'High' THEN COUNT(DISTINCT sd.id) * 4    
+                    WHEN 'Medium' THEN COUNT(DISTINCT sd.id) * 2  
+                    WHEN 'Low' THEN COUNT(DISTINCT sd.id) * 1     
+                    ELSE COUNT(DISTINCT sd.id) * 0.5
+                END as estimated_hours
+            FROM stream_defect sd
+            JOIN checker_properties cp ON sd.checker_properties_id = cp.id
+            JOIN stream_element se ON sd.stream_element_id = se.id
+            JOIN stream s ON se.stream_id = s.id
+            {project_filter_join}
+            WHERE sd.fixed_snapshot_element_id IS NULL
+                {project_filter}
+            GROUP BY cp.impact
+            ORDER BY 
+                CASE cp.impact
+                    WHEN 'High' THEN 1
+                    WHEN 'Medium' THEN 2
+                    WHEN 'Low' THEN 3
+                    ELSE 4
+                END
+        """
+        
+        if self.project_name:
+            query = query.format(
+                project_filter_join="""
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
+                project_filter="AND p.name = %s"
+            )
+            results = self.db.execute_query_dict(query, (self.project_name,))
+        else:
+            query = query.format(
+                project_filter_join="",
+                project_filter=""
+            )
+            results = self.db.execute_query_dict(query)
+        
+        # Calculate totals
+        total_hours = float(sum(row['estimated_hours'] for row in results))
+        total_days = total_hours / 8.0  # 8-hour work days
+        total_weeks = total_days / 5.0  # 5-day work weeks
+        total_defects = sum(row['defect_count'] for row in results)
+        
+        # Build breakdown by impact
+        breakdown = {
+            'High': {'defects': 0, 'hours': 0},
+            'Medium': {'defects': 0, 'hours': 0},
+            'Low': {'defects': 0, 'hours': 0},
+            'Unspecified': {'defects': 0, 'hours': 0}
+        }
+        
+        for row in results:
+            impact = row['impact'] if row['impact'] in breakdown else 'Unspecified'
+            breakdown[impact]['defects'] = row['defect_count']
+            breakdown[impact]['hours'] = float(row['estimated_hours'])
+        
+        return {
+            'total_hours': round(total_hours, 1),
+            'total_days': round(total_days, 1),
+            'total_weeks': round(total_weeks, 1),
+            'total_defects': total_defects,
+            'breakdown': breakdown,
+            'avg_hours_per_defect': round(total_hours / total_defects, 2) if total_defects > 0 else 0
+        }
+    
     # ========== COMPETITIVE LEADERBOARDS ==========
     
     def get_top_projects_by_fix_rate(self, days=30, limit=10):
@@ -2063,5 +2146,113 @@ class CoverityMetrics:
         df = pd.DataFrame(df_data)
         # Sort by total defects descending
         df = df.sort_values('total_defects', ascending=False)
+        return df
+    
+    def get_cwe_top25_metrics(self):
+        """Get defect counts for CWE Top 25 Most Dangerous Software Weaknesses (2024)
+        
+        Only available for project-level dashboards.
+        Shows defects that match CWE Top 25 entries with severity breakdown.
+        
+        Returns:
+            pandas.DataFrame: CWE Top 25 entries with defect counts and severity breakdown
+        """
+        if not self.project_name:
+            # CWE Top 25 tab only for project-level dashboards
+            return pd.DataFrame()
+        
+        from .cwe_top25_mapping import CWE_TOP_25_2025
+        
+        # Build set of Top 25 CWE IDs
+        top25_cwe_ids = {data['cwe_id'] for data in CWE_TOP_25_2025.values()}
+        
+        query = """
+            SELECT 
+                cp.cwe,
+                de.name as severity,
+                COUNT(DISTINCT sd.id) as defect_count
+            FROM stream_defect sd
+            JOIN stream_element se ON sd.stream_element_id = se.id
+            JOIN stream s ON se.stream_id = s.id
+            JOIN project_stream ps ON s.id = ps.stream_id
+            JOIN project p ON ps.project_id = p.id
+            JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+            LEFT JOIN checker_properties cp ON sd.checker_properties_id = cp.id
+            LEFT JOIN dynamic_enum de ON dt.current_severity_id = de.id
+            WHERE p.name = %s
+                AND cp.cwe IS NOT NULL
+                AND sd.fixed_snapshot_element_id IS NULL  -- Only outstanding defects
+            GROUP BY cp.cwe, de.name
+            ORDER BY cp.cwe, de.name
+        """
+        
+        results = self.db.execute_query_dict(query, (self.project_name,))
+        
+        # Aggregate by CWE
+        cwe_data = {}
+        for row in results:
+            cwe_id = row['cwe']
+            if cwe_id not in top25_cwe_ids:
+                continue  # CWE not in Top 25
+            
+            if cwe_id not in cwe_data:
+                # Get CWE Top 25 info
+                cwe_info = None
+                for rank, data in CWE_TOP_25_2025.items():
+                    if data['cwe_id'] == cwe_id:
+                        cwe_info = data
+                        break
+                
+                if not cwe_info:
+                    continue
+                
+                cwe_data[cwe_id] = {
+                    'rank': cwe_info['rank'],
+                    'cwe_id': cwe_id,
+                    'name': cwe_info['name'],
+                    'score': cwe_info['score'],
+                    'total_defects': 0,
+                    'high': 0,
+                    'medium': 0,
+                    'low': 0,
+                    'unspecified': 0
+                }
+            
+            severity = row.get('severity', 'Unspecified') or 'Unspecified'
+            count = row['defect_count']
+            
+            cwe_data[cwe_id]['total_defects'] += count
+            
+            # Coverity severity mapping: Major=High, Moderate=Medium, Minor=Low
+            if severity == 'Major':
+                cwe_data[cwe_id]['high'] += count
+            elif severity == 'Moderate':
+                cwe_data[cwe_id]['medium'] += count
+            elif severity == 'Minor':
+                cwe_data[cwe_id]['low'] += count
+            else:
+                cwe_data[cwe_id]['unspecified'] += count
+        
+        # Convert to DataFrame
+        if not cwe_data:
+            return pd.DataFrame()
+        
+        df_data = []
+        for cwe_id, data in cwe_data.items():
+            df_data.append({
+                'rank': data['rank'],
+                'cwe_id': data['cwe_id'],
+                'name': data['name'],
+                'score': data['score'],
+                'total_defects': data['total_defects'],
+                'high': data['high'],
+                'medium': data['medium'],
+                'low': data['low'],
+                'unspecified': data['unspecified']
+            })
+        
+        df = pd.DataFrame(df_data)
+        # Sort by rank (ascending - most dangerous first)
+        df = df.sort_values('rank', ascending=True)
         return df
 

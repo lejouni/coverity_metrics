@@ -214,6 +214,9 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         cumulative_trends = metrics.get_cumulative_defect_trend(days=days).to_dict('records')
         trend_summary = metrics.get_defect_trend_summary(days=days)
         
+        # Collect technical debt summary
+        tech_debt_summary = metrics.get_technical_debt_summary()
+        
         # Collect leaderboard data (now using triage_state table for user metrics)
         top_projects_by_fix_rate = metrics.get_top_projects_by_fix_rate(days=30, limit=10).to_dict('records')
         most_improved_projects = metrics.get_most_improved_projects(days=90, limit=10).to_dict('records')
@@ -224,6 +227,9 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         
         # Collect OWASP Top 10 2025 metrics (project-level only)
         owasp_metrics = metrics.get_owasp_top10_metrics().to_dict('records') if project_name else []
+        
+        # Collect CWE Top 25 2024 metrics (project-level only)
+        cwe_top25_metrics = metrics.get_cwe_top25_metrics().to_dict('records') if project_name else []
         
         # Calculate actual date range from trend data
         trend_period_text = f"Last {days} Days"
@@ -285,6 +291,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         defect_velocity=defect_velocity,
         cumulative_trends=cumulative_trends,
         trend_summary=trend_summary,
+        tech_debt_summary=tech_debt_summary,
         trend_period_text=trend_period_text,
         user_activity_stats=user_activity_stats,
         # Leaderboards
@@ -295,7 +302,9 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         top_triagers=top_triagers,
         most_collaborative_users=most_collaborative_users,
         # OWASP Top 10 2025 (project-level only)
-        owasp_metrics=owasp_metrics
+        owasp_metrics=owasp_metrics,
+        # CWE Top 25 2024 (project-level only)
+        cwe_top25_metrics=cwe_top25_metrics
     )
     
     # Ensure output directory exists
