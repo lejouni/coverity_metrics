@@ -2,6 +2,73 @@
 
 ## Version History
 
+### Version 1.0.4 - 2026-02-19
+
+**Progress Tracking & User Experience Update**
+
+#### New Features
+- **Comprehensive Progress Tracking for Multi-Instance Dashboards**
+  - Added tqdm-based progress bars for all multi-instance dashboard generation workflows
+  - Real-time visibility into long-running operations (10+ instances with hundreds of projects)
+  - Pre-calculates total work items before execution (1 aggregated + N instances + M projects)
+  - Dynamic progress descriptions showing current instance and project being processed
+  - Automatic time estimation (elapsed time, remaining time, completion ETA)
+  - Processing speed metrics (dashboards/second)
+  
+- **Three Progress Tracking Scenarios**
+  - **Specific Instance + All Projects**: Shows "1 instance + N projects" with project counter
+  - **All Instances + Specific Project**: Shows "Instance X/Y: {name}" for each instance
+  - **Full Auto Mode (All Instances + All Projects)**: Overall progress bar tracking all dashboard types
+    - Pre-flight calculation displays: "1 aggregated + N instances + M projects"
+    - Single unified progress bar showing completion across all work
+    - Postfix strings display current item: "{project} (X/Y)"
+
+- **Commit Activity Patterns Analysis**
+  - Added `get_commit_activity_patterns()` method to analyze when commits occur
+  - Groups commits by hour of day (0-23) and day of week (0-6, Sunday-Saturday)
+  - Creates 3-hour time blocks: 00-02, 03-05, 06-08, 09-11, 12-14, 15-17, 18-20, 21-23
+  - Identifies busiest and quietest 3-hour windows with commit counts and statistics
+  - Identifies busiest and quietest days of the week
+  - Calculates average duration, files changed, and new defects per commit window
+  - Multi-instance aggregation support with `get_aggregated_commit_activity()`
+  - Integrated into both single-instance and aggregated dashboards
+  - Display format: "14:00-16:00 (2 PM - 4 PM)" with 12-hour AM/PM conversion
+
+#### User Experience Improvements
+- Progress bars provide immediate feedback for operations that previously showed blank screen
+- Users can see exactly how many dashboards will be generated before work begins
+- Clear visibility into which instance and project is currently being processed
+- Professional enterprise-grade experience for large multi-instance deployments
+- Accurate completion percentage and time estimates help users plan their workflow
+
+#### Technical Details
+- **Files modified**: `dashboard.py` (lines 665-775), `metrics.py` (lines 1082-1210), `multi_instance_metrics.py` (lines 296-424)
+- **Progress tracking implementation**:
+  - Lines 665-686: Specific instance + all projects mode with total calculation
+  - Lines 688-704: All instances + specific project mode with instance counter
+  - Lines 706-775: Full auto mode with comprehensive work calculation and overall progress bar
+- **Example output**:
+  ```
+  Calculating total work for progress tracking...
+    Total dashboards to generate: 47
+    - 1 aggregated dashboard
+    - 10 instance dashboards
+    - 36 project dashboards
+  
+  Overall Progress: 23/47 [=========>...] 48% [04:36<04:48, 12.0s/dashboard]
+  Instance 5/10: Staging projects
+  project_alpha (3/8)
+  ```
+- **Commit activity patterns**:
+  - SQL queries use `EXTRACT(HOUR FROM sn.date_created)` and `EXTRACT(DOW FROM sn.date_created)`
+  - Qualified column names with table alias (sn.date_created) to avoid ambiguous references
+  - 3-hour block aggregation with weighted averages for statistics
+  - Returns: busiest_hours, quietest_hours, busiest_day, quietest_day with commit counts
+
+#### Bug Fixes
+- Fixed SQL ambiguous column error in commit activity queries by qualifying all column references
+- Progress bars now use `tqdm.write()` for clean output without interfering with progress display
+
 ### Version 1.0.3 - 2026-02-19
 
 **Security & Technical Debt Update**

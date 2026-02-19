@@ -5,6 +5,104 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-02-19
+
+### Added
+- **Comprehensive Progress Tracking for Multi-Instance Dashboards**
+  - Implemented tqdm-based progress bars for all multi-instance dashboard generation workflows
+  - Pre-calculates total work items (1 aggregated + N instances + M projects) before execution
+  - Real-time progress updates with completion percentage, elapsed time, and ETA
+  - Dynamic descriptions showing current instance and project being processed
+  - Processing speed metrics (e.g., "12.0s/dashboard")
+  - Three tracking scenarios:
+    1. **Specific Instance + All Projects**: Total calculation shows "1 instance + N projects"
+       - Progress bar updates for instance overview + each project
+       - Description format: "{instance} - {project}"
+       - Postfix shows project counter: "X/Y"
+    2. **All Instances + Specific Project**: Shows "Instance X/Y: {name}" 
+       - One progress update per instance processed
+    3. **All Instances + All Projects (Full Auto)**:
+       - Displays pre-flight breakdown: "1 aggregated + N instances + M projects"
+       - Single overall progress bar tracking all dashboard types
+       - Dynamic descriptions for each phase: aggregated → instances → projects
+       - Postfix strings: "{project} (X/Y)" showing current item within instance
+  - Example output:
+    ```
+    Total dashboards to generate: 47
+    - 1 aggregated dashboard
+    - 10 instance dashboards  
+    - 36 project dashboards
+    
+    Overall Progress: 23/47 [=========>...] 48% [04:36<04:48, 12.0s/dashboard]
+    Instance 5/10: Staging projects
+    project_alpha (3/8)
+    ```
+
+- **Commit Activity Patterns Analysis**
+  - New `get_commit_activity_patterns()` method in `CoverityMetrics` class (lines 1082-1210)
+  - Analyzes temporal patterns in commit behavior by hour and day of week
+  - Groups commits into 3-hour time blocks:
+    - 00:00-02:00, 03:00-05:00, 06:00-08:00, 09:00-11:00
+    - 12:00-14:00, 15:00-17:00, 18:00-20:00, 21:00-23:00
+  - Identifies busiest and quietest 3-hour windows with:
+    - Commit counts
+    - Average commit duration (seconds)
+    - Average files changed per commit
+    - Average new defects introduced per commit
+  - Identifies busiest and quietest days of week (Sunday-Saturday)
+  - SQL implementation:
+    - Uses `EXTRACT(HOUR FROM sn.date_created)` for hourly grouping
+    - Uses `EXTRACT(DOW FROM sn.date_created)` for day-of-week grouping (0=Sunday)
+    - Qualified column names (sn.date_created, sn.duration_commit_total) to avoid ambiguity
+    - Aggregates with COUNT, AVG, SUM for comprehensive statistics
+  - Multi-instance aggregation support:
+    - New `get_aggregated_commit_activity()` in `MultiInstanceMetrics` (lines 296-424)
+    - Combines commit data across all instances using defaultdict
+    - Weighted averages for duration and statistics
+    - Same output structure as single-instance for template compatibility
+  - Display format: "14:00-16:00 (2 PM - 4 PM)" with 12-hour AM/PM conversion
+  - Integrated into dashboards:
+    - Single-instance: `dashboard.html` lines 1063-1121
+    - Aggregated: `dashboard_aggregated.html` lines 549-607
+  - Dashboard displays 4 summary cards:
+    - Busiest 3-Hour Window (info color)
+    - Quietest 3-Hour Window (default color)
+    - Busiest Day (success color)
+    - Quietest Day (default color)
+
+### Changed
+- **Dashboard Generation User Experience**
+  - All multi-instance workflows now show detailed progress instead of blank screen
+  - Users receive upfront information about total work before generation starts
+  - Progress bars use `tqdm.write()` for clean console output
+  - Context manager pattern ensures progress bars close properly
+  - `dashboard.py` lines 665-775 refactored for comprehensive progress tracking
+
+- **Console Output Improvements**
+  - Replaced `print()` statements with `tqdm.write()` throughout `dashboard.py`
+  - Prevents progress bar corruption from concurrent output
+  - Professional-looking output for enterprise deployments
+
+### Fixed
+- **SQL Ambiguous Column References**
+  - Fixed "column reference 'date_created' is ambiguous" error in commit activity queries
+  - All columns now properly qualified with table alias (e.g., `sn.date_created`)
+  - Affects queries in `get_commit_activity_patterns()` method
+
+### Technical Details
+- **Modified files**:
+  - `coverity_metrics/cli/dashboard.py` (lines 665-775): Progress tracking implementation
+  - `coverity_metrics/metrics.py` (lines 1082-1210): Commit activity patterns method
+  - `coverity_metrics/multi_instance_metrics.py` (lines 296-424): Aggregated commit activity
+  - `coverity_metrics/templates/dashboard.html` (lines 1063-1121): Commit activity display
+  - `coverity_metrics/templates/dashboard_aggregated.html` (lines 549-607): Aggregated display
+
+- **API signatures**:
+  - `CoverityMetrics.get_commit_activity_patterns() -> dict`
+    - Returns: `{'busiest_hours': {...}, 'quietest_hours': {...}, 'busiest_day': {...}, 'quietest_day': {...}}`
+  - `MultiInstanceMetrics.get_aggregated_commit_activity() -> dict`
+    - Same structure as single-instance for consistent template rendering
+
 ## [1.0.3] - 2026-02-19
 
 ### Added

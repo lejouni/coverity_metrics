@@ -293,6 +293,192 @@ class MultiInstanceMetrics:
             bytes_size /= 1024.0
         return f"{bytes_size:.1f} PB"
     
+    def get_aggregated_commit_activity(self) -> dict:
+        """Get aggregated commit activity patterns across all instances
+        
+        Combines commit activity data from all instances to show overall
+        busiest and quietest times for commits/snapshots.
+        
+        Returns:
+            dict: Aggregated activity patterns with busiest/quietest times
+        """
+        from collections import defaultdict
+        
+        # Aggregate by hour (0-23)
+        hour_data = defaultdict(lambda: {
+            'commit_count': 0,
+            'total_duration': 0,
+            'total_files': 0,
+            'total_new_defects': 0,
+            'instance_count': 0
+        })
+        
+        # Aggregate by day of week (0-6)
+        dow_data = defaultdict(lambda: {
+            'commit_count': 0,
+            'total_duration': 0,
+            'total_files': 0,
+            'total_new_defects': 0,
+            'instance_count': 0
+        })
+        
+        day_names = {
+            0: 'Sunday', 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday',
+            4: 'Thursday', 5: 'Friday', 6: 'Saturday'
+        }
+        
+        total_commits_all = 0
+        
+        for instance_name, metrics in self.metrics_managers.items():
+            try:
+                activity = metrics.get_commit_activity_patterns()
+                
+                total_commits_all += activity.get('total_commits', 0)
+                
+                # Aggregate by hour
+                for hour_row in activity.get('by_hour', []):
+                    hour = int(hour_row['hour'])
+                    count = hour_row['commit_count']
+                    hour_data[hour]['commit_count'] += count
+                    hour_data[hour]['total_duration'] += (hour_row.get('avg_duration_seconds', 0) or 0) * count
+                    hour_data[hour]['total_files'] += (hour_row.get('avg_files', 0) or 0) * count
+                    hour_data[hour]['total_new_defects'] += (hour_row.get('avg_new_defects', 0) or 0) * count
+                    hour_data[hour]['instance_count'] += 1
+                
+                # Aggregate by day of week
+                for dow_row in activity.get('by_day_of_week', []):
+                    day_num = int(dow_row['day_num'])
+                    count = dow_row['commit_count']
+                    dow_data[day_num]['commit_count'] += count
+                    dow_data[day_num]['total_duration'] += (dow_row.get('avg_duration_seconds', 0) or 0) * count
+                    dow_data[day_num]['total_files'] += (dow_row.get('avg_files', 0) or 0) * count
+                    dow_data[day_num]['total_new_defects'] += (dow_row.get('avg_new_defects', 0) or 0) * count
+                    dow_data[day_num]['instance_count'] += 1
+                    
+            except Exception as e:
+                tqdm.write(f"Warning: Failed to get commit activity from {instance_name}: {str(e)}")
+                continue
+        
+        # Convert aggregated data to lists with calculated averages
+        by_hour = []
+        for hour in sorted(hour_data.keys()):
+            data = hour_data[hour]
+            count = data['commit_count']
+            by_hour.append({
+                'hour': hour,
+                'commit_count': count,
+                'avg_duration_seconds': round(data['total_duration'] / count, 2) if count > 0 else 0,
+                'avg_files': round(data['total_files'] / count, 0) if count > 0 else 0,
+                'avg_new_defects': round(data['total_new_defects'] / count, 0) if count > 0 else 0
+            })
+        
+        by_day_of_week = []
+        for day_num in sorted(dow_data.keys()):
+            data = dow_data[day_num]
+            count = data['commit_count']
+            by_day_of_week.append({
+                'day_num': day_num,
+                'day_name': day_names[day_num],
+                'commit_count': count,
+                'avg_duration_seconds': round(data['total_duration'] / count, 2) if count > 0 else 0,
+                'avg_files': round(data['total_files'] / count, 0) if count > 0 else 0,
+                'avg_new_defects': round(data['total_new_defects'] / count, 0) if count > 0 else 0
+            })
+        
+        result = {
+            'by_hour': by_hour,
+            'by_day_of_week': by_day_of_week,
+            'total_commits': total_commits_all
+        }
+        
+        # Group hours into 3-hour blocks and find busiest/quietest
+        if by_hour:
+            # Create 3-hour blocks: 0-2, 3-5, 6-8, 9-11, 12-14, 15-17, 18-20, 21-23
+            blocks = {}
+            for hour_row in by_hour:
+                hour = int(hour_row['hour'])
+                block_start = (hour // 3) * 3
+                block_key = block_start
+                
+                if block_key not in blocks:
+                    blocks[block_key] = {
+                        'block_start': block_start,
+                        'commit_count': 0,
+                        'total_duration': 0,
+                        'total_files': 0,
+                        'total_new_defects': 0,
+                        'hour_count': 0
+                    }
+                
+                blocks[block_key]['commit_count'] += hour_row['commit_count']
+                blocks[block_key]['total_duration'] += (hour_row.get('avg_duration_seconds', 0) or 0) * hour_row['commit_count']
+                blocks[block_key]['total_files'] += (hour_row.get('avg_files', 0) or 0) * hour_row['commit_count']
+                blocks[block_key]['total_new_defects'] += (hour_row.get('avg_new_defects', 0) or 0) * hour_row['commit_count']
+                blocks[block_key]['hour_count'] += 1
+            
+            # Calculate averages for each block
+            for block in blocks.values():
+                count = block['commit_count']
+                if count > 0:
+                    block['avg_duration_seconds'] = round(block['total_duration'] / count, 2)
+                    block['avg_files'] = round(block['total_files'] / count, 0)
+                    block['avg_new_defects'] = round(block['total_new_defects'] / count, 0)
+                else:
+                    block['avg_duration_seconds'] = 0
+                    block['avg_files'] = 0
+                    block['avg_new_defects'] = 0
+            
+            # Find busiest and quietest 3-hour blocks
+            if blocks:
+                busiest_block = max(blocks.values(), key=lambda x: x['commit_count'])
+                quietest_block = min(blocks.values(), key=lambda x: x['commit_count'])
+                
+                # Format block display
+                def format_block(block_start):
+                    start = int(block_start)
+                    end = start + 2
+                    
+                    # Format start hour
+                    start_12 = start if start <= 12 else start - 12
+                    start_12 = 12 if start_12 == 0 else start_12
+                    start_ampm = 'AM' if start < 12 else 'PM'
+                    
+                    # Format end hour
+                    end_12 = end if end <= 12 else end - 12
+                    end_12 = 12 if end_12 == 0 else end_12
+                    end_ampm = 'AM' if end < 12 else 'PM'
+                    
+                    return f"{start:02d}:00-{end:02d}:00 ({start_12} {start_ampm} - {end_12} {end_ampm})"
+                
+                result['busiest_hours'] = {
+                    'block_start': busiest_block['block_start'],
+                    'block_end': busiest_block['block_start'] + 2,
+                    'hours_display': format_block(busiest_block['block_start']),
+                    'commit_count': busiest_block['commit_count'],
+                    'avg_duration_seconds': busiest_block['avg_duration_seconds'],
+                    'avg_files': busiest_block['avg_files'],
+                    'avg_new_defects': busiest_block['avg_new_defects']
+                }
+                result['quietest_hours'] = {
+                    'block_start': quietest_block['block_start'],
+                    'block_end': quietest_block['block_start'] + 2,
+                    'hours_display': format_block(quietest_block['block_start']),
+                    'commit_count': quietest_block['commit_count'],
+                    'avg_duration_seconds': quietest_block['avg_duration_seconds'],
+                    'avg_files': quietest_block['avg_files'],
+                    'avg_new_defects': quietest_block['avg_new_defects']
+                }
+        
+        # Find busiest and quietest days
+        if by_day_of_week:
+            busiest_day = max(by_day_of_week, key=lambda x: x['commit_count'])
+            quietest_day = min(by_day_of_week, key=lambda x: x['commit_count'])
+            
+            result['busiest_day'] = busiest_day
+            result['quietest_day'] = quietest_day
+        
+        return result
+    
     def get_aggregated_trends(self, days=90) -> dict:
         """Get aggregated trend statistics across all instances
         

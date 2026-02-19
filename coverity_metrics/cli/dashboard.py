@@ -197,6 +197,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         largest_tables = metrics.get_largest_tables(limit=10).to_dict('records')
         snapshot_performance = metrics.get_snapshot_performance(limit=15).to_dict('records')
         commit_stats = metrics.get_commit_time_statistics()
+        commit_activity = metrics.get_commit_activity_patterns()
         defect_discovery = metrics.get_defect_discovery_rate(days=days).to_dict('records')
         
         # Collect user activity statistics
@@ -281,6 +282,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         largest_tables=largest_tables,
         snapshot_performance=snapshot_performance,
         commit_stats=commit_stats,
+        commit_activity=commit_activity,
         defect_discovery=defect_discovery,
         # Trend analysis
         defect_trends=defect_trends,
@@ -348,6 +350,7 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
     largest_tables = metrics.get_largest_tables(limit=10).to_dict('records')
     snapshot_performance = metrics.get_snapshot_performance(limit=15).to_dict('records')
     commit_stats = metrics.get_commit_time_statistics()
+    commit_activity = metrics.get_commit_activity_patterns()
     defect_discovery = metrics.get_defect_discovery_rate(days=days).to_dict('records')
     
     # Collect user activity statistics
@@ -402,6 +405,7 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
         'largest_tables': largest_tables,
         'snapshot_performance': snapshot_performance,
         'commit_stats': commit_stats,
+        'commit_activity': commit_activity,
         'defect_discovery': defect_discovery,
         'all_projects': projects_list,
         'defect_trends': defect_trends,
@@ -448,6 +452,7 @@ def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_a
     analysis_versions = multi_metrics.get_aggregated_analysis_versions(limit=10)
     user_statistics = multi_metrics.get_aggregated_user_statistics(days=days)
     database_statistics = multi_metrics.get_aggregated_database_statistics()
+    commit_activity = multi_metrics.get_aggregated_commit_activity()
     aggregated_trends = multi_metrics.get_aggregated_trends(days=days)
     
     # Get instance names with colors
@@ -486,6 +491,7 @@ def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_a
         instance_configs=instance_configs,
         user_statistics=user_statistics,
         database_statistics=database_statistics,
+        commit_activity=commit_activity,
         triage_summary=aggregated_trends['triage_summary'],
         trend_summary=aggregated_trends['trend_summary'],
         fix_rate_metrics=aggregated_trends['fix_rate_metrics'],
@@ -661,71 +667,115 @@ def main():
                     metrics = multi_metrics.get_metrics_for_instance(args.instance)
                     projects = metrics.get_available_projects()
                     
-                    # Generate instance-level dashboard (all projects)
-                    instance_folder = f"{args.output}/{args.instance.replace(' ', '_')}"
-                    os.makedirs(instance_folder, exist_ok=True)
-                    output_file = f"{instance_folder}/dashboard.html"
-                    dashboard_path = generate_html_dashboard(output_file, None, args.instance, metrics, cache, use_cache, args.days)
-                    generated_files.append((f"{args.instance} - All Projects", dashboard_path))
+                    # Calculate total work
+                    total_dashboards = 1 + (len(projects) if not projects.empty else 0)  # 1 instance + N projects
+                    tqdm.write(f"  Total dashboards to generate: {total_dashboards} (1 instance + {len(projects) if not projects.empty else 0} projects)")
                     
-                    # Generate project-level dashboards
-                    if not projects.empty:
-                        for project in tqdm(projects['project_name'], desc=f"  {args.instance} projects", unit="project"):
-                            metrics_proj = multi_metrics.get_metrics_for_instance(args.instance, project)
-                            output_file = f"{instance_folder}/dashboard_{project.replace(' ', '_')}.html"
-                            dashboard_path = generate_html_dashboard(output_file, project, args.instance, metrics_proj, cache, use_cache, args.days)
-                            generated_files.append((f"{args.instance} - {project}", dashboard_path))
+                    with tqdm(total=total_dashboards, desc=f"{args.instance}", unit="dashboard") as pbar:
+                        # Generate instance-level dashboard (all projects)
+                        instance_folder = f"{args.output}/{args.instance.replace(' ', '_')}"
+                        os.makedirs(instance_folder, exist_ok=True)
+                        pbar.set_description(f"{args.instance} - Overview")
+                        output_file = f"{instance_folder}/dashboard.html"
+                        dashboard_path = generate_html_dashboard(output_file, None, args.instance, metrics, cache, use_cache, args.days)
+                        generated_files.append((f"{args.instance} - All Projects", dashboard_path))
+                        pbar.update(1)
+                        
+                        # Generate project-level dashboards
+                        if not projects.empty:
+                            for idx, project in enumerate(projects['project_name'], 1):
+                                pbar.set_description(f"{args.instance} - {project}")
+                                pbar.set_postfix_str(f"{idx}/{len(projects)}")
+                                metrics_proj = multi_metrics.get_metrics_for_instance(args.instance, project)
+                                output_file = f"{instance_folder}/dashboard_{project.replace(' ', '_')}.html"
+                                dashboard_path = generate_html_dashboard(output_file, project, args.instance, metrics_proj, cache, use_cache, args.days)
+                                generated_files.append((f"{args.instance} - {project}", dashboard_path))
+                                pbar.update(1)
                     
             else:
                 # ALL INSTANCES MODE (AUTO-AGGREGATED)
                 if args.project:
                     # All instances filtered by specific project
                     tqdm.write(f"\nGenerating dashboards for all instances, project: {args.project}")
-                    for instance_name in tqdm(instance_names, desc="Instances", unit="instance"):
-                        metrics = multi_metrics.get_metrics_for_instance(instance_name, args.project)
-                        instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
-                        os.makedirs(instance_folder, exist_ok=True)
-                        output_file = f"{instance_folder}/dashboard_{args.project.replace(' ', '_')}.html"
-                        dashboard_path = generate_html_dashboard(output_file, args.project, instance_name, metrics, cache, use_cache, args.days)
-                        generated_files.append((f"{instance_name} - {args.project}", dashboard_path))
+                    tqdm.write(f"  Total instances: {len(instance_names)}")
+                    
+                    with tqdm(total=len(instance_names), desc="Instances", unit="instance") as pbar:
+                        for idx, instance_name in enumerate(instance_names, 1):
+                            pbar.set_description(f"Instance {idx}/{len(instance_names)}: {instance_name}")
+                            metrics = multi_metrics.get_metrics_for_instance(instance_name, args.project)
+                            instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
+                            os.makedirs(instance_folder, exist_ok=True)
+                            output_file = f"{instance_folder}/dashboard_{args.project.replace(' ', '_')}.html"
+                            dashboard_path = generate_html_dashboard(output_file, args.project, instance_name, metrics, cache, use_cache, args.days)
+                            generated_files.append((f"{instance_name} - {args.project}", dashboard_path))
+                            pbar.update(1)
                 else:
                     # All instances + all projects (FULL AUTO MODE)
-                    # Generate aggregated dashboard
-                    tqdm.write("\nGenerating aggregated dashboard across all instances...")
-                    # Ensure output folder exists
-                    os.makedirs(args.output, exist_ok=True)
-                    output_file = f"{args.output}/dashboard_aggregated.html"
-                    dashboard_path = generate_aggregated_dashboard(multi_metrics, output_file, args.days)
-                    generated_files.append(("Aggregated View", dashboard_path))
+                    # Calculate total work for progress tracking
+                    tqdm.write("\nCalculating total work for progress tracking...")
+                    total_work_items = 1  # Aggregated dashboard
+                    total_work_items += len(instance_names)  # Instance-level dashboards
                     
-                    # Also generate instance-level dashboards for navigation
-                    tqdm.write("\nGenerating instance-level dashboards for navigation...")
-                    for instance_name in tqdm(instance_names, desc="Instance dashboards", unit="instance"):
-                        metrics = multi_metrics.get_metrics_for_instance(instance_name)
-                        instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
-                        os.makedirs(instance_folder, exist_ok=True)
-                        output_file = f"{instance_folder}/dashboard.html"
-                        dashboard_path = generate_html_dashboard(output_file, None, instance_name, metrics, cache, use_cache, args.days)
-                        generated_files.append((instance_name, dashboard_path))
-                    
-                    tqdm.write(f"\n[OK] Generated aggregated view + {len(instance_names)} instance dashboards")
-                    
-                    # Auto-generate project-level dashboards for each instance
-                    tqdm.write("\nGenerating project-level dashboards for all instances...")
-                    total_projects = 0
+                    # Count projects per instance for accurate progress
+                    instance_project_counts = {}
                     for instance_name in instance_names:
-                        metrics = multi_metrics.get_metrics_for_instance(instance_name)
-                        projects = metrics.get_available_projects()
+                        metrics_temp = multi_metrics.get_metrics_for_instance(instance_name)
+                        projects_temp = metrics_temp.get_available_projects()
+                        project_count = len(projects_temp) if not projects_temp.empty else 0
+                        instance_project_counts[instance_name] = project_count
+                        total_work_items += project_count
+                    
+                    tqdm.write(f"  Total dashboards to generate: {total_work_items}")
+                    tqdm.write(f"  - 1 aggregated dashboard")
+                    tqdm.write(f"  - {len(instance_names)} instance dashboards")
+                    tqdm.write(f"  - {sum(instance_project_counts.values())} project dashboards")
+                    
+                    # Create overall progress bar
+                    with tqdm(total=total_work_items, desc="Overall Progress", unit="dashboard", position=0) as pbar_overall:
+                        # Generate aggregated dashboard
+                        tqdm.write("\nGenerating aggregated dashboard across all instances...")
+                        os.makedirs(args.output, exist_ok=True)
+                        output_file = f"{args.output}/dashboard_aggregated.html"
+                        dashboard_path = generate_aggregated_dashboard(multi_metrics, output_file, args.days)
+                        generated_files.append(("Aggregated View", dashboard_path))
+                        pbar_overall.update(1)
                         
-                        if not projects.empty:
-                            for project in tqdm(projects['project_name'], desc=f"{instance_name}", unit="project", leave=False):
-                                metrics_proj = multi_metrics.get_metrics_for_instance(instance_name, project)
-                                instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
-                                os.makedirs(instance_folder, exist_ok=True)
-                                output_file = f"{instance_folder}/dashboard_{project.replace(' ', '_')}.html"
-                                dashboard_path = generate_html_dashboard(output_file, project, instance_name, metrics_proj, cache, use_cache, args.days)
-                                generated_files.append((f"{instance_name} - {project}", dashboard_path))
-                                total_projects += 1
+                        # Also generate instance-level dashboards for navigation
+                        tqdm.write("\nGenerating instance-level dashboards for navigation...")
+                        for idx, instance_name in enumerate(instance_names, 1):
+                            pbar_overall.set_description(f"Instance {idx}/{len(instance_names)}: {instance_name}")
+                            metrics = multi_metrics.get_metrics_for_instance(instance_name)
+                            instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
+                            os.makedirs(instance_folder, exist_ok=True)
+                            output_file = f"{instance_folder}/dashboard.html"
+                            dashboard_path = generate_html_dashboard(output_file, None, instance_name, metrics, cache, use_cache, args.days)
+                            generated_files.append((instance_name, dashboard_path))
+                            pbar_overall.update(1)
+                        
+                        tqdm.write(f"\n[OK] Generated aggregated view + {len(instance_names)} instance dashboards")
+                        
+                        # Auto-generate project-level dashboards for each instance
+                        tqdm.write("\nGenerating project-level dashboards for all instances...")
+                        total_projects = 0
+                        for idx, instance_name in enumerate(instance_names, 1):
+                            metrics = multi_metrics.get_metrics_for_instance(instance_name)
+                            projects = metrics.get_available_projects()
+                            
+                            if not projects.empty:
+                                pbar_overall.set_description(f"Instance {idx}/{len(instance_names)}: {instance_name} projects")
+                                for proj_idx, project in enumerate(projects['project_name'], 1):
+                                    pbar_overall.set_postfix_str(f"{project} ({proj_idx}/{len(projects)})")
+                                    metrics_proj = multi_metrics.get_metrics_for_instance(instance_name, project)
+                                    instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
+                                    os.makedirs(instance_folder, exist_ok=True)
+                                    output_file = f"{instance_folder}/dashboard_{project.replace(' ', '_')}.html"
+                                    dashboard_path = generate_html_dashboard(output_file, project, instance_name, metrics_proj, cache, use_cache, args.days)
+                                    generated_files.append((f"{instance_name} - {project}", dashboard_path))
+                                    total_projects += 1
+                                    pbar_overall.update(1)
+                        
+                        pbar_overall.set_description("Complete")
+                        pbar_overall.set_postfix_str("")
                     
                     tqdm.write(f"\n[OK] Generated {total_projects} project-level dashboards across {len(instance_names)} instances")
                 

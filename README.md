@@ -26,7 +26,9 @@ coverity-dashboard
 
 **What You Get:**
 - 📊 Interactive HTML dashboards with Plotly visualizations
+- ⏱️ Real-time progress tracking with ETA for long-running operations
 - 💰 Technical debt estimation (estimated hours/days to remediate)
+- 📅 Commit activity patterns (busiest/quietest times and days)
 - 🔒 OWASP Top 10 2025 security compliance mapping
 - 🛡️ CWE Top 25 2025 dangerous weakness tracking
 - 🏆 Team and project leaderboards for gamification
@@ -37,6 +39,8 @@ coverity-dashboard
 ## Features
 
 **🆕 Latest Enhancements (2025):**
+- **⏱️ Progress Tracking**: Real-time progress bars for multi-instance dashboard generation with ETA and completion percentage
+- **📅 Commit Activity Patterns**: Identify busiest/quietest times (3-hour blocks) and days for commit activity
 - **💰 Technical Debt Estimation**: Automated calculation of remediation effort (hours/days/weeks) based on defect severity
 - **🔒 OWASP Top 10 2025**: Map defects to the latest OWASP web application security risks using CWE codes
 - **🛡️ CWE Top 25 2025**: Track MITRE's most dangerous software weaknesses with industry rankings
@@ -105,6 +109,11 @@ The tool provides the following metric categories:
 ### 8. **Performance Metrics**
 - **Database Statistics**: Database size and growth tracking
 - **Commit Performance**: Analysis duration (min/max/average times)
+- **Commit Activity Patterns**: Busiest/quietest times (3-hour blocks) and days for commits
+  - Temporal analysis of when commits occur (hour-by-hour, day-by-day)
+  - Identifies peak development hours and quiet periods
+  - Statistics: commit counts, average duration, files changed, defects introduced
+  - Helps optimize team schedules and CI/CD resource allocation
 - **Snapshot Performance**: Recent commit performance with queue times
 - **Defect Discovery Rate**: Daily/weekly defect discovery trends
 - **System Analytics**: Largest tables, resource utilization

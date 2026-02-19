@@ -546,6 +546,63 @@
                 </div>
             </div>
 
+            {% if commit_activity and commit_activity.total_commits > 0 %}
+            <h3 style="margin: 2rem 0 1rem 0;">Aggregated Commit Activity Patterns</h3>
+            <div class="alert alert-info" style="margin-bottom: 1.5rem;">
+                <strong>ℹ️ Activity Analysis:</strong> Based on {{ commit_activity.total_commits }} commits/snapshots across all instances, showing when development activity is most and least active.
+            </div>
+            
+            <div class="grid-2col" style="margin-bottom: 2rem;">
+                {% if commit_activity.busiest_hours %}
+                <div class="summary-card info">
+                    <div class="label">🔥 Busiest 3-Hour Window</div>
+                    <div class="value" style="font-size: 1.5rem;">{{ commit_activity.busiest_hours.hours_display }}</div>
+                    <div style="margin-top: 0.5rem; color: #666; font-size: 0.9rem;">
+                        {{ commit_activity.busiest_hours.commit_count }} commits
+                        <span style="color: #999; margin-left: 0.5rem;">•</span>
+                        Avg: {{ commit_activity.busiest_hours.avg_duration_seconds|default(0) }} sec
+                    </div>
+                </div>
+                {% endif %}
+                
+                {% if commit_activity.quietest_hours %}
+                <div class="summary-card">
+                    <div class="label">😴 Quietest 3-Hour Window</div>
+                    <div class="value" style="font-size: 1.5rem;">{{ commit_activity.quietest_hours.hours_display }}</div>
+                    <div style="margin-top: 0.5rem; color: #666; font-size: 0.9rem;">
+                        {{ commit_activity.quietest_hours.commit_count }} commits
+                        <span style="color: #999; margin-left: 0.5rem;">•</span>
+                        Avg: {{ commit_activity.quietest_hours.avg_duration_seconds|default(0) }} sec
+                    </div>
+                </div>
+                {% endif %}
+                
+                {% if commit_activity.busiest_day %}
+                <div class="summary-card success">
+                    <div class="label">📈 Busiest Day</div>
+                    <div class="value" style="font-size: 1.8rem;">{{ commit_activity.busiest_day.day_name }}</div>
+                    <div style="margin-top: 0.5rem; color: #666; font-size: 0.9rem;">
+                        {{ commit_activity.busiest_day.commit_count }} commits
+                        <span style="color: #999; margin-left: 0.5rem;">•</span>
+                        Avg: {{ commit_activity.busiest_day.avg_duration_seconds|default(0) }} sec
+                    </div>
+                </div>
+                {% endif %}
+                
+                {% if commit_activity.quietest_day %}
+                <div class="summary-card">
+                    <div class="label">📉 Quietest Day</div>
+                    <div class="value" style="font-size: 1.8rem;">{{ commit_activity.quietest_day.day_name }}</div>
+                    <div style="margin-top: 0.5rem; color: #666; font-size: 0.9rem;">
+                        {{ commit_activity.quietest_day.commit_count }} commits
+                        <span style="color: #999; margin-left: 0.5rem;">•</span>
+                        Avg: {{ commit_activity.quietest_day.avg_duration_seconds|default(0) }} sec
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+
             <!-- Per-Instance Database Statistics -->
             <h3 style="margin: 2rem 0 1rem 0;">Database Statistics by Instance</h3>
             <table class="data-table">

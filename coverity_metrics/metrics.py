@@ -1080,6 +1080,186 @@ class CoverityMetrics:
         
         return result[0] if result else {}
     
+    def get_commit_activity_patterns(self):
+        """Get commit activity patterns - busiest and quietest times
+        
+        Analyzes when commits/snapshots occur by hour of day and day of week
+        to identify busiest and quietest commit times.
+        
+        Returns:
+            dict: Activity patterns with busiest/quietest times
+                {
+                    'by_hour': [{'hour': 14, 'commit_count': 150, ...}, ...],
+                    'by_day_of_week': [{'day_name': 'Tuesday', 'day_num': 2, 'commit_count': 500, ...}, ...],
+                    'busiest_hour': {'hour': 14, 'hour_display': '14:00 (2 PM)', 'commit_count': 150, ...},
+                    'quietest_hour': {'hour': 3, 'hour_display': '03:00 (3 AM)', 'commit_count': 2, ...},
+                    'busiest_day': {'day_name': 'Tuesday', 'commit_count': 500, ...},
+                    'quietest_day': {'day_name': 'Saturday', 'commit_count': 15, ...},
+                    'total_commits': 2500
+                }
+        """
+        # Query for commits by hour of day
+        query_by_hour = """
+            SELECT 
+                EXTRACT(HOUR FROM sn.date_created) as hour,
+                COUNT(*) as commit_count,
+                ROUND(AVG(sn.duration_commit_total / 1000.0), 2) as avg_duration_seconds,
+                ROUND(AVG(sn.total_file_count), 0) as avg_files,
+                ROUND(AVG(sn.new_defect_count), 0) as avg_new_defects
+            FROM snapshot sn
+            {project_filter_join}
+            WHERE sn.deleted = false
+                AND sn.date_created IS NOT NULL
+                {project_filter}
+            GROUP BY EXTRACT(HOUR FROM sn.date_created)
+            ORDER BY hour
+        """
+        
+        # Query for commits by day of week (0=Sunday, 6=Saturday in PostgreSQL)
+        query_by_dow = """
+            SELECT 
+                EXTRACT(DOW FROM sn.date_created) as day_num,
+                CASE 
+                    WHEN EXTRACT(DOW FROM sn.date_created) = 0 THEN 'Sunday'
+                    WHEN EXTRACT(DOW FROM sn.date_created) = 1 THEN 'Monday'
+                    WHEN EXTRACT(DOW FROM sn.date_created) = 2 THEN 'Tuesday'
+                    WHEN EXTRACT(DOW FROM sn.date_created) = 3 THEN 'Wednesday'
+                    WHEN EXTRACT(DOW FROM sn.date_created) = 4 THEN 'Thursday'
+                    WHEN EXTRACT(DOW FROM sn.date_created) = 5 THEN 'Friday'
+                    WHEN EXTRACT(DOW FROM sn.date_created) = 6 THEN 'Saturday'
+                END as day_name,
+                COUNT(*) as commit_count,
+                ROUND(AVG(sn.duration_commit_total / 1000.0), 2) as avg_duration_seconds,
+                ROUND(AVG(sn.total_file_count), 0) as avg_files,
+                ROUND(AVG(sn.new_defect_count), 0) as avg_new_defects
+            FROM snapshot sn
+            {project_filter_join}
+            WHERE sn.deleted = false
+                AND sn.date_created IS NOT NULL
+                {project_filter}
+            GROUP BY EXTRACT(DOW FROM sn.date_created), day_name
+            ORDER BY day_num
+        """
+        
+        if self.project_name:
+            query_by_hour = query_by_hour.format(
+                project_filter_join="""
+                    JOIN stream s ON sn.stream_id = s.id
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
+                project_filter="AND p.name = %s"
+            )
+            query_by_dow = query_by_dow.format(
+                project_filter_join="""
+                    JOIN stream s ON sn.stream_id = s.id
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
+                project_filter="AND p.name = %s"
+            )
+            by_hour = self.db.execute_query_dict(query_by_hour, (self.project_name,))
+            by_dow = self.db.execute_query_dict(query_by_dow, (self.project_name,))
+        else:
+            query_by_hour = query_by_hour.format(project_filter_join="", project_filter="")
+            query_by_dow = query_by_dow.format(project_filter_join="", project_filter="")
+            by_hour = self.db.execute_query_dict(query_by_hour)
+            by_dow = self.db.execute_query_dict(query_by_dow)
+        
+        result = {
+            'by_hour': by_hour,
+            'by_day_of_week': by_dow,
+            'total_commits': sum(row['commit_count'] for row in by_hour) if by_hour else 0
+        }
+        
+        # Group hours into 3-hour blocks and find busiest/quietest
+        if by_hour:
+            # Create 3-hour blocks: 0-2, 3-5, 6-8, 9-11, 12-14, 15-17, 18-20, 21-23
+            blocks = {}
+            for hour_row in by_hour:
+                hour = int(hour_row['hour'])
+                block_start = (hour // 3) * 3
+                block_key = block_start
+                
+                if block_key not in blocks:
+                    blocks[block_key] = {
+                        'block_start': block_start,
+                        'commit_count': 0,
+                        'total_duration': 0,
+                        'total_files': 0,
+                        'total_new_defects': 0,
+                        'hour_count': 0
+                    }
+                
+                blocks[block_key]['commit_count'] += hour_row['commit_count']
+                blocks[block_key]['total_duration'] += (hour_row.get('avg_duration_seconds', 0) or 0) * hour_row['commit_count']
+                blocks[block_key]['total_files'] += (hour_row.get('avg_files', 0) or 0) * hour_row['commit_count']
+                blocks[block_key]['total_new_defects'] += (hour_row.get('avg_new_defects', 0) or 0) * hour_row['commit_count']
+                blocks[block_key]['hour_count'] += 1
+            
+            # Calculate averages for each block
+            for block in blocks.values():
+                count = block['commit_count']
+                if count > 0:
+                    block['avg_duration_seconds'] = round(block['total_duration'] / count, 2)
+                    block['avg_files'] = round(block['total_files'] / count, 0)
+                    block['avg_new_defects'] = round(block['total_new_defects'] / count, 0)
+                else:
+                    block['avg_duration_seconds'] = 0
+                    block['avg_files'] = 0
+                    block['avg_new_defects'] = 0
+            
+            # Find busiest and quietest 3-hour blocks
+            if blocks:
+                busiest_block = max(blocks.values(), key=lambda x: x['commit_count'])
+                quietest_block = min(blocks.values(), key=lambda x: x['commit_count'])
+                
+                # Format block display
+                def format_block(block_start):
+                    start = int(block_start)
+                    end = start + 2
+                    
+                    # Format start hour
+                    start_12 = start if start <= 12 else start - 12
+                    start_12 = 12 if start_12 == 0 else start_12
+                    start_ampm = 'AM' if start < 12 else 'PM'
+                    
+                    # Format end hour
+                    end_12 = end if end <= 12 else end - 12
+                    end_12 = 12 if end_12 == 0 else end_12
+                    end_ampm = 'AM' if end < 12 else 'PM'
+                    
+                    return f"{start:02d}:00-{end:02d}:00 ({start_12} {start_ampm} - {end_12} {end_ampm})"
+                
+                result['busiest_hours'] = {
+                    'block_start': busiest_block['block_start'],
+                    'block_end': busiest_block['block_start'] + 2,
+                    'hours_display': format_block(busiest_block['block_start']),
+                    'commit_count': busiest_block['commit_count'],
+                    'avg_duration_seconds': busiest_block['avg_duration_seconds'],
+                    'avg_files': busiest_block['avg_files'],
+                    'avg_new_defects': busiest_block['avg_new_defects']
+                }
+                result['quietest_hours'] = {
+                    'block_start': quietest_block['block_start'],
+                    'block_end': quietest_block['block_start'] + 2,
+                    'hours_display': format_block(quietest_block['block_start']),
+                    'commit_count': quietest_block['commit_count'],
+                    'avg_duration_seconds': quietest_block['avg_duration_seconds'],
+                    'avg_files': quietest_block['avg_files'],
+                    'avg_new_defects': quietest_block['avg_new_defects']
+                }
+        
+        # Find busiest and quietest days
+        if by_dow:
+            busiest_day = max(by_dow, key=lambda x: x['commit_count'])
+            quietest_day = min(by_dow, key=lambda x: x['commit_count'])
+            
+            result['busiest_day'] = busiest_day
+            result['quietest_day'] = quietest_day
+        
+        return result
+    
     def get_defect_discovery_rate(self, days=30):
         """Get defect discovery rate over time
         
