@@ -175,3 +175,6 @@ check_*.py
 test_*.py
 investigate_*.py
 analyze_*.py
+find_*.py
+debug_*.py
+OWASP_TOP10_2025_IMPLEMENTATION.md

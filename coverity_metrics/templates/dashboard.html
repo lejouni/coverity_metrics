@@ -189,6 +189,9 @@
                 <button class="tab-button" data-tab="performance">Performance & Analytics</button>
                 {% endif %}
                 <button class="tab-button" data-tab="leaderboards">🏆 Leaderboards</button>
+                {% if current_project and owasp_metrics %}
+                <button class="tab-button" data-tab="owasp">🔒 OWASP Top 10</button>
+                {% endif %}
             </div>
         </div>
 
@@ -1359,6 +1362,108 @@
 
         </div>
         <!-- End Leaderboards Tab -->
+
+        <!-- OWASP Top 10 2025 Tab (Project-level only) -->
+        {% if current_project and owasp_metrics %}
+        <div id="owasp-tab" class="tab-content">
+        
+        <div class="section">
+            <h2 class="section-title">🔒 OWASP Top 10 2025 Security Analysis</h2>
+            <p style="margin-bottom: 2rem; color: var(--text-color); opacity: 0.8;">
+                Defects mapped to OWASP Top 10 2025 categories based on CWE (Common Weakness Enumeration) codes.
+                This analysis helps prioritize security remediation efforts based on the most critical web application security risks.
+            </p>
+            
+            <div class="alert alert-warning">
+                <strong>🎯 Security Focus:</strong> {{ owasp_metrics|length }} OWASP Top 10 categories detected in this project.
+            </div>
+            
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="width: 8%;">Rank</th>
+                        <th style="width: 25%;">OWASP Category</th>
+                        <th style="width: 35%;">Description</th>
+                        <th style="text-align: center; width: 8%;">Total</th>
+                        <th style="text-align: center; width: 6%;">🔴 High</th>
+                        <th style="text-align: center; width: 6%;">🟡 Med</th>
+                        <th style="text-align: center; width: 6%;">🟢 Low</th>
+                        <th style="text-align: center; width: 6%;">CWEs</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in owasp_metrics %}
+                    <tr>
+                        <td style="text-align: center;">
+                            <span class="severity-badge {% if loop.index <= 3 %}severity-high{% elif loop.index <= 6 %}severity-medium{% else %}severity-low{% endif %}" style="font-weight: 600;">
+                                #{{ loop.index }}
+                            </span>
+                        </td>
+                        <td>
+                            <div style="font-weight: 600; color: var(--primary-color);">{{ item.category.split(':')[0] }}</div>
+                            <div style="font-size: 0.9rem; margin-top: 0.25rem;">{{ item.category.split(':')[1] if ':' in item.category else item.category }}</div>
+                        </td>
+                        <td style="font-size: 0.9rem; opacity: 0.9;">{{ item.description[:100] }}{% if item.description|length > 100 %}...{% endif %}</td>
+                        <td style="text-align: center; font-weight: 600; font-size: 1.1rem; color: var(--danger-color);">
+                            {{ item.total_defects }}
+                        </td>
+                        <td style="text-align: center;">
+                            {% if item.high > 0 %}
+                            <span class="severity-badge severity-high">{{ item.high }}</span>
+                            {% else %}
+                            <span style="opacity: 0.3;">-</span>
+                            {% endif %}
+                        </td>
+                        <td style="text-align: center;">
+                            {% if item.medium > 0 %}
+                            <span class="severity-badge severity-medium">{{ item.medium }}</span>
+                            {% else %}
+                            <span style="opacity: 0.3;">-</span>
+                            {% endif %}
+                        </td>
+                        <td style="text-align: center;">
+                            {% if item.low > 0 %}
+                            <span class="severity-badge severity-low">{{ item.low }}</span>
+                            {% else %}
+                            <span style="opacity: 0.3;">-</span>
+                            {% endif %}
+                        </td>
+                        <td style="text-align: center; font-size: 0.9rem; opacity: 0.7;">
+                            {{ item.cwe_count }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            
+            <div class="grid-2col" style="margin-top: 2rem;">
+                <div class="summary-card info">
+                    <div class="label">Total OWASP-Mapped Defects</div>
+                    <div class="value">{{ owasp_metrics|sum(attribute='total_defects') }}</div>
+                </div>
+                <div class="summary-card warning">
+                    <div class="label">High Severity OWASP Issues</div>
+                    <div class="value">{{ owasp_metrics|sum(attribute='high') }}</div>
+                </div>
+            </div>
+            
+            <div class="alert alert-info" style="margin-top: 2rem;">
+                <strong>📚 About OWASP Top 10 2025:</strong>
+                <p style="margin: 0.5rem 0 0 0;">
+                    The OWASP Top 10 is a standard awareness document representing a broad consensus about the most critical security risks to web applications.
+                    This report maps your defects to these categories using CWE codes to help prioritize security remediation.
+                </p>
+                <ul style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
+                    <li><strong>Rank:</strong> Position in OWASP Top 10 2025 list</li>
+                    <li><strong>Total:</strong> Number of outstanding defects in this category</li>
+                    <li><strong>CWEs:</strong> Number of unique CWE codes contributing to this category</li>
+                </ul>
+            </div>
+        </div>
+        
+        </div>
+        <!-- End OWASP Tab -->
+        {% endif %}
 
     </div>
     <!-- End main container -->

@@ -1957,3 +1957,111 @@ class CoverityMetrics:
             """
             results = self.db.execute_query_dict(query, (days, limit))
         return pd.DataFrame(results)
+    
+    def get_owasp_top10_metrics(self):
+        """Get defect counts mapped to OWASP Top 10 2025 categories
+        
+        Only available for project-level dashboards.
+        Maps defects via CWE codes using checker_properties table.
+        
+        Returns:
+            pandas.DataFrame: OWASP categories with defect counts and severity breakdown
+        """
+        if not self.project_name:
+            # OWASP tab only for project-level dashboards
+            return pd.DataFrame()
+        
+        from .owasp_mapping import OWASP_TOP_10_2025
+        
+        # Build CWE to OWASP category mapping
+        cwe_to_owasp = {}
+        for category_id, data in OWASP_TOP_10_2025.items():
+            for cwe_id in data['cwe_ids']:
+                cwe_to_owasp[cwe_id] = {
+                    'category_id': category_id,
+                    'description': data['description']
+                }
+        
+        query = """
+            SELECT 
+                cp.cwe,
+                de.name as severity,
+                COUNT(DISTINCT sd.id) as defect_count,
+                dt.current_action_id,
+                act.name as action
+            FROM stream_defect sd
+            JOIN stream_element se ON sd.stream_element_id = se.id
+            JOIN stream s ON se.stream_id = s.id
+            JOIN project_stream ps ON s.id = ps.stream_id
+            JOIN project p ON ps.project_id = p.id
+            JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+            LEFT JOIN checker_properties cp ON sd.checker_properties_id = cp.id
+            LEFT JOIN dynamic_enum de ON dt.current_severity_id = de.id
+            LEFT JOIN dynamic_enum act ON dt.current_action_id = act.id
+            WHERE p.name = %s
+                AND cp.cwe IS NOT NULL
+                AND sd.fixed_snapshot_element_id IS NULL  -- Only outstanding defects
+            GROUP BY cp.cwe, de.name, dt.current_action_id, act.name
+            ORDER BY cp.cwe, de.name
+        """
+        
+        results = self.db.execute_query_dict(query, (self.project_name,))
+        
+        # Aggregate by OWASP category
+        owasp_data = {}
+        for row in results:
+            cwe_id = row['cwe']
+            if cwe_id not in cwe_to_owasp:
+                continue  # CWE not in OWASP Top 10 2025
+            
+            category_id = cwe_to_owasp[cwe_id]['category_id']
+            if category_id not in owasp_data:
+                owasp_data[category_id] = {
+                    'category': category_id,
+                    'description': cwe_to_owasp[cwe_id]['description'],
+                    'total_defects': 0,
+                    'high': 0,
+                    'medium': 0,
+                    'low': 0,
+                    'unspecified': 0,
+                    'cwe_codes': set()
+                }
+            
+            severity = row.get('severity', 'Unspecified') or 'Unspecified'
+            count = row['defect_count']
+            
+            owasp_data[category_id]['total_defects'] += count
+            owasp_data[category_id]['cwe_codes'].add(cwe_id)
+            
+            # Coverity severity mapping: Major=High, Moderate=Medium, Minor=Low
+            if severity == 'Major':
+                owasp_data[category_id]['high'] += count
+            elif severity == 'Moderate':
+                owasp_data[category_id]['medium'] += count
+            elif severity == 'Minor':
+                owasp_data[category_id]['low'] += count
+            else:
+                owasp_data[category_id]['unspecified'] += count
+        
+        # Convert to DataFrame
+        if not owasp_data:
+            return pd.DataFrame()
+        
+        df_data = []
+        for category_id, data in owasp_data.items():
+            df_data.append({
+                'category': data['category'],
+                'description': data['description'],
+                'total_defects': data['total_defects'],
+                'high': data['high'],
+                'medium': data['medium'],
+                'low': data['low'],
+                'unspecified': data['unspecified'],
+                'cwe_count': len(data['cwe_codes'])
+            })
+        
+        df = pd.DataFrame(df_data)
+        # Sort by total defects descending
+        df = df.sort_values('total_defects', ascending=False)
+        return df
+

@@ -222,6 +222,9 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         top_triagers = metrics.get_top_triagers(days=30, limit=10).to_dict('records')
         most_collaborative_users = metrics.get_most_collaborative_users(days=30, limit=10).to_dict('records')
         
+        # Collect OWASP Top 10 2025 metrics (project-level only)
+        owasp_metrics = metrics.get_owasp_top10_metrics().to_dict('records') if project_name else []
+        
         # Calculate actual date range from trend data
         trend_period_text = f"Last {days} Days"
         
@@ -290,7 +293,9 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         top_projects_by_triage=top_projects_by_triage,
         top_users_by_fixes=top_users_by_fixes,
         top_triagers=top_triagers,
-        most_collaborative_users=most_collaborative_users
+        most_collaborative_users=most_collaborative_users,
+        # OWASP Top 10 2025 (project-level only)
+        owasp_metrics=owasp_metrics
     )
     
     # Ensure output directory exists
