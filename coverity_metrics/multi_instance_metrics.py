@@ -143,6 +143,275 @@ class MultiInstanceMetrics:
             'high_severity_defects': high_severity_defects
         }
     
+    def get_aggregated_user_statistics(self, days: int = 90) -> dict:
+        """Get aggregated user license and activity statistics across all instances
+        
+        Args:
+            days: Number of days to look back for active users
+            
+        Returns:
+            dict: Aggregated user statistics including:
+                - total_licensed_users: Total users across all instances
+                - users_with_login: Users who have logged in at least once
+                - active_users: Users with activity in given period
+                - by_instance: List of per-instance stats
+        """
+        total_licensed_users = 0
+        users_with_login = 0
+        active_users = 0
+        by_instance = []
+        
+        for instance_name, metrics in self.metrics_managers.items():
+            try:
+                instance_config = self.get_instance_config(instance_name)
+                user_stats = metrics.get_user_license_statistics(days=days)
+                
+                total_licensed_users += user_stats.get('total_licensed_users', 0)
+                users_with_login += user_stats.get('users_with_login', 0)
+                active_users += user_stats.get('active_users', 0)
+                
+                by_instance.append({
+                    'instance_name': instance_name,
+                    'color': instance_config.color if instance_config else '#2c3e50',
+                    'licensed_users': user_stats.get('total_licensed_users', 0),
+                    'users_with_login': user_stats.get('users_with_login', 0),
+                    'active_users': user_stats.get('active_users', 0),
+                    'active_percentage': user_stats.get('active_user_percentage', 0)
+                })
+            except Exception as e:
+                tqdm.write(f"Warning: Failed to get user statistics from {instance_name}: {str(e)}")
+                continue
+        
+        return {
+            'total_licensed_users': total_licensed_users,
+            'users_with_login': users_with_login,
+            'active_users': active_users,
+            'active_user_percentage': round((active_users / total_licensed_users * 100), 1) if total_licensed_users > 0 else 0,
+            'login_user_percentage': round((users_with_login / total_licensed_users * 100), 1) if total_licensed_users > 0 else 0,
+            'by_instance': by_instance
+        }
+    
+    def get_aggregated_database_statistics(self) -> dict:
+        """Get aggregated database and commit statistics across all instances
+        
+        Returns:
+            dict: Aggregated database statistics including:
+                - total_db_size_bytes: Total database size in bytes
+                - total_db_size: Human-readable total database size
+                - total_snapshots: Total snapshots across all instances
+                - total_commits: Total commits across all instances
+                - avg_commit_duration: Weighted average commit duration
+                - min_commit_duration: Minimum commit duration
+                - max_commit_duration: Maximum commit duration
+                - by_instance: Per-instance database stats
+        """
+        total_db_size_bytes = 0
+        total_snapshots = 0
+        total_commits = 0
+        total_commit_duration = 0
+        min_commit_duration = None
+        max_commit_duration = None
+        by_instance = []
+        
+        for instance_name, metrics in self.metrics_managers.items():
+            try:
+                instance_config = self.get_instance_config(instance_name)
+                
+                # Get database statistics
+                db_stats = metrics.get_database_statistics()
+                
+                # Get commit statistics
+                commit_stats = metrics.get_commit_time_statistics()
+                
+                # Accumulate totals
+                db_size_bytes = db_stats.get('db_size_bytes', 0)
+                total_db_size_bytes += db_size_bytes
+                
+                snapshots = db_stats.get('total_snapshots', 0)
+                total_snapshots += snapshots
+                
+                commits = commit_stats.get('total_commits', 0)
+                total_commits += commits
+                
+                # Calculate weighted average for commit duration
+                avg_duration = commit_stats.get('avg_duration_seconds', 0) or 0
+                if commits > 0 and avg_duration > 0:
+                    total_commit_duration += avg_duration * commits
+                
+                # Track min/max commit durations
+                min_duration = commit_stats.get('min_duration_seconds')
+                max_duration = commit_stats.get('max_duration_seconds')
+                
+                if min_duration is not None:
+                    min_commit_duration = min_duration if min_commit_duration is None else min(min_commit_duration, min_duration)
+                if max_duration is not None:
+                    max_commit_duration = max_duration if max_commit_duration is None else max(max_commit_duration, max_duration)
+                
+                by_instance.append({
+                    'instance_name': instance_name,
+                    'color': instance_config.color if instance_config else '#2c3e50',
+                    'db_size': db_stats.get('db_size', 'N/A'),
+                    'db_size_bytes': db_size_bytes,
+                    'total_snapshots': snapshots,
+                    'total_commits': commits,
+                    'avg_duration_seconds': avg_duration
+                })
+            except Exception as e:
+                tqdm.write(f"Warning: Failed to get database statistics from {instance_name}: {str(e)}")
+                continue
+        
+        # Calculate weighted average commit duration
+        avg_commit_duration = round(total_commit_duration / total_commits, 2) if total_commits > 0 else 0
+        
+        # Format total database size
+        total_db_size = self._format_bytes(total_db_size_bytes)
+        
+        return {
+            'total_db_size_bytes': total_db_size_bytes,
+            'total_db_size': total_db_size,
+            'total_snapshots': total_snapshots,
+            'total_commits': total_commits,
+            'avg_duration_seconds': avg_commit_duration,
+            'min_duration_seconds': min_commit_duration or 0,
+            'max_duration_seconds': max_commit_duration or 0,
+            'by_instance': by_instance
+        }
+    
+    @staticmethod
+    def _format_bytes(bytes_size: int) -> str:
+        """Format bytes to human-readable size
+        
+        Args:
+            bytes_size: Size in bytes
+            
+        Returns:
+            str: Human-readable size (e.g., '1.5 GB')
+        """
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if bytes_size < 1024.0:
+                return f"{bytes_size:.1f} {unit}"
+            bytes_size /= 1024.0
+        return f"{bytes_size:.1f} PB"
+    
+    def get_aggregated_trends(self, days=90) -> dict:
+        """Get aggregated trend statistics across all instances
+        
+        Args:
+            days: Number of days to look back for trends
+            
+        Returns:
+            dict: Aggregated trend statistics including:
+                - triage_summary: Aggregated triage progress
+                - trend_summary: Aggregated defect velocity metrics
+                - fix_rate_metrics: Aggregated fix rate statistics
+                - defect_aging: Aggregated age distribution
+                - by_instance: Per-instance trend data
+        """
+        # Triage Summary Aggregation
+        total_defects = 0
+        classified_count = 0
+        unclassified_count = 0
+        action_assigned_count = 0
+        no_action_count = 0
+        bug_count = 0
+        false_positive_count = 0
+        intentional_count = 0
+        
+        # Trend Summary Aggregation
+        total_new = 0
+        total_fixed = 0
+        current_outstanding = 0
+        
+        # Fix Rate Aggregation
+        fix_rate_total_new = 0
+        fix_rate_total_fixed = 0
+        
+        by_instance = []
+        
+        for instance_name, metrics in self.metrics_managers.items():
+            try:
+                instance_config = self.get_instance_config(instance_name)
+                
+                # Get triage summary
+                triage = metrics.get_triage_progress_summary()
+                total_defects += triage.get('total_defects', 0)
+                classified_count += triage.get('classified_count', 0)
+                unclassified_count += triage.get('unclassified_count', 0)
+                action_assigned_count += triage.get('action_assigned_count', 0)
+                no_action_count += triage.get('no_action_count', 0)
+                bug_count += triage.get('bug_count', 0)
+                false_positive_count += triage.get('false_positive_count', 0)
+                intentional_count += triage.get('intentional_count', 0)
+                
+                # Get trend summary
+                trend = metrics.get_defect_trend_summary(days=days)
+                total_new += trend.get('total_new', 0) or 0
+                total_fixed += trend.get('total_fixed', 0) or 0
+                current_outstanding += trend.get('current_outstanding', 0) or 0
+                
+                # Get fix rate metrics
+                fix_rate = metrics.get_fix_rate_metrics(days=days)
+                fix_rate_total_new += fix_rate.get('total_defects', 0) or 0
+                fix_rate_total_fixed += fix_rate.get('fixed_defects', 0) or 0
+                
+                by_instance.append({
+                    'instance_name': instance_name,
+                    'color': instance_config.color if instance_config else '#2c3e50',
+                    'triage_completion': triage.get('triage_completion_percentage', 0),
+                    'classified': triage.get('classified_count', 0),
+                    'total_new': trend.get('total_new', 0) or 0,
+                    'total_fixed': trend.get('total_fixed', 0) or 0,
+                    'net_change': (trend.get('total_new', 0) or 0) - (trend.get('total_fixed', 0) or 0),
+                    'trend_direction': trend.get('trend_direction', 'stable')
+                })
+            except Exception as e:
+                tqdm.write(f"Warning: Failed to get trends from {instance_name}: {str(e)}")
+                continue
+        
+        # Calculate aggregated metrics
+        net_change = total_new - total_fixed
+        days_with_data = days  # Simplified - actual calculation would need snapshot dates
+        
+        triage_summary = {
+            'total_defects': total_defects,
+            'classified_count': classified_count,
+            'unclassified_count': unclassified_count,
+            'action_assigned_count': action_assigned_count,
+            'no_action_count': no_action_count,
+            'bug_count': bug_count,
+            'false_positive_count': false_positive_count,
+            'intentional_count': intentional_count,
+            'triage_completion_percentage': round((classified_count / total_defects * 100), 2) if total_defects > 0 else 0
+        }
+        
+        trend_summary = {
+            'total_new': total_new,
+            'total_fixed': total_fixed,
+            'net_change': net_change,
+            'avg_new_per_day': round(total_new / days_with_data, 2) if days_with_data > 0 else 0,
+            'avg_fixed_per_day': round(total_fixed / days_with_data, 2) if days_with_data > 0 else 0,
+            'fix_rate_pct': round((total_fixed / total_new * 100), 2) if total_new > 0 else 0,
+            'current_outstanding': current_outstanding,
+            'trend_direction': 'improving' if total_fixed > total_new else ('declining' if total_fixed < total_new else 'stable')
+        }
+        
+        fix_rate_metrics = {
+            'total_defects': fix_rate_total_new,
+            'fixed_defects': fix_rate_total_fixed,
+            'fix_rate_percentage': round((fix_rate_total_fixed / fix_rate_total_new * 100), 2) if fix_rate_total_new > 0 else 0,
+            'avg_days_to_fix': 'N/A',  # Would need more complex calculation
+            'median_days_to_fix': 'N/A',
+            'min_days_to_fix': 'N/A',
+            'max_days_to_fix': 'N/A'
+        }
+        
+        return {
+            'triage_summary': triage_summary,
+            'trend_summary': trend_summary,
+            'fix_rate_metrics': fix_rate_metrics,
+            'by_instance': by_instance
+        }
+    
     def get_defects_by_instance(self) -> pd.DataFrame:
         """Get defect counts by instance with detailed metrics"""
         data = []

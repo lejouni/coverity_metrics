@@ -200,10 +200,16 @@ class CoverityMetrics:
             LEFT JOIN stream_file sf ON se.id = sf.stream_element_id
             WHERE p.deleted = false AND s.deleted = false
                 AND p.name != 'Developer Streams'
+                {project_filter}
             GROUP BY p.name, s.name
             ORDER BY defects_per_kloc DESC
         """
-        results = self.db.execute_query_dict(query)
+        if self.project_name:
+            query = query.format(project_filter="AND p.name = %s")
+            results = self.db.execute_query_dict(query, (self.project_name,))
+        else:
+            query = query.format(project_filter="")
+            results = self.db.execute_query_dict(query)
         return pd.DataFrame(results)
     
     # ========== TRIAGE METRICS ==========
@@ -486,6 +492,64 @@ class CoverityMetrics:
         return pd.DataFrame(results)
     
     # ========== USER ACTIVITY METRICS ==========
+    
+    def get_user_license_statistics(self, days=90):
+        """Get user license and activity statistics
+        
+        Args:
+            days: Number of days to look back for active users
+            
+        Returns:
+            dict: User license statistics including:
+                - total_licensed_users: Total users in system
+                - users_with_login: Users who have logged in at least once
+                - active_users: Users with commits or triage activity in given period
+        """
+        # Total licensed users (all users in the system)
+        total_users_query = "SELECT COUNT(*) FROM users WHERE deleted = false"
+        total_users_result = self.db.execute_query(total_users_query)
+        total_licensed_users = total_users_result[0][0] if total_users_result else 0
+        
+        # Users with at least one login ever
+        users_with_login_query = """
+            SELECT COUNT(DISTINCT u.id)
+            FROM users u
+            INNER JOIN user_login ul ON u.id = ul.user_id
+            WHERE u.deleted = false
+        """
+        users_with_login_result = self.db.execute_query(users_with_login_query)
+        users_with_login = users_with_login_result[0][0] if users_with_login_result else 0
+        
+        # Active users: those who have done triage OR had recent logins within the given threshold
+        # Note: Focusing on triage activity and login activity as indicators of engagement
+        active_users_query = f"""
+            SELECT COUNT(DISTINCT user_id) as active_users
+            FROM (
+                -- Users who performed triage actions
+                SELECT DISTINCT ts.user_created_id as user_id
+                FROM triage_state ts
+                WHERE ts.date_created >= CURRENT_DATE - INTERVAL '{days} days'
+                    AND ts.user_created_id IS NOT NULL
+                
+                UNION
+                
+                -- Users who had login activity (showing engagement)
+                SELECT DISTINCT ul.user_id
+                FROM user_login ul
+                WHERE ul.session_start >= CURRENT_DATE - INTERVAL '{days} days'
+                    AND ul.user_id IS NOT NULL
+            ) active_user_list
+        """
+        active_users_result = self.db.execute_query(active_users_query)
+        active_users = active_users_result[0][0] if active_users_result else 0
+        
+        return {
+            'total_licensed_users': total_licensed_users,
+            'users_with_login': users_with_login,
+            'active_users': active_users,
+            'active_user_percentage': round((active_users / total_licensed_users * 100), 1) if total_licensed_users > 0 else 0,
+            'login_user_percentage': round((users_with_login / total_licensed_users * 100), 1) if total_licensed_users > 0 else 0
+        }
     
     def get_user_login_statistics(self, days=30):
         """Get user login statistics
@@ -949,11 +1013,11 @@ class CoverityMetrics:
                 sn.eliminated_defect_count,
                 sn.total_file_count,
                 sn.function_count,
-                ROUND(sn.duration_commit_total / 60.0, 2) as duration_minutes,
-                ROUND(sn.duration_issue_processing / 60.0, 2) as issue_processing_minutes,
-                ROUND(sn.duration_file_processing / 60.0, 2) as file_processing_minutes,
+                ROUND(sn.duration_commit_total / 1000.0, 2) as duration_seconds,
+                ROUND(sn.duration_issue_processing / 1000.0, 2) as issue_processing_seconds,
+                ROUND(sn.duration_file_processing / 1000.0, 2) as file_processing_seconds,
                 sn.queue_length,
-                ROUND(sn.duration_on_queue / 60.0, 2) as queue_time_minutes
+                ROUND(sn.duration_on_queue / 1000.0, 2) as queue_time_seconds
             FROM snapshot sn
             JOIN stream s ON sn.stream_id = s.id
             {project_filter_join}
@@ -987,9 +1051,9 @@ class CoverityMetrics:
         query = """
             SELECT 
                 COUNT(*) as total_commits,
-                ROUND(AVG(duration_commit_total / 60.0), 2) as avg_duration_minutes,
-                ROUND(MIN(duration_commit_total / 60.0), 2) as min_duration_minutes,
-                ROUND(MAX(duration_commit_total / 60.0), 2) as max_duration_minutes,
+                ROUND(AVG(duration_commit_total / 1000.0), 2) as avg_duration_seconds,
+                ROUND(MIN(duration_commit_total / 1000.0), 2) as min_duration_seconds,
+                ROUND(MAX(duration_commit_total / 1000.0), 2) as max_duration_seconds,
                 ROUND(AVG(total_file_count), 0) as avg_files_per_commit,
                 ROUND(AVG(total_defect_count), 0) as avg_defects_per_commit,
                 ROUND(AVG(new_defect_count), 0) as avg_new_defects_per_commit
@@ -1137,7 +1201,14 @@ class CoverityMetrics:
                     COUNT(dt.id) as count
                 FROM defect_triage dt
                 JOIN dynamic_enum de ON dt.current_classification_id = de.id
+                LEFT JOIN stream_defect sd ON dt.id = sd.defect_triage_id
+                LEFT JOIN stream_element se ON sd.stream_element_id = se.id
+                LEFT JOIN stream s ON se.stream_id = s.id
+                LEFT JOIN project_stream ps ON s.id = ps.stream_id
+                LEFT JOIN project p ON ps.project_id = p.id
                 WHERE de.dtype = 'Cls'
+                    AND sd.fixed_snapshot_element_id IS NULL
+                    {project_filter}
                 GROUP BY de.name
             )
             SELECT 
@@ -1149,7 +1220,13 @@ class CoverityMetrics:
             ORDER BY count DESC
         """
         
-        results = self.db.execute_query_dict(query)
+        if self.project_name:
+            query = query.format(project_filter="AND p.name = %s")
+            results = self.db.execute_query_dict(query, (self.project_name,))
+        else:
+            query = query.format(project_filter="")
+            results = self.db.execute_query_dict(query)
+        
         return pd.DataFrame(results)
     
     def get_fix_rate_metrics(self, days=90):
@@ -1421,19 +1498,32 @@ class CoverityMetrics:
         """
         query = """
             SELECT 
-                COUNT(DISTINCT dt.id) as total_defects,
-                COUNT(DISTINCT CASE WHEN dt.current_classification_id IS NOT NULL THEN dt.id END) as classified_count,
-                COUNT(DISTINCT CASE WHEN dt.current_classification_id IS NULL THEN dt.id END) as unclassified_count,
-                COUNT(DISTINCT CASE WHEN dt.current_action_id IS NOT NULL THEN dt.id END) as action_assigned_count,
-                COUNT(DISTINCT CASE WHEN dt.current_action_id IS NULL THEN dt.id END) as no_action_count,
-                ROUND((COUNT(DISTINCT CASE WHEN dt.current_classification_id IS NOT NULL THEN dt.id END)::numeric / 
-                       NULLIF(COUNT(DISTINCT dt.id), 0) * 100), 2) as triage_completion_percentage,
-                COUNT(DISTINCT CASE WHEN de_cls.name = 'Bug' THEN dt.id END) as bug_count,
-                COUNT(DISTINCT CASE WHEN de_cls.name = 'False Positive' THEN dt.id END) as false_positive_count,
-                COUNT(DISTINCT CASE WHEN de_cls.name = 'Intentional' THEN dt.id END) as intentional_count
+                COUNT(DISTINCT sd.id) as total_defects,
+                COUNT(DISTINCT CASE WHEN de_cls.name IS NOT NULL AND de_cls.name != 'Unclassified' THEN sd.id END) as classified_count,
+                COUNT(DISTINCT CASE WHEN de_cls.name IS NULL OR de_cls.name = 'Unclassified' THEN sd.id END) as unclassified_count,
+                COUNT(DISTINCT CASE WHEN de_act.name IS NOT NULL AND de_act.name NOT IN ('Undecided', 'No Action') THEN sd.id END) as action_assigned_count,
+                COUNT(DISTINCT CASE WHEN de_act.name IS NULL OR de_act.name IN ('Undecided', 'No Action') THEN sd.id END) as no_action_count,
+                ROUND((COUNT(DISTINCT CASE WHEN de_cls.name IS NOT NULL AND de_cls.name != 'Unclassified' THEN sd.id END)::numeric / 
+                       NULLIF(COUNT(DISTINCT sd.id), 0) * 100), 2) as triage_completion_percentage,
+                COUNT(DISTINCT CASE WHEN de_cls.name = 'Bug' THEN sd.id END) as bug_count,
+                COUNT(DISTINCT CASE WHEN de_cls.name = 'False Positive' THEN sd.id END) as false_positive_count,
+                COUNT(DISTINCT CASE WHEN de_cls.name = 'Intentional' THEN sd.id END) as intentional_count
             FROM defect_triage dt
             LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
+            LEFT JOIN dynamic_enum de_act ON dt.current_action_id = de_act.id AND de_act.dtype = 'Act'
+            LEFT JOIN stream_defect sd ON dt.id = sd.defect_triage_id
+            LEFT JOIN stream_element se ON sd.stream_element_id = se.id
+            LEFT JOIN stream s ON se.stream_id = s.id
+            LEFT JOIN project_stream ps ON s.id = ps.stream_id
+            LEFT JOIN project p ON ps.project_id = p.id
+            WHERE sd.fixed_snapshot_element_id IS NULL
+                {project_filter}
         """
         
-        result = self.db.execute_query_dict(query)
+        if self.project_name:
+            query = query.format(project_filter="AND p.name = %s")
+            result = self.db.execute_query_dict(query, (self.project_name,))
+        else:
+            query = query.format(project_filter="")
+            result = self.db.execute_query_dict(query)
         return result[0] if result else {}

@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coverity Metrics Dashboard - {{ timestamp }}</title>
-    <link rel="stylesheet" href="{{ css_path }}">
+    <style>
+{{ inline_css }}
+    </style>
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
 <body>
@@ -68,9 +70,9 @@
                     <input type="text" 
                            id="project-input" 
                            class="project-input" 
-                           placeholder="Type to search or click to select..." 
+                           placeholder="{% if current_project %}{{ current_project }}{% else %}All Projects - Click to filter{% endif %}" 
                            list="project-list"
-                           value="{% if current_project %}{{ current_project }}{% else %}All Projects{% endif %}" />
+                           value="{% if current_project %}{{ current_project }}{% endif %}" />
                     <datalist id="project-list">
                         {% if current_instance %}
                         <option value="All Projects" data-url="dashboard.html">All Projects ({{ all_projects|length }})</option>
@@ -91,9 +93,18 @@
                     </button>
                 </div>
                 {% if current_project %}
-                <div class="current-project-badge">
-                    <span class="badge-label">Viewing:</span>
-                    <span class="badge-value">{{ current_project }}</span>
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div class="current-project-badge">
+                        <span class="badge-label">Viewing:</span>
+                        <span class="badge-value">{{ current_project }}</span>
+                    </div>
+                    <button id="clear-project-filter" class="clear-filter-btn" type="button" title="Show all projects" onclick="window.location.href='dashboard.html'">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                        Show All
+                    </button>
                 </div>
                 {% endif %}
             </div>
@@ -604,7 +615,7 @@
                     </div>
                 </div>
                 <div class="summary-card {% if trend_summary.net_change and trend_summary.net_change > 0 %}danger{% elif trend_summary.net_change and trend_summary.net_change < 0 %}success{% endif %}">
-                    <div class="label">Net Change (90 days)</div>
+                    <div class="label">Net Change</div>
                     <div class="value" style="font-size: 2.5rem;">
                         {{ ('+' if trend_summary.net_change > 0 else '') if trend_summary.net_change else '' }}{{ trend_summary.net_change if trend_summary.net_change else '0' }}
                     </div>
@@ -855,6 +866,62 @@
         <!-- Performance Tab -->
         <div id="performance-tab" class="tab-content">
 
+        <!-- User Activity & License Statistics -->
+        {% if user_activity_stats %}
+        <div class="section">
+            <h2 class="section-title">👥 User Activity & License Statistics ({{ trend_period_text }})</h2>
+            <div class="summary-grid" style="margin-bottom: 2rem;">
+                <div class="summary-card info">
+                    <div class="label">Licensed Users</div>
+                    <div class="value">{{ user_activity_stats.total_licensed_users }}</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">Total user licenses</div>
+                </div>
+                <div class="summary-card success">
+                    <div class="label">Users with Login</div>
+                    <div class="value">{{ user_activity_stats.users_with_login }}</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
+                        {{ user_activity_stats.login_user_percentage }}% of licenses
+                    </div>
+                </div>
+                <div class="summary-card {% if user_activity_stats.active_user_percentage < 50 %}warning{% else %}success{% endif %}">
+                    <div class="label">Active Users</div>
+                    <div class="value">{{ user_activity_stats.active_users }}</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
+                        {{ user_activity_stats.active_user_percentage }}% of licenses
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Inactive Licenses</div>
+                    <div class="value">{{ user_activity_stats.total_licensed_users - user_activity_stats.active_users }}</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
+                        {{ (100 - user_activity_stats.active_user_percentage)|round(1) }}% of licenses
+                    </div>
+                </div>
+            </div>
+            
+            <div class="alert {% if user_activity_stats.active_user_percentage < 30 %}alert-warning{% elif user_activity_stats.active_user_percentage < 50 %}alert-info{% else %}alert-success{% endif %}">
+                <strong>Activity Summary:</strong>
+                {% if user_activity_stats.active_user_percentage >= 50 %}
+                    Good license utilization! {{ user_activity_stats.active_user_percentage }}% of users are actively using Coverity (commits or triage) in the last {{ trend_period_text.lower() }}.
+                {% elif user_activity_stats.active_user_percentage >= 30 %}
+                    Moderate license utilization. {{ user_activity_stats.active_user_percentage }}% of users are actively using Coverity. Consider user engagement improvements.
+                {% else %}
+                    Low license utilization detected. Only {{ user_activity_stats.active_user_percentage }}% of users are actively using Coverity. Review license allocation and user training.
+                {% endif %}
+            </div>
+            
+            <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 8px; border-left: 4px solid var(--secondary-color);">
+                <strong>📊 Definition of Activity:</strong>
+                <ul style="margin: 0.5rem 0 0 1.5rem; line-height: 1.8;">
+                    <li><strong>Licensed Users:</strong> All user accounts in the system (not deleted)</li>
+                    <li><strong>Users with Login:</strong> Users who have logged in at least once (ever)</li>
+                    <li><strong>Active Users:</strong> Users who logged in OR performed triage actions within {{ trend_period_text.lower() }}</li>
+                    <li><strong>Inactive Licenses:</strong> Licensed users without recent activity</li>
+                </ul>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Database Statistics -->
         <div class="section">
             <h2 class="section-title">Database Statistics</h2>
@@ -869,7 +936,7 @@
                 </div>
                 <div class="summary-card">
                     <div class="label">Avg Commit Time</div>
-                    <div class="value" style="font-size: 2rem;">{{ commit_stats.avg_duration_minutes }}m</div>
+                    <div class="value" style="font-size: 2rem;">{{ commit_stats.avg_duration_seconds }}s</div>
                 </div>
                 <div class="summary-card">
                     <div class="label">Total Commits</div>
@@ -902,11 +969,11 @@
             <div class="grid-2col" style="margin-bottom: 2rem;">
                 <div class="summary-card">
                     <div class="label">Min Commit Time</div>
-                    <div class="value success">{{ commit_stats.min_duration_minutes }} min</div>
+                    <div class="value success">{{ commit_stats.min_duration_seconds }} sec</div>
                 </div>
                 <div class="summary-card">
                     <div class="label">Max Commit Time</div>
-                    <div class="value danger">{{ commit_stats.max_duration_minutes }} min</div>
+                    <div class="value danger">{{ commit_stats.max_duration_seconds }} sec</div>
                 </div>
                 <div class="summary-card">
                     <div class="label">Avg Files/Commit</div>
@@ -942,8 +1009,8 @@
                             <span class="severity-badge severity-low">-{{ row.eliminated_defect_count or 0 }}</span>
                         </td>
                         <td>{{ row.total_file_count or 0 }}</td>
-                        <td class="metric-number">{{ row.duration_minutes or 0 }} min</td>
-                        <td>{{ row.queue_time_minutes or 0 }} min</td>
+                        <td class="metric-number">{{ row.duration_seconds or 0 }} sec</td>
+                        <td>{{ row.queue_time_seconds or 0 }} sec</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -1062,6 +1129,7 @@
         Plotly.newPlot('complexity-chart', complexityData, complexityLayout, {responsive: true});
         {% endif %}
 
+        {% if not current_project %}
         {% if defect_discovery|length > 0 %}
         // Defect Discovery Rate Chart
         var discoveryData = [{
@@ -1091,6 +1159,7 @@
         };
 
         Plotly.newPlot('discovery-chart', discoveryData, discoveryLayout, {responsive: true});
+        {% endif %}
         {% endif %}
 
         {% if defect_trends|length > 0 %}

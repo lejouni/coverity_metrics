@@ -171,3 +171,5 @@ Thumbs.db
 *.bak
 *.backup
 *.old
+check_*.py
+test_*.py

@@ -57,8 +57,8 @@ The tool provides the following metric categories:
 
 ```bash
 # Clone or download this repository
-git clone https://github.com/yourusername/coverity-metrics.git
-cd coverity-metrics
+git clone https://github.com/lejouni/coverity_metrics.git
+cd coverity_metrics
 
 # Install the package with all dependencies
 pip install -e .
@@ -418,7 +418,7 @@ See [INSTALL.md](INSTALL.md) for detailed API examples.
 - `output/dashboard.html` - Global view of all projects
 - `output/dashboard_{ProjectName}.html` - Project-specific dashboards
 
-### Multi-Instance Support (NEW - Automatic!)
+### Multi-Instance Support
 
 **For environments with multiple Coverity instances, the tool now auto-detects your configuration:**
 

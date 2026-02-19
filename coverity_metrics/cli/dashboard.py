@@ -21,6 +21,26 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
+def load_inline_css():
+    """
+    Load CSS content from static directory to embed inline in HTML
+    
+    Returns:
+        str: CSS content to embed in HTML style tags
+    """
+    # Get the package directory (where this file is located)
+    package_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    css_path = os.path.join(package_dir, 'static', 'css', 'dashboard.css')
+    
+    # Load CSS file content
+    if os.path.exists(css_path):
+        with open(css_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    else:
+        tqdm.write(f"  [WARNING] CSS file not found at {css_path}")
+        return "/* CSS file not found */"
+
+
 def detect_multi_instance_config(config_file='config.json'):
     """
     Detect if multi-instance configuration exists and has multiple instances
@@ -105,6 +125,11 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             fix_rate_metrics = metrics_data.get('fix_rate_metrics', {})
             defect_aging = metrics_data.get('defect_aging', [])
             triage_summary = metrics_data.get('triage_summary', {})
+            defect_velocity = metrics_data.get('defect_velocity', [])
+            cumulative_trends = metrics_data.get('cumulative_trends', [])
+            trend_summary = metrics_data.get('trend_summary', {})
+            trend_period_text = metrics_data.get('trend_period_text', f'Last {days} Days')
+            user_activity_stats = metrics_data.get('user_activity_stats', {})
         else:
             # Collect from database and cache
             metrics_data = _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days)
@@ -134,6 +159,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             cumulative_trends = metrics_data.get('cumulative_trends', [])
             trend_summary = metrics_data.get('trend_summary', {})
             trend_period_text = metrics_data.get('trend_period_text', f'Last {days} Days')
+            user_activity_stats = metrics_data.get('user_activity_stats', {})
     else:
         # Collect without caching
         all_projects = metrics.get_available_projects()
@@ -161,6 +187,9 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         commit_stats = metrics.get_commit_time_statistics()
         defect_discovery = metrics.get_defect_discovery_rate(days=days).to_dict('records')
         
+        # Collect user activity statistics
+        user_activity_stats = metrics.get_user_license_statistics(days=days)
+        
         # Collect trend analysis data
         defect_trends = metrics.get_defect_trends(days=days, granularity='week').to_dict('records')
         triage_trends = metrics.get_triage_trends(days=days).to_dict('records')
@@ -184,20 +213,13 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         tqdm.write(f"  [OK] Code quality metrics: {len(code_metrics)} records")
         tqdm.write(f"  [OK] Performance metrics: {len(snapshot_performance)} snapshots")
         tqdm.write(f"  [OK] Trend analysis: {len(defect_trends)} periods")
+        tqdm.write(f"  [OK] User activity: {user_activity_stats['active_users']} active users")
     
     # Check for high severity alert
     high_severity_alert = summary.get('high_severity_defects', 0) > 0
     
-    # Calculate CSS path based on output file depth
-    # Count directory levels from output file to project root
-    output_dir = os.path.dirname(output_file)
-    if output_dir:
-        # Split by either / or \ and count non-empty parts
-        parts = [p for p in output_dir.replace('\\', '/').split('/') if p]
-        depth = len(parts)
-    else:
-        depth = 0
-    css_path = '../' * depth + 'static/css/dashboard.css'
+    # Load CSS content for inline embedding
+    inline_css = load_inline_css()
     
     # Set up Jinja2 environment (templates are in parent package directory)
     template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
@@ -208,7 +230,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
     
     # Render template with data
     html_content = template.render(
-        css_path=css_path,
+        inline_css=inline_css,
         timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         summary=summary,
         defects_by_severity=defects_by_severity,
@@ -240,7 +262,8 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         defect_velocity=defect_velocity,
         cumulative_trends=cumulative_trends,
         trend_summary=trend_summary,
-        trend_period_text=trend_period_text
+        trend_period_text=trend_period_text,
+        user_activity_stats=user_activity_stats
     )
     
     # Ensure output directory exists
@@ -286,6 +309,9 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
     commit_stats = metrics.get_commit_time_statistics()
     defect_discovery = metrics.get_defect_discovery_rate(days=days).to_dict('records')
     
+    # Collect user activity statistics
+    user_activity_stats = metrics.get_user_license_statistics(days=days)
+    
     # Collect trend analysis data
     defect_trends = metrics.get_defect_trends(days=days, granularity='week').to_dict('records')
     triage_trends = metrics.get_triage_trends(days=days).to_dict('records')
@@ -309,6 +335,7 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
     tqdm.write(f"  [OK] Code quality metrics: {len(code_metrics)} records")
     tqdm.write(f"  [OK] Performance metrics: {len(snapshot_performance)} snapshots")
     tqdm.write(f"  [OK] Trend analysis: {len(defect_trends)} periods")
+    tqdm.write(f"  [OK] User activity: {user_activity_stats['active_users']} active users")
     
     metrics_data = {
         'summary': summary,
@@ -336,7 +363,8 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
         'defect_velocity': defect_velocity,
         'cumulative_trends': cumulative_trends,
         'trend_summary': trend_summary,
-        'trend_period_text': trend_period_text
+        'trend_period_text': trend_period_text,
+        'user_activity_stats': user_activity_stats
     }
     
     # Cache the data
@@ -346,12 +374,13 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
     return metrics_data
 
 
-def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_aggregated.html"):
+def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_aggregated.html", days=365):
     """Generate aggregated dashboard across all Coverity instances
     
     Args:
         multi_metrics: MultiInstanceMetrics instance
         output_file: Path to output HTML file
+        days: Number of days for trend analysis (default: 365)
     """
     tqdm.write("\nGenerating Aggregated Multi-Instance Dashboard...")
     tqdm.write("=" * 80)
@@ -361,8 +390,10 @@ def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_a
     summary = multi_metrics.get_aggregated_summary()
     defects_by_instance = multi_metrics.get_defects_by_instance().to_dict('records')
     defects_by_severity = multi_metrics.get_aggregated_defects_by_severity().to_dict('records')
-    all_projects = multi_metrics.get_all_projects_across_instances()
     analysis_versions = multi_metrics.get_aggregated_analysis_versions(limit=10)
+    user_statistics = multi_metrics.get_aggregated_user_statistics(days=days)
+    database_statistics = multi_metrics.get_aggregated_database_statistics()
+    aggregated_trends = multi_metrics.get_aggregated_trends(days=days)
     
     # Get instance names with colors
     instance_configs = []
@@ -375,17 +406,12 @@ def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_a
     
     tqdm.write(f"  [OK] Aggregated summary across {summary['total_instances']} instances")
     tqdm.write(f"  [OK] Defects by instance: {len(defects_by_instance)} instances")
-    tqdm.write(f"  [OK] Total projects: {len(all_projects) if not all_projects.empty else 0}")
+    tqdm.write(f"  [OK] User activity: {user_statistics['active_users']} active users across all instances")
+    tqdm.write(f"  [OK] Database statistics: {database_statistics['total_db_size']} total size, {database_statistics['total_snapshots']} snapshots")
+    tqdm.write(f"  [OK] Trends & Progress: {aggregated_trends['trend_summary']['total_new']} new, {aggregated_trends['trend_summary']['total_fixed']} fixed")
     
-    # Calculate CSS path based on output file depth
-    output_dir = os.path.dirname(output_file)
-    if output_dir:
-        # Split by either / or \\ and count non-empty parts
-        parts = [p for p in output_dir.replace('\\', '/').split('/') if p]
-        depth = len(parts)
-    else:
-        depth = 0
-    css_path = '../' * depth + 'static/css/dashboard.css'
+    # Load CSS content for inline embedding
+    inline_css = load_inline_css()
     
     # Set up Jinja2 environment (templates are in parent package directory)
     template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
@@ -396,14 +422,20 @@ def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_a
     
     # Render template with data
     html_content = template.render(
-        css_path=css_path,
+        inline_css=inline_css,
         timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         summary=summary,
         defects_by_instance=defects_by_instance,
         defects_by_severity=defects_by_severity,
-        all_projects=all_projects.to_dict('records') if not all_projects.empty else [],
         analysis_versions=analysis_versions,
         instance_configs=instance_configs,
+        user_statistics=user_statistics,
+        database_statistics=database_statistics,
+        triage_summary=aggregated_trends['triage_summary'],
+        trend_summary=aggregated_trends['trend_summary'],
+        fix_rate_metrics=aggregated_trends['fix_rate_metrics'],
+        trends_by_instance=aggregated_trends['by_instance'],
+        trend_period_text=f"Last {days} Days",
         multi_instance_mode=True
     )
     
@@ -608,7 +640,7 @@ def main():
                     # Ensure output folder exists
                     os.makedirs(args.output, exist_ok=True)
                     output_file = f"{args.output}/dashboard_aggregated.html"
-                    dashboard_path = generate_aggregated_dashboard(multi_metrics, output_file)
+                    dashboard_path = generate_aggregated_dashboard(multi_metrics, output_file, args.days)
                     generated_files.append(("Aggregated View", dashboard_path))
                     
                     # Also generate instance-level dashboards for navigation

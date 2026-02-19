@@ -4,8 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coverity Metrics - Aggregated Multi-Instance Dashboard</title>
-    <link rel="stylesheet" href="{{ css_path }}">
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+{{ inline_css }}
+    </style>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
 <body>
     <header>
@@ -56,6 +58,18 @@
             {% endfor %}
         </div>
 
+        <!-- Main Content Tabs -->
+        <div class="content-tabs">
+            <div class="tab-buttons">
+                <button class="tab-button active" data-tab="overview">Overview</button>
+                <button class="tab-button" data-tab="trends">Trends & Progress</button>
+                <button class="tab-button" data-tab="performance">Performance & Analytics</button>
+            </div>
+        </div>
+
+        <!-- Overview Tab -->
+        <div id="overview-tab" class="tab-content active">
+
         <!-- Instance Overview Cards -->
         <div class="summary-grid">
             <div class="summary-card">
@@ -75,68 +89,6 @@
                 <div class="value">{{ summary.high_severity_defects }}</div>
             </div>
         </div>
-
-        <!-- Analysis Versions Section -->
-        {% if analysis_versions and analysis_versions|length > 0 %}
-        <div class="section" style="margin-bottom: 1.5rem;">
-            <div style="background: linear-gradient(135deg, #00b09b 0%, #96c93d 100%); padding: 1rem; border-radius: 8px; color: white;">
-                <h3 style="margin: 0 0 0.75rem 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
-                    <span>📊</span>
-                    <span>Top Analysis Versions Used - All Instances</span>
-                </h3>
-                <div style="background: rgba(255, 255, 255, 0.15); border-radius: 6px; padding: 0.75rem; max-height: 400px; overflow-y: auto;">
-                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
-                        <thead>
-                            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.3);">
-                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">#</th>
-                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Analysis Version</th>
-                                <th style="text-align: center; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Total Snapshots</th>
-                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Instances</th>
-                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">First Used</th>
-                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Last Used</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for ver in analysis_versions %}
-                            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.15);">
-                                <td style="padding: 0.5rem; opacity: 0.8;">{{ loop.index }}</td>
-                                <td style="padding: 0.5rem; font-weight: 500;">{{ ver.version }}</td>
-                                <td style="padding: 0.5rem; text-align: center; font-weight: 600;">
-                                    <span style="background: rgba(255, 255, 255, 0.2); padding: 0.25rem 0.75rem; border-radius: 12px;">
-                                        {{ ver.snapshot_count }}
-                                    </span>
-                                </td>
-                                <td style="padding: 0.5rem; opacity: 0.8; font-size: 0.85rem;">
-                                    {% if ver.instances %}
-                                        <span title="{{ ver.instances|join(', ') }}">
-                                            {{ ver.instances|length }} instance{{ 's' if ver.instances|length > 1 else '' }}
-                                        </span>
-                                    {% else %}
-                                        N/A
-                                    {% endif %}
-                                </td>
-                                <td style="padding: 0.5rem; opacity: 0.8; font-size: 0.85rem;">
-                                    {% if ver.first_used %}
-                                        {{ ver.first_used.strftime('%Y-%m-%d %H:%M') if ver.first_used.strftime else ver.first_used }}
-                                    {% else %}
-                                        N/A
-                                    {% endif %}
-                                </td>
-                                <td style="padding: 0.5rem; opacity: 0.8; font-size: 0.85rem;">
-                                    {% if ver.last_used %}
-                                        {{ ver.last_used.strftime('%Y-%m-%d %H:%M') if ver.last_used.strftime else ver.last_used }}
-                                    {% else %}
-                                        N/A
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-        {% endif %}
 
         <!-- Defects by Instance Chart -->
         <div class="section">
@@ -207,39 +159,6 @@
             </div>
         </div>
 
-        <!-- All Projects Across Instances -->
-        {% if all_projects|length > 0 %}
-        <div class="section">
-            <h2 class="section-title">All Projects Across Instances (Top 50)</h2>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Project Name</th>
-                        <th>Instance</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for proj in all_projects[:50] %}
-                    <tr>
-                        <td>{{ proj.project_name }}</td>
-                        <td>
-                            <span style="display: inline-block; width: 12px; height: 12px; background-color: {{ proj.instance_color }}; border-radius: 2px; margin-right: 8px;"></span>
-                            {{ proj.instance_name }}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                    {% if all_projects|length > 50 %}
-                    <tr>
-                        <td colspan="2" style="text-align: center; font-style: italic; color: #7f8c8d;">
-                            ... and {{ all_projects|length - 50 }} more projects
-                        </td>
-                    </tr>
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
-        {% endif %}
-
         <!-- Instance Legend -->
         <div class="section" style="background: linear-gradient(135deg, #f5f7fa, #c3cfe2); padding: 1.5rem; border-radius: 8px;">
             <h3 style="margin-bottom: 1rem;">Instance Color Legend</h3>
@@ -258,6 +177,408 @@
             </div>
         </div>
 
+        </div>
+        <!-- End Overview Tab -->
+
+        <!-- Trends & Progress Tab -->
+        <div id="trends-tab" class="tab-content">
+
+        <!-- Triage Progress Summary -->
+        {% if triage_summary %}
+        <div class="section">
+            <h2 class="section-title">📋 Aggregated Triage Progress</h2>
+            <div class="summary-grid" style="margin-bottom: 2rem;">
+                <div class="summary-card">
+                    <div class="label">Total Outstanding</div>
+                    <div class="value">{{ triage_summary.total_defects }}</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">Across all instances</div>
+                </div>
+                <div class="summary-card success">
+                    <div class="label">Classified</div>
+                    <div class="value">{{ triage_summary.classified_count }}</div>
+                </div>
+                <div class="summary-card warning">
+                    <div class="label">Unclassified</div>
+                    <div class="value">{{ triage_summary.unclassified_count }}</div>
+                </div>
+                <div class="summary-card info">
+                    <div class="label">Triage Completion</div>
+                    <div class="value" style="font-size: 2rem;">{{ (triage_summary.triage_completion_percentage|round(1)) if triage_summary.triage_completion_percentage else '0' }}%</div>
+                </div>
+            </div>
+
+            <div class="grid-2col" style="margin-bottom: 2rem;">
+                <div class="summary-card">
+                    <div class="label">Bugs Confirmed</div>
+                    <div class="value danger">{{ triage_summary.bug_count }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">False Positives</div>
+                    <div class="value success">{{ triage_summary.false_positive_count }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Intentional</div>
+                    <div class="value">{{ triage_summary.intentional_count }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Action Assigned</div>
+                    <div class="value">{{ triage_summary.action_assigned_count }}</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Trend Summary with Velocity Indicators -->
+        {% if trend_summary and trend_summary.total_new %}
+        <div class="section">
+            <h2 class="section-title">📊 Aggregated Defect Introduction vs Fix Velocity ({{ trend_period_text }})</h2>
+            <div class="alert {% if trend_summary.trend_direction == 'improving' %}alert-success{% elif trend_summary.trend_direction == 'declining' %}alert-danger{% else %}alert-info{% endif %}">
+                <strong>🌐 Multi-Instance Trend Status:</strong> 
+                {% if trend_summary.trend_direction == 'improving' %}
+                    ✅ <strong>IMPROVING</strong> - Fixing defects faster than introducing new ones across all instances
+                {% elif trend_summary.trend_direction == 'declining' %}
+                    ⚠️ <strong>DECLINING</strong> - Introducing defects faster than fixing them across all instances
+                {% else %}
+                    ℹ️ <strong>STABLE</strong> - Introduction and fix rates are balanced across all instances
+                {% endif %}
+            </div>
+            
+            <div class="summary-grid" style="margin-bottom: 2rem;">
+                <div class="summary-card {% if trend_summary.avg_new_per_day and trend_summary.avg_fixed_per_day and trend_summary.avg_new_per_day > trend_summary.avg_fixed_per_day %}warning{% endif %}">
+                    <div class="label">Avg New Defects/Day</div>
+                    <div class="value" style="font-size: 2.5rem; color: #e74c3c;">
+                        {{ (trend_summary.avg_new_per_day|round(1)) if trend_summary.avg_new_per_day else '0' }}
+                        <span style="font-size: 1rem;">↑</span>
+                    </div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">Across all instances</div>
+                </div>
+                <div class="summary-card {% if trend_summary.avg_fixed_per_day and trend_summary.avg_new_per_day and trend_summary.avg_fixed_per_day > trend_summary.avg_new_per_day %}success{% endif %}">
+                    <div class="label">Avg Fixed Defects/Day</div>
+                    <div class="value" style="font-size: 2.5rem; color: #27ae60;">
+                        {{ (trend_summary.avg_fixed_per_day|round(1)) if trend_summary.avg_fixed_per_day else '0' }}
+                        <span style="font-size: 1rem;">↓</span>
+                    </div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">Across all instances</div>
+                </div>
+                <div class="summary-card {% if trend_summary.net_change and trend_summary.net_change > 0 %}danger{% elif trend_summary.net_change and trend_summary.net_change < 0 %}success{% endif %}">
+                    <div class="label">Net Change</div>
+                    <div class="value" style="font-size: 2.5rem;">
+                        {{ ('+' if trend_summary.net_change > 0 else '') if trend_summary.net_change else '' }}{{ trend_summary.net_change if trend_summary.net_change else '0' }}
+                    </div>
+                </div>
+                <div class="summary-card info">
+                    <div class="label">Fix Rate Efficiency</div>
+                    <div class="value" style="font-size: 2.5rem;">
+                        {{ (trend_summary.fix_rate_pct|round(1)) if trend_summary.fix_rate_pct else '0' }}%
+                    </div>
+                </div>
+            </div>
+            
+            <div class="grid-2col" style="margin-top: 1.5rem;">
+                <div class="summary-card">
+                    <div class="label">Total New (90d)</div>
+                    <div class="value">{{ trend_summary.total_new }}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Total Fixed (90d)</div>
+                    <div class="value">{{ trend_summary.total_fixed }}</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Fix Rate Metrics -->
+        {% if fix_rate_metrics %}
+        <div class="section">
+            <h2 class="section-title">⚡ Aggregated Fix Rate & Velocity ({{ trend_period_text }})</h2>
+            <div class="grid-2col" style="margin-bottom: 2rem;">
+                <div class="summary-card">
+                    <div class="label">Total Defects</div>
+                    <div class="value">{{ fix_rate_metrics.total_defects }}</div>
+                </div>
+                <div class="summary-card success">
+                    <div class="label">Fixed Defects</div>
+                    <div class="value">{{ fix_rate_metrics.fixed_defects }}</div>
+                </div>
+                <div class="summary-card info">
+                    <div class="label">Fix Rate</div>
+                    <div class="value" style="font-size: 2rem;">{{ fix_rate_metrics.fix_rate_percentage }}%</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Current Outstanding</div>
+                    <div class="value" style="font-size: 2rem;">{{ trend_summary.current_outstanding if trend_summary else 'N/A' }}</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Per-Instance Trend Breakdown -->
+        {% if trends_by_instance %}
+        <div class="section">
+            <h2 class="section-title">📈 Trends by Instance</h2>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Instance</th>
+                        <th>Triage %</th>
+                        <th>Classified</th>
+                        <th>New Defects (90d)</th>
+                        <th>Fixed (90d)</th>
+                        <th>Net Change</th>
+                        <th>Trend</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for inst in trends_by_instance %}
+                    <tr>
+                        <td>
+                            <span style="display: inline-block; width: 12px; height: 12px; background: {{ inst.color }}; border-radius: 50%; margin-right: 0.5rem;"></span>
+                            <strong>{{ inst.instance_name }}</strong>
+                        </td>
+                        <td>
+                            <span class="severity-badge {% if inst.triage_completion < 30 %}severity-high{% elif inst.triage_completion < 70 %}severity-medium{% else %}severity-low{% endif %}">
+                                {{ inst.triage_completion|round(1) }}%
+                            </span>
+                        </td>
+                        <td class="metric-number">{{ inst.classified }}</td>
+                        <td class="metric-number">{{ inst.total_new }}</td>
+                        <td class="metric-number">{{ inst.total_fixed }}</td>
+                        <td class="metric-number {% if inst.net_change > 0 %}metric-increase{% elif inst.net_change < 0 %}metric-decrease{% endif %}">
+                            {{ '+' if inst.net_change > 0 else '' }}{{ inst.net_change }}
+                        </td>
+                        <td>
+                            {% if inst.trend_direction == 'improving' %}
+                                <span class="severity-badge severity-low">✅ Improving</span>
+                            {% elif inst.trend_direction == 'declining' %}
+                                <span class="severity-badge severity-high">⚠️ Declining</span>
+                            {% else %}
+                                <span class="severity-badge severity-medium">➖ Stable</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        </div>
+        <!-- End Trends & Progress Tab -->
+
+        <!-- Performance & Analytics Tab -->
+        <div id="performance-tab" class="tab-content">
+
+        <!-- Analysis Versions Section -->
+        {% if analysis_versions and analysis_versions|length > 0 %}
+        <div class="section" style="margin-bottom: 1.5rem;">
+            <div style="background: linear-gradient(135deg, #00b09b 0%, #96c93d 100%); padding: 1rem; border-radius: 8px; color: white;">
+                <h3 style="margin: 0 0 0.75rem 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <span>📊</span>
+                    <span>Top Analysis Versions Used - All Instances</span>
+                </h3>
+                <div style="background: rgba(255, 255, 255, 0.15); border-radius: 6px; padding: 0.75rem; max-height: 400px; overflow-y: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                        <thead>
+                            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.3);">
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">#</th>
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Analysis Version</th>
+                                <th style="text-align: center; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Total Snapshots</th>
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Instances</th>
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">First Used</th>
+                                <th style="text-align: left; padding: 0.5rem; font-weight: 600; opacity: 0.9;">Last Used</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ver in analysis_versions %}
+                            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.15);">
+                                <td style="padding: 0.5rem; opacity: 0.8;">{{ loop.index }}</td>
+                                <td style="padding: 0.5rem; font-weight: 500;">{{ ver.version }}</td>
+                                <td style="padding: 0.5rem; text-align: center; font-weight: 600;">
+                                    <span style="background: rgba(255, 255, 255, 0.2); padding: 0.25rem 0.75rem; border-radius: 12px;">
+                                        {{ ver.snapshot_count }}
+                                    </span>
+                                </td>
+                                <td style="padding: 0.5rem; opacity: 0.8; font-size: 0.85rem;">
+                                    {% if ver.instances %}
+                                        <span title="{{ ver.instances|join(', ') }}">
+                                            {{ ver.instances|length }} instance{{ 's' if ver.instances|length > 1 else '' }}
+                                        </span>
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </td>
+                                <td style="padding: 0.5rem; opacity: 0.8; font-size: 0.85rem;">
+                                    {% if ver.first_used %}
+                                        {{ ver.first_used.strftime('%Y-%m-%d %H:%M') if ver.first_used.strftime else ver.first_used }}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </td>
+                                <td style="padding: 0.5rem; opacity: 0.8; font-size: 0.85rem;">
+                                    {% if ver.last_used %}
+                                        {{ ver.last_used.strftime('%Y-%m-%d %H:%M') if ver.last_used.strftime else ver.last_used }}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- User Activity & License Statistics -->
+        {% if user_statistics %}
+        <div class="section">
+            <h2 class="section-title">👥 Aggregated User Activity & License Statistics (Last 90 Days)</h2>
+            <div class="summary-grid" style="margin-bottom: 2rem;">
+                <div class="summary-card info">
+                    <div class="label">Total Licensed Users</div>
+                    <div class="value">{{ user_statistics.total_licensed_users }}</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">Across all instances</div>
+                </div>
+                <div class="summary-card success">
+                    <div class="label">Users with Login</div>
+                    <div class="value">{{ user_statistics.users_with_login }}</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
+                        {{ user_statistics.login_user_percentage }}% of licenses
+                    </div>
+                </div>
+                <div class="summary-card {% if user_statistics.active_user_percentage < 50 %}warning{% else %}success{% endif %}">
+                    <div class="label">Active Users</div>
+                    <div class="value">{{ user_statistics.active_users }}</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
+                        {{ user_statistics.active_user_percentage }}% of licenses
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Inactive Licenses</div>
+                    <div class="value">{{ user_statistics.total_licensed_users - user_statistics.active_users }}</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
+                        {{ (100 - user_statistics.active_user_percentage)|round(1) }}% of licenses
+                    </div>
+                </div>
+            </div>
+            
+            <div class="alert {% if user_statistics.active_user_percentage < 30 %}alert-warning{% elif user_statistics.active_user_percentage < 50 %}alert-info{% else %}alert-success{% endif %}">
+                <strong>🌐 Multi-Instance Activity Summary:</strong>
+                {% if user_statistics.active_user_percentage >= 50 %}
+                    Excellent license utilization across all Coverity instances! {{ user_statistics.active_user_percentage }}% of users are actively engaged.
+                {% elif user_statistics.active_user_percentage >= 30 %}
+                    Moderate license utilization. {{ user_statistics.active_user_percentage }}% of users are active. Consider cross-instance user engagement strategies.
+                {% else %}
+                    Low license utilization detected across instances. Only {{ user_statistics.active_user_percentage }}% of users are active. Review license distribution and training programs.
+                {% endif %}
+            </div>
+
+            <!-- Per-Instance User Activity Breakdown -->
+            <h3 style="margin: 2rem 0 1rem 0;">User Activity by Instance</h3>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Instance</th>
+                        <th>Licensed Users</th>
+                        <th>Users with Login</th>
+                        <th>Active Users</th>
+                        <th>Active %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for inst in user_statistics.by_instance %}
+                    <tr>
+                        <td>
+                            <span style="display: inline-block; width: 12px; height: 12px; background: {{ inst.color }}; border-radius: 50%; margin-right: 0.5rem;"></span>
+                            <strong>{{ inst.instance_name }}</strong>
+                        </td>
+                        <td class="metric-number">{{ inst.licensed_users }}</td>
+                        <td class="metric-number">{{ inst.users_with_login }}</td>
+                        <td class="metric-number">{{ inst.active_users }}</td>
+                        <td>
+                            <span class="severity-badge {% if inst.active_percentage < 30 %}severity-high{% elif inst.active_percentage < 50 %}severity-medium{% else %}severity-low{% endif %}">
+                                {{ inst.active_percentage }}%
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Database Statistics -->
+        {% if database_statistics %}
+        <div class="section">
+            <h2 class="section-title">💾 Aggregated Database Statistics</h2>
+            <div class="summary-grid" style="margin-bottom: 2rem;">
+                <div class="summary-card info">
+                    <div class="label">Total Database Size</div>
+                    <div class="value" style="font-size: 2rem;">{{ database_statistics.total_db_size }}</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">Across all instances</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Total Snapshots</div>
+                    <div class="value">{{ database_statistics.total_snapshots }}</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">All instances combined</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Avg Commit Time</div>
+                    <div class="value" style="font-size: 2rem;">{{ database_statistics.avg_duration_seconds }}s</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">Weighted average</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Total Commits</div>
+                    <div class="value">{{ database_statistics.total_commits }}</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">All instances combined</div>
+                </div>
+            </div>
+
+            <div class="grid-2col" style="margin-bottom: 2rem;">
+                <div class="summary-card success">
+                    <div class="label">Min Commit Time</div>
+                    <div class="value">{{ database_statistics.min_duration_seconds }} sec</div>
+                </div>
+                <div class="summary-card danger">
+                    <div class="label">Max Commit Time</div>
+                    <div class="value">{{ database_statistics.max_duration_seconds }} sec</div>
+                </div>
+            </div>
+
+            <!-- Per-Instance Database Statistics -->
+            <h3 style="margin: 2rem 0 1rem 0;">Database Statistics by Instance</h3>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Instance</th>
+                        <th>Database Size</th>
+                        <th>Total Snapshots</th>
+                        <th>Total Commits</th>
+                        <th>Avg Commit Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for inst in database_statistics.by_instance %}
+                    <tr>
+                        <td>
+                            <span style="display: inline-block; width: 12px; height: 12px; background: {{ inst.color }}; border-radius: 50%; margin-right: 0.5rem;"></span>
+                            <strong>{{ inst.instance_name }}</strong>
+                        </td>
+                        <td class="metric-number">{{ inst.db_size }}</td>
+                        <td class="metric-number">{{ inst.total_snapshots }}</td>
+                        <td class="metric-number">{{ inst.total_commits }}</td>
+                        <td class="metric-number">{{ inst.avg_duration_seconds }} sec</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        </div>
+        <!-- End Performance & Analytics Tab -->
+
     </div>
 
     <footer>
@@ -268,6 +589,27 @@
     </footer>
 
     <script>
+        // Tab switching functionality
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', () => {
+                const tabName = button.getAttribute('data-tab');
+                
+                // Hide all tab contents
+                document.querySelectorAll('.tab-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+                
+                // Remove active class from all buttons
+                document.querySelectorAll('.tab-button').forEach(btn => {
+                    btn.classList.remove('active');
+                });
+                
+                // Show selected tab and mark button as active
+                document.getElementById(tabName + '-tab').classList.add('active');
+                button.classList.add('active');
+            });
+        });
+
         // Instance selector dropdown
         document.getElementById('instance-selector').addEventListener('change', function() {
             if (this.value) {

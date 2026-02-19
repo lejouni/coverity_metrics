@@ -154,6 +154,36 @@ header .timestamp {
     font-weight: 600;
 }
 
+.clear-filter-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: white;
+    border: 2px solid var(--secondary-color);
+    color: var(--secondary-color);
+    border-radius: var(--border-radius);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.clear-filter-btn:hover {
+    background: var(--secondary-color);
+    color: white;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.clear-filter-btn:active {
+    transform: scale(0.95);
+}
+
+.clear-filter-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
 /* Summary Cards */
 .summary-grid {
     display: grid;
