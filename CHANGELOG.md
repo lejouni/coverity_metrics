@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Low impact: 1 hour per defect
     - Unspecified impact: 0.5 hours per defect
   - Returns comprehensive breakdown:
-    - Total hours, work days (÷8), work weeks (÷40)
+    - Total hours, work days (Ã·8), work weeks (Ã·40)
     - Total defect count
     - Breakdown by impact level (count, hours, percentage)
     - Average hours per defect
@@ -31,23 +31,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated CWE Top 25 rankings from 2024 to 2025 version (MITRE)
   - Updated `cwe_top25_mapping.py` with all 25 new rankings and scores
   - Major ranking changes:
-    - CWE-306 (Missing Authentication): #20 → #8 (significant jump)
-    - CWE-416 (Use After Free): #4 → #18 (dropped)
-    - CWE-787 (Out-of-bounds Write): #5 → #21 (dropped)
-    - CWE-862 (Missing Authorization): #3 → #5
-    - CWE-269 (Improper Privilege Management): #8 → #12
+    - CWE-306 (Missing Authentication): #20 â†’ #8 (significant jump)
+    - CWE-416 (Use After Free): #4 â†’ #18 (dropped)
+    - CWE-787 (Out-of-bounds Write): #5 â†’ #21 (dropped)
+    - CWE-862 (Missing Authorization): #3 â†’ #5
+    - CWE-269 (Improper Privilege Management): #8 â†’ #12
   - New CWE entries in 2025:
     - CWE-120 (Classic Buffer Overflow) at #19
     - CWE-327 (Broken or Risky Crypto Algorithm) at #23
   - Removed from 2025 list:
     - CWE-94 (Improper Control of Code Generation)
     - CWE-276 (Incorrect Default Permissions)
-  - Dashboard tab title updated: "CWE Top 25 2024" → "CWE Top 25 2025"
+  - Dashboard tab title updated: "CWE Top 25 2024" â†’ "CWE Top 25 2025"
 
 ### Changed
 - **Documentation Enhancements**
   - Updated `README.md` with comprehensive "Latest Enhancements (2025)" section
-  - Added quick reference for new features (💰 Technical Debt, 🔒 OWASP, 🛡️ CWE, 🏆 Leaderboards)
+  - Added quick reference for new features (ðŸ’° Technical Debt, ðŸ”’ OWASP, ðŸ›¡ï¸ CWE, ðŸ† Leaderboards)
   - Expanded Features section with Security Compliance Metrics and Leaderboards
   - Added "For Security Teams" use cases section
   - Updated Available Metric Methods with technical debt and security APIs
@@ -170,9 +170,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependencies**: psycopg2-binary, pandas, matplotlib, seaborn, jinja2, plotly, tqdm, python-dateutil, openpyxl
 - **Installation**: `pip install -e .` for editable/development mode
 - **Entry Points**: 
-  - `coverity-dashboard` ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ `coverity_metrics.cli.dashboard:main`
-  - `coverity-metrics` ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ `coverity_metrics.cli.report:main`
-  - `coverity-export` ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ `coverity_metrics.cli.export:main`
+  - `coverity-dashboard` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ `coverity_metrics.cli.dashboard:main`
+  - `coverity-metrics` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ `coverity_metrics.cli.report:main`
+  - `coverity-export` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ `coverity_metrics.cli.export:main`
 
 ---
 

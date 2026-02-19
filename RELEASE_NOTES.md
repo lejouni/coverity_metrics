@@ -17,7 +17,7 @@
 - **CWE Top 25 2025 Update**
   - Updated from CWE Top 25 2024 to 2025 version (MITRE)
   - All 25 CWE rankings updated with new scores
-  - Major ranking changes: CWE-306 (#20→#8), CWE-416 (#4→#18), CWE-787 (#5→#21)
+  - Major ranking changes: CWE-306 (#20â†’#8), CWE-416 (#4â†’#18), CWE-787 (#5â†’#21)
   - New entries: CWE-120 (Classic Buffer Overflow #19), CWE-327 (Broken Crypto #23)
   - Removed entries: CWE-94 (Code Injection), CWE-276 (Incorrect Permissions)
   - Dashboard tab updated to show "CWE Top 25 2025"
