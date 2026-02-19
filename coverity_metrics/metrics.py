@@ -1527,3 +1527,433 @@ class CoverityMetrics:
             query = query.format(project_filter="")
             result = self.db.execute_query_dict(query)
         return result[0] if result else {}
+    
+    # ========== COMPETITIVE LEADERBOARDS ==========
+    
+    def get_top_projects_by_fix_rate(self, days=30, limit=10):
+        """Get top projects ranked by defect fix velocity
+        
+        Args:
+            days: Number of days to analyze
+            limit: Number of projects to return
+            
+        Returns:
+            pandas.DataFrame: Projects ranked by fixes
+        """
+        query = """
+            WITH project_fixes AS (
+                SELECT 
+                    p.name as project_name,
+                    COUNT(DISTINCT sd.id) FILTER (WHERE sn.eliminated_defect_count > 0) as defects_fixed,
+                    COUNT(DISTINCT sn.id) as snapshot_count,
+                    ROUND(COUNT(DISTINCT sd.id) FILTER (WHERE sn.eliminated_defect_count > 0)::numeric / 
+                          NULLIF(COUNT(DISTINCT sn.id), 0), 2) as avg_fixes_per_snapshot,
+                    MIN(sn.date_created) as first_snapshot,
+                    MAX(sn.date_created) as last_snapshot
+                FROM project p
+                JOIN project_stream ps ON p.id = ps.project_id
+                JOIN stream s ON ps.stream_id = s.id
+                JOIN snapshot sn ON s.id = sn.stream_id
+                LEFT JOIN stream_element se ON s.id = se.stream_id
+                LEFT JOIN stream_defect sd ON se.id = sd.stream_element_id 
+                    AND sd.fixed_snapshot_element_id IS NOT NULL
+                WHERE p.deleted = false
+                    AND sn.deleted = false
+                    AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                GROUP BY p.name
+                HAVING COUNT(DISTINCT sd.id) FILTER (WHERE sn.eliminated_defect_count > 0) > 0
+            )
+            SELECT 
+                project_name,
+                defects_fixed as eliminated_defects,
+                snapshot_count,
+                avg_fixes_per_snapshot,
+                ROUND(defects_fixed::numeric / EXTRACT(EPOCH FROM (last_snapshot - first_snapshot)) * 86400, 2) as avg_fixes_per_day
+            FROM project_fixes
+            ORDER BY defects_fixed DESC, avg_fixes_per_snapshot DESC
+            LIMIT %s
+        """
+        
+        results = self.db.execute_query_dict(query, (days, limit))
+        return pd.DataFrame(results)
+    
+    def get_most_improved_projects(self, days=90, limit=10):
+        """Get projects with biggest improvement in defect count
+        
+        Args:
+            days: Number of days to analyze
+            limit: Number of projects to return
+            
+        Returns:
+            pandas.DataFrame: Projects ranked by improvement
+        """
+        query = """
+            WITH project_trends AS (
+                SELECT 
+                    p.name as project_name,
+                    MIN(sn.total_defect_count) FILTER (WHERE sn.date_created >= CURRENT_DATE - INTERVAL '7 days') as recent_defects,
+                    AVG(sn.total_defect_count) FILTER (WHERE sn.date_created >= CURRENT_DATE - INTERVAL '%s days' 
+                        AND sn.date_created < CURRENT_DATE - INTERVAL '%s days') as past_avg_defects,
+                    SUM(sn.eliminated_defect_count) as total_fixes,
+                    COUNT(DISTINCT sn.id) as snapshot_count
+                FROM project p
+                JOIN project_stream ps ON p.id = ps.project_id
+                JOIN stream s ON ps.stream_id = s.id
+                JOIN snapshot sn ON s.id = sn.stream_id
+                WHERE p.deleted = false
+                    AND sn.deleted = false
+                    AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                GROUP BY p.name
+                HAVING AVG(sn.total_defect_count) FILTER (WHERE sn.date_created >= CURRENT_DATE - INTERVAL '%s days' 
+                    AND sn.date_created < CURRENT_DATE - INTERVAL '%s days') > 0
+            )
+            SELECT 
+                project_name,
+                COALESCE(recent_defects, 0) as current_defects,
+                ROUND(past_avg_defects, 1) as previous_avg_defects,
+                total_fixes,
+                ROUND(((past_avg_defects - COALESCE(recent_defects, 0))::numeric / 
+                       NULLIF(past_avg_defects, 0) * 100), 1) as improvement_percentage,
+                ROUND(past_avg_defects - COALESCE(recent_defects, 0), 1) as defects_reduced
+            FROM project_trends
+            WHERE past_avg_defects > COALESCE(recent_defects, 0)
+            ORDER BY improvement_percentage DESC, defects_reduced DESC
+            LIMIT %s
+        """
+        
+        half_period = days // 2
+        results = self.db.execute_query_dict(query, (days, half_period, days, days, half_period, limit))
+        return pd.DataFrame(results)
+    
+    def get_top_projects_by_triage_activity(self, days=30, limit=10):
+        """Get top projects by triage completeness (current state)
+        
+        Note: Database does not have defect_triage_history table, so we rank by current triage state
+        
+        Args:
+            days: Not used (kept for API compatibility)
+            limit: Number of projects to return
+            
+        Returns:
+            pandas.DataFrame: Projects ranked by triage completeness
+        """
+        query = """
+            WITH project_triage AS (
+                SELECT 
+                    p.name as project_name,
+                    COUNT(DISTINCT sd.id) as total_defects,
+                    COUNT(DISTINCT CASE 
+                        WHEN de_cls.name IS NOT NULL AND de_cls.name != 'Unclassified' 
+                        THEN sd.id 
+                    END) as classified_defects,
+                    COUNT(DISTINCT CASE 
+                        WHEN de_act.name IS NOT NULL AND de_act.name NOT IN ('Undecided', 'No Action')
+                        THEN sd.id 
+                    END) as action_assigned_defects,
+                    COUNT(DISTINCT dt.current_owner_user_id) as users_with_assignments
+                FROM project p
+                JOIN project_stream ps ON p.id = ps.project_id
+                JOIN stream s ON ps.stream_id = s.id
+                JOIN stream_element se ON s.id = se.stream_id
+                JOIN stream_defect sd ON se.id = sd.stream_element_id
+                LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
+                LEFT JOIN dynamic_enum de_act ON dt.current_action_id = de_act.id AND de_act.dtype = 'Act'
+                WHERE p.deleted = false
+                    AND sd.fixed_snapshot_element_id IS NULL
+                GROUP BY p.name
+                HAVING COUNT(DISTINCT sd.id) > 0
+            )
+            SELECT 
+                project_name,
+                total_defects as triage_actions,
+                classified_defects as classifications,
+                action_assigned_defects as actions_assigned,
+                users_with_assignments as active_users,
+                ROUND((classified_defects::numeric / NULLIF(total_defects, 0)) * 100, 1) as triage_percentage
+            FROM project_triage
+            WHERE classified_defects > 0
+            ORDER BY triage_percentage DESC, classified_defects DESC
+            LIMIT %s
+        """
+        
+        results = self.db.execute_query_dict(query, (limit,))
+        return pd.DataFrame(results)
+    
+    def get_top_users_by_fixes(self, days=30, limit=10):
+        """Get top users ranked by defects actually eliminated from code
+        
+        Counts defects that disappeared in subsequent snapshots (fixed_snapshot_element_id IS NOT NULL),
+        attributing the fix to the last human user who triaged it (excluding System User).
+        
+        Args:
+            days: Number of days to analyze
+            limit: Number of users to return
+            
+        Returns:
+            pandas.DataFrame: Users ranked by actual fixes (eliminated defects)
+        """
+        if self.project_name:
+            query = """
+                WITH fixed_defects AS (
+                    -- Get all defects that were actually eliminated from code (not found in next snapshot)
+                    SELECT 
+                        sd.defect_triage_id,
+                        sd.id as stream_defect_id
+                    FROM stream_defect sd
+                    JOIN stream_element se ON sd.stream_element_id = se.id
+                    JOIN stream s ON se.stream_id = s.id
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                    WHERE sd.fixed_snapshot_element_id IS NOT NULL
+                        AND p.name = %s
+                ),
+                last_triagers AS (
+                    -- For each fixed defect, find the last HUMAN user who triaged it
+                    SELECT DISTINCT ON (fd.defect_triage_id)
+                        fd.defect_triage_id,
+                        ts.user_created_id,
+                        ts.date_created
+                    FROM fixed_defects fd
+                    JOIN triage_state ts ON fd.defect_triage_id = ts.defect_triage_id
+                    JOIN users u ON ts.user_created_id = u.id
+                    WHERE u.username != 'System User'  -- Exclude system-generated actions
+                        AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                        AND ts.date_created > '0001-01-01'::timestamp  -- Exclude default timestamps
+                    ORDER BY fd.defect_triage_id, ts.date_created DESC
+                ),
+                user_fixes AS (
+                    SELECT 
+                        u.username,
+                        COALESCE(u.given_name || ' ' || u.family_name, u.username) as user_name,
+                        COUNT(DISTINCT lt.defect_triage_id) as defects_fixed,
+                        MIN(lt.date_created) as first_activity,
+                        MAX(lt.date_created) as last_activity,
+                        COUNT(DISTINCT lt.date_created::date) as active_days
+                    FROM users u
+                    JOIN last_triagers lt ON u.id = lt.user_created_id
+                    GROUP BY u.id, u.username, u.given_name, u.family_name
+                    HAVING COUNT(DISTINCT lt.defect_triage_id) > 0
+                )
+                SELECT 
+                    user_name,
+                    username,
+                    defects_fixed as total_fixes,
+                    active_days,
+                    ROUND(defects_fixed::numeric / NULLIF(active_days, 0), 1) as avg_fixes_per_day
+                FROM user_fixes
+                ORDER BY defects_fixed DESC, active_days DESC
+                LIMIT %s
+            """
+            results = self.db.execute_query_dict(query, (self.project_name, days, limit))
+        else:
+            query = """
+                WITH fixed_defects AS (
+                    -- Get all defects that were actually eliminated from code (not found in next snapshot)
+                    SELECT 
+                        sd.defect_triage_id,
+                        sd.id as stream_defect_id
+                    FROM stream_defect sd
+                    WHERE sd.fixed_snapshot_element_id IS NOT NULL
+                ),
+                last_triagers AS (
+                    -- For each fixed defect, find the last HUMAN user who triaged it
+                    SELECT DISTINCT ON (fd.defect_triage_id)
+                        fd.defect_triage_id,
+                        ts.user_created_id,
+                        ts.date_created
+                    FROM fixed_defects fd
+                    JOIN triage_state ts ON fd.defect_triage_id = ts.defect_triage_id
+                    JOIN users u ON ts.user_created_id = u.id
+                    WHERE u.username != 'System User'  -- Exclude system-generated actions
+                        AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                        AND ts.date_created > '0001-01-01'::timestamp  -- Exclude default timestamps
+                    ORDER BY fd.defect_triage_id, ts.date_created DESC
+                ),
+                user_fixes AS (
+                    SELECT 
+                        u.username,
+                        COALESCE(u.given_name || ' ' || u.family_name, u.username) as user_name,
+                        COUNT(DISTINCT lt.defect_triage_id) as defects_fixed,
+                        MIN(lt.date_created) as first_activity,
+                        MAX(lt.date_created) as last_activity,
+                        COUNT(DISTINCT lt.date_created::date) as active_days
+                    FROM users u
+                    JOIN last_triagers lt ON u.id = lt.user_created_id
+                    GROUP BY u.id, u.username, u.given_name, u.family_name
+                    HAVING COUNT(DISTINCT lt.defect_triage_id) > 0
+                )
+                SELECT 
+                    user_name,
+                    username,
+                    defects_fixed as total_fixes,
+                    active_days,
+                    ROUND(defects_fixed::numeric / NULLIF(active_days, 0), 1) as avg_fixes_per_day
+                FROM user_fixes
+                ORDER BY defects_fixed DESC, active_days DESC
+                LIMIT %s
+            """
+            results = self.db.execute_query_dict(query, (days, limit))
+        return pd.DataFrame(results)
+    
+    def get_top_triagers(self, days=30, limit=10):
+        """Get top users by triage activity (classifications and actions)
+        
+        Args:
+            days: Number of days to analyze
+            limit: Number of users to return
+            
+        Returns:
+            pandas.DataFrame: Users ranked by triage activity
+        """
+        if self.project_name:
+            query = """
+                WITH user_triage_stats AS (
+                    SELECT 
+                        u.username,
+                        COALESCE(u.given_name || ' ' || u.family_name, u.username) as user_name,
+                        COUNT(DISTINCT ts.id) as triage_actions,
+                        COUNT(DISTINCT ts.classification_id) as unique_classifications,
+                        COUNT(DISTINCT ts.action_id) as unique_actions,
+                        COUNT(DISTINCT ts.defect_triage_id) as defects_triaged,
+                        COUNT(DISTINCT ts.date_created::date) as active_days,
+                        MAX(ts.date_created) as last_activity
+                    FROM users u
+                    JOIN triage_state ts ON u.id = ts.user_created_id
+                    JOIN defect_triage dt ON ts.defect_triage_id = dt.id
+                    JOIN stream_defect sd ON dt.id = sd.defect_triage_id
+                    JOIN stream_element se ON sd.stream_element_id = se.id
+                    JOIN stream s ON se.stream_id = s.id
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                        AND p.name = %s
+                    GROUP BY u.id, u.username, u.given_name, u.family_name
+                    HAVING COUNT(DISTINCT ts.id) > 0
+                )
+                SELECT 
+                    user_name,
+                    username,
+                    defects_triaged as total_triage_actions,
+                    unique_classifications,
+                    unique_actions,
+                    triage_actions as state_changes,
+                    active_days,
+                    ROUND(defects_triaged::numeric / NULLIF(active_days, 0), 1) as avg_triage_per_day
+                FROM user_triage_stats
+                ORDER BY defects_triaged DESC, triage_actions DESC
+                LIMIT %s
+            """
+            results = self.db.execute_query_dict(query, (days, self.project_name, limit))
+        else:
+            query = """
+                WITH user_triage_stats AS (
+                    SELECT 
+                        u.username,
+                        COALESCE(u.given_name || ' ' || u.family_name, u.username) as user_name,
+                        COUNT(DISTINCT ts.id) as triage_actions,
+                        COUNT(DISTINCT ts.classification_id) as unique_classifications,
+                        COUNT(DISTINCT ts.action_id) as unique_actions,
+                        COUNT(DISTINCT ts.defect_triage_id) as defects_triaged,
+                        COUNT(DISTINCT ts.date_created::date) as active_days,
+                        MAX(ts.date_created) as last_activity
+                    FROM users u
+                    JOIN triage_state ts ON u.id = ts.user_created_id
+                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    GROUP BY u.id, u.username, u.given_name, u.family_name
+                    HAVING COUNT(DISTINCT ts.id) > 0
+                )
+                SELECT 
+                    user_name,
+                    username,
+                    defects_triaged as total_triage_actions,
+                    unique_classifications,
+                    unique_actions,
+                    triage_actions as state_changes,
+                    active_days,
+                    ROUND(defects_triaged::numeric / NULLIF(active_days, 0), 1) as avg_triage_per_day
+                FROM user_triage_stats
+                ORDER BY defects_triaged DESC, triage_actions DESC
+                LIMIT %s
+            """
+            results = self.db.execute_query_dict(query, (days, limit))
+        return pd.DataFrame(results)
+    
+    def get_most_collaborative_users(self, days=30, limit=10):
+        """Get users with most collaboration activity (comments, etc.)
+        
+        Args:
+            days: Number of days to analyze
+            limit: Number of users to return
+            
+        Returns:
+            pandas.DataFrame: Users ranked by collaboration
+        """
+        if self.project_name:
+            query = """
+                WITH user_collaboration AS (
+                    SELECT 
+                        u.username,
+                        COALESCE(u.given_name || ' ' || u.family_name, u.username) as user_name,
+                        COUNT(DISTINCT ts.id) FILTER (WHERE ts.cmnt IS NOT NULL AND ts.cmnt != '') as comments_added,
+                        COUNT(DISTINCT ts.defect_triage_id) as defects_involved,
+                        COUNT(DISTINCT ts.date_created::date) as active_days,
+                        MAX(ts.date_created) as last_activity
+                    FROM users u
+                    JOIN triage_state ts ON u.id = ts.user_created_id
+                    JOIN defect_triage dt ON ts.defect_triage_id = dt.id
+                    JOIN stream_defect sd ON dt.id = sd.defect_triage_id
+                    JOIN stream_element se ON sd.stream_element_id = se.id
+                    JOIN stream s ON se.stream_id = s.id
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                        AND ts.cmnt IS NOT NULL 
+                        AND ts.cmnt != ''
+                        AND p.name = %s
+                    GROUP BY u.id, u.username, u.given_name, u.family_name
+                    HAVING COUNT(DISTINCT ts.id) FILTER (WHERE ts.cmnt IS NOT NULL AND ts.cmnt != '') > 0
+                )
+                SELECT 
+                    user_name,
+                    username,
+                    comments_added as total_comments,
+                    defects_involved,
+                    active_days,
+                    ROUND(comments_added::numeric / NULLIF(active_days, 0), 1) as avg_comments_per_day
+                FROM user_collaboration
+                ORDER BY comments_added DESC, active_days DESC
+                LIMIT %s
+            """
+            results = self.db.execute_query_dict(query, (days, self.project_name, limit))
+        else:
+            query = """
+                WITH user_collaboration AS (
+                    SELECT 
+                        u.username,
+                        COALESCE(u.given_name || ' ' || u.family_name, u.username) as user_name,
+                        COUNT(DISTINCT ts.id) FILTER (WHERE ts.cmnt IS NOT NULL AND ts.cmnt != '') as comments_added,
+                        COUNT(DISTINCT ts.defect_triage_id) as defects_involved,
+                        COUNT(DISTINCT ts.date_created::date) as active_days,
+                        MAX(ts.date_created) as last_activity
+                    FROM users u
+                    JOIN triage_state ts ON u.id = ts.user_created_id
+                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                        AND ts.cmnt IS NOT NULL 
+                        AND ts.cmnt != ''
+                    GROUP BY u.id, u.username, u.given_name, u.family_name
+                    HAVING COUNT(DISTINCT ts.id) FILTER (WHERE ts.cmnt IS NOT NULL AND ts.cmnt != '') > 0
+                )
+                SELECT 
+                    user_name,
+                    username,
+                    comments_added as total_comments,
+                    defects_involved,
+                    active_days,
+                    ROUND(comments_added::numeric / NULLIF(active_days, 0), 1) as avg_comments_per_day
+                FROM user_collaboration
+                ORDER BY comments_added DESC, active_days DESC
+                LIMIT %s
+            """
+            results = self.db.execute_query_dict(query, (days, limit))
+        return pd.DataFrame(results)

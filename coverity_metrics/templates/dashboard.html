@@ -188,6 +188,7 @@
                 {% if not current_project %}
                 <button class="tab-button" data-tab="performance">Performance & Analytics</button>
                 {% endif %}
+                <button class="tab-button" data-tab="leaderboards">🏆 Leaderboards</button>
             </div>
         </div>
 
@@ -1052,6 +1053,312 @@
         </div>
         <!-- End Performance Tab -->
         {% endif %}
+
+        <!-- Leaderboards Tab -->
+        <div id="leaderboards-tab" class="tab-content">
+
+        <!-- Team Leaderboards -->
+        {% if top_projects_by_fix_rate or most_improved_projects or top_projects_by_triage or top_users_by_fixes or top_triagers or most_collaborative_users %}
+        <div class="section">
+            {% if current_project %}
+            <h2 class="section-title">🏆 Individual Contributors</h2>
+            <p style="margin-bottom: 2rem; color: var(--text-color); opacity: 0.8;">
+                Recognizing top contributors in defect resolution, triage activity, and collaboration for this project.
+            </p>
+            {% else %}
+            <h2 class="section-title">🏆 Team Leaderboards</h2>
+            <p style="margin-bottom: 2rem; color: var(--text-color); opacity: 0.8;">
+                Recognizing top performers in defect resolution, triage activity, and continuous improvement.
+            </p>
+            {% endif %}
+            
+            <div class="leaderboard-container">
+                <!-- Project Leaderboards -->
+                {% if not current_project %}
+                <h3 style="margin: 2rem 0 1.5rem 0; color: var(--primary-color); border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem;">
+                    📊 Project Performance
+                </h3>
+                <div class="leaderboard-grid">
+                    <!-- Top Projects by Fix Rate -->
+                    {% if top_projects_by_fix_rate and top_projects_by_fix_rate|length > 0 %}
+                    <div class="leaderboard-card">
+                        <h4>🚀 Fastest Fix Velocity</h4>
+                        <p class="leaderboard-subtitle">Projects with highest defect elimination rate (Last 30 Days)</p>
+                        <table class="leaderboard-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 60px;">Rank</th>
+                                    <th>Project</th>
+                                    <th style="text-align: center;">Fixes</th>
+                                    <th style="text-align: center;">Avg/Day</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in top_projects_by_fix_rate %}
+                                <tr>
+                                    <td style="text-align: center;">
+                                        {% if loop.index == 1 %}
+                                        <span class="rank-badge rank-badge-1">🏆</span>
+                                        {% elif loop.index == 2 %}
+                                        <span class="rank-badge rank-badge-2">🥈</span>
+                                        {% elif loop.index == 3 %}
+                                        <span class="rank-badge rank-badge-3">🥉</span>
+                                        {% else %}
+                                        <span class="rank-badge">{{ loop.index }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td style="font-weight: 500;">{{ row.project_name }}</td>
+                                    <td style="text-align: center; font-weight: 600; color: var(--success-color);">{{ row.eliminated_defects }}</td>
+                                    <td style="text-align: center;">{{ row.avg_fixes_per_day|round(2) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Most Improved Projects -->
+                    {% if most_improved_projects and most_improved_projects|length > 0 %}
+                    <div class="leaderboard-card">
+                        <h4>📈 Most Improved</h4>
+                        <p class="leaderboard-subtitle">Projects with best improvement percentage (Last 90 Days)</p>
+                        <table class="leaderboard-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 60px;">Rank</th>
+                                    <th>Project</th>
+                                    <th style="text-align: center;">Improvement</th>
+                                    <th style="text-align: center;">Net Change</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in most_improved_projects %}
+                                <tr>
+                                    <td style="text-align: center;">
+                                        {% if loop.index == 1 %}
+                                        <span class="rank-badge rank-badge-1">🏆</span>
+                                        {% elif loop.index == 2 %}
+                                        <span class="rank-badge rank-badge-2">🥈</span>
+                                        {% elif loop.index == 3 %}
+                                        <span class="rank-badge rank-badge-3">🥉</span>
+                                        {% else %}
+                                        <span class="rank-badge">{{ loop.index }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td style="font-weight: 500;">{{ row.project_name }}</td>
+                                    <td style="text-align: center;">
+                                        <span class="improvement-badge {% if row.improvement_percentage > 0 %}improvement-positive{% else %}improvement-negative{% endif %}">
+                                            {{ row.improvement_percentage|round(1) }}%
+                                        </span>
+                                    </td>
+                                    <td style="text-align: center; font-weight: 600; color: {% if row.net_change < 0 %}var(--success-color){% else %}var(--danger-color){% endif %};">
+                                        {{ row.net_change|int }}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Top Projects by Triage Activity -->
+                    {% if top_projects_by_triage and top_projects_by_triage|length > 0 %}
+                    <div class="leaderboard-card">
+                        <h4>🎯 Most Active Triagers</h4>
+                        <p class="leaderboard-subtitle">Projects with highest triage completion (Current State)</p>
+                        <table class="leaderboard-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 60px;">Rank</th>
+                                    <th>Project</th>
+                                    <th style="text-align: center;">Total</th>
+                                    <th style="text-align: center;">Progress</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in top_projects_by_triage %}
+                                <tr>
+                                    <td style="text-align: center;">
+                                        {% if loop.index == 1 %}
+                                        <span class="rank-badge rank-badge-1">🏆</span>
+                                        {% elif loop.index == 2 %}
+                                        <span class="rank-badge rank-badge-2">🥈</span>
+                                        {% elif loop.index == 3 %}
+                                        <span class="rank-badge rank-badge-3">🥉</span>
+                                        {% else %}
+                                        <span class="rank-badge">{{ loop.index }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td style="font-weight: 500;">{{ row.project_name }}</td>
+                                    <td style="text-align: center; font-weight: 600; color: var(--info-color);">{{ row.triage_actions }}</td>
+                                    <td style="text-align: center;">
+                                        <div class="activity-bar">
+                                            <div class="activity-fill" style="width: {{ [row.triage_percentage, 100]|min }}%;"></div>
+                                        </div>
+                                        <span style="font-size: 0.85rem; color: var(--text-color); opacity: 0.8;">{{ row.triage_percentage|round(1) }}%</span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+                
+                <!-- User Leaderboards -->
+                {% if not current_project %}
+                <h3 style="margin: 3rem 0 1.5rem 0; color: var(--primary-color); border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem;">
+                    👥 Individual Contributors
+                </h3>
+                {% endif %}
+                <div class="leaderboard-grid">
+                    <!-- Top Users by Fixes -->
+                    {% if top_users_by_fixes and top_users_by_fixes|length > 0 %}
+                    <div class="leaderboard-card">
+                        <h4>🔧 Top Fixers</h4>
+                        <p class="leaderboard-subtitle">Users with most defect fixes submitted/released (Last 30 Days)</p>
+                        <table class="leaderboard-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 60px;">Rank</th>
+                                    <th>User</th>
+                                    <th style="text-align: center;">Fixes</th>
+                                    <th style="text-align: center;">Avg/Day</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in top_users_by_fixes %}
+                                <tr>
+                                    <td style="text-align: center;">
+                                        {% if loop.index == 1 %}
+                                        <span class="rank-badge rank-badge-1">🏆</span>
+                                        {% elif loop.index == 2 %}
+                                        <span class="rank-badge rank-badge-2">🥈</span>
+                                        {% elif loop.index == 3 %}
+                                        <span class="rank-badge rank-badge-3">🥉</span>
+                                        {% else %}
+                                        <span class="rank-badge">{{ loop.index }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div style="font-weight: 500;">{{ row.user_name }}</div>
+                                        <div style="font-size: 0.85rem; opacity: 0.7;">@{{ row.username }}</div>
+                                    </td>
+                                    <td style="text-align: center; font-weight: 600; color: var(--success-color);">{{ row.total_fixes }}</td>
+                                    <td style="text-align: center;">{{ row.avg_fixes_per_day|round(2) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Top Triagers -->
+                    {% if top_triagers and top_triagers|length > 0 %}
+                    <div class="leaderboard-card">
+                        <h4>⚖️ Top Triagers</h4>
+                        <p class="leaderboard-subtitle">Users with most classification and action assignments (Last 30 Days)</p>
+                        <table class="leaderboard-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 60px;">Rank</th>
+                                    <th>User</th>
+                                    <th style="text-align: center;">Actions</th>
+                                    <th style="text-align: center;">Avg/Day</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in top_triagers %}
+                                <tr>
+                                    <td style="text-align: center;">
+                                        {% if loop.index == 1 %}
+                                        <span class="rank-badge rank-badge-1">🏆</span>
+                                        {% elif loop.index == 2 %}
+                                        <span class="rank-badge rank-badge-2">🥈</span>
+                                        {% elif loop.index == 3 %}
+                                        <span class="rank-badge rank-badge-3">🥉</span>
+                                        {% else %}
+                                        <span class="rank-badge">{{ loop.index }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div style="font-weight: 500;">{{ row.user_name }}</div>
+                                        <div style="font-size: 0.85rem; opacity: 0.7;">@{{ row.username }}</div>
+                                    </td>
+                                    <td style="text-align: center; font-weight: 600; color: var(--info-color);">{{ row.total_triage_actions }}</td>
+                                    <td style="text-align: center;">{{ row.avg_triage_per_day|round(2) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Most Collaborative Users -->
+                    {% if most_collaborative_users and most_collaborative_users|length > 0 %}
+                    <div class="leaderboard-card">
+                        <h4>💬 Team Champions</h4>
+                        <p class="leaderboard-subtitle">Users with most collaborative comments and discussions (Last 30 Days)</p>
+                        <table class="leaderboard-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 60px;">Rank</th>
+                                    <th>User</th>
+                                    <th style="text-align: center;">Comments</th>
+                                    <th style="text-align: center;">Avg/Day</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in most_collaborative_users %}
+                                <tr>
+                                    <td style="text-align: center;">
+                                        {% if loop.index == 1 %}
+                                        <span class="rank-badge rank-badge-1">🏆</span>
+                                        {% elif loop.index == 2 %}
+                                        <span class="rank-badge rank-badge-2">🥈</span>
+                                        {% elif loop.index == 3 %}
+                                        <span class="rank-badge rank-badge-3">🥉</span>
+                                        {% else %}
+                                        <span class="rank-badge">{{ loop.index }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div style="font-weight: 500;">{{ row.user_name }}</div>
+                                        <div style="font-size: 0.85rem; opacity: 0.7;">@{{ row.username }}</div>
+                                    </td>
+                                    <td style="text-align: center; font-weight: 600; color: var(--warning-color);">{{ row.total_comments }}</td>
+                                    <td style="text-align: center;">{{ row.avg_comments_per_day|round(2) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="alert alert-info" style="margin-top: 2rem;">
+                <strong>📊 Leaderboard Metrics Explained:</strong>
+                <ul style="margin: 0.5rem 0 0 1.5rem; line-height: 1.8;">
+                    <li><strong>Fix Velocity:</strong> Defects with "Fix Submitted" or "Fix Released" action</li>
+                    <li><strong>Improvement:</strong> (Eliminated - New) / Starting Outstanding × 100%</li>
+                    <li><strong>Triage Completion:</strong> Percentage of defects with classification assigned</li>
+                    <li><strong>Collaboration:</strong> Comments added to defects for team communication</li>
+                </ul>
+            </div>
+        </div>
+        {% else %}
+        <div class="section">
+            <div class="alert alert-info">
+                <strong>ℹ️ No Leaderboard Data Available</strong>
+                <p style="margin: 0.5rem 0 0 0;">Leaderboards will appear when projects have defect fix activity, improvements, or triage progress.</p>
+            </div>
+        </div>
+        {% endif %}
+
+        </div>
+        <!-- End Leaderboards Tab -->
 
     </div>
     <!-- End main container -->

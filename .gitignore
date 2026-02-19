@@ -173,3 +173,5 @@ Thumbs.db
 *.old
 check_*.py
 test_*.py
+investigate_*.py
+analyze_*.py

@@ -130,6 +130,12 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             trend_summary = metrics_data.get('trend_summary', {})
             trend_period_text = metrics_data.get('trend_period_text', f'Last {days} Days')
             user_activity_stats = metrics_data.get('user_activity_stats', {})
+            top_projects_by_fix_rate = metrics_data.get('top_projects_by_fix_rate', [])
+            most_improved_projects = metrics_data.get('most_improved_projects', [])
+            top_projects_by_triage = metrics_data.get('top_projects_by_triage', [])
+            top_users_by_fixes = metrics_data.get('top_users_by_fixes', [])
+            top_triagers = metrics_data.get('top_triagers', [])
+            most_collaborative_users = metrics_data.get('most_collaborative_users', [])
         else:
             # Collect from database and cache
             metrics_data = _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days)
@@ -160,6 +166,12 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             trend_summary = metrics_data.get('trend_summary', {})
             trend_period_text = metrics_data.get('trend_period_text', f'Last {days} Days')
             user_activity_stats = metrics_data.get('user_activity_stats', {})
+            top_projects_by_fix_rate = metrics_data.get('top_projects_by_fix_rate', [])
+            most_improved_projects = metrics_data.get('most_improved_projects', [])
+            top_projects_by_triage = metrics_data.get('top_projects_by_triage', [])
+            top_users_by_fixes = metrics_data.get('top_users_by_fixes', [])
+            top_triagers = metrics_data.get('top_triagers', [])
+            most_collaborative_users = metrics_data.get('most_collaborative_users', [])
     else:
         # Collect without caching
         all_projects = metrics.get_available_projects()
@@ -201,6 +213,14 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         defect_velocity = metrics.get_defect_velocity_trend(days=days).to_dict('records')
         cumulative_trends = metrics.get_cumulative_defect_trend(days=days).to_dict('records')
         trend_summary = metrics.get_defect_trend_summary(days=days)
+        
+        # Collect leaderboard data (now using triage_state table for user metrics)
+        top_projects_by_fix_rate = metrics.get_top_projects_by_fix_rate(days=30, limit=10).to_dict('records')
+        most_improved_projects = metrics.get_most_improved_projects(days=90, limit=10).to_dict('records')
+        top_projects_by_triage = metrics.get_top_projects_by_triage_activity(days=30, limit=10).to_dict('records')
+        top_users_by_fixes = metrics.get_top_users_by_fixes(days=30, limit=10).to_dict('records')
+        top_triagers = metrics.get_top_triagers(days=30, limit=10).to_dict('records')
+        most_collaborative_users = metrics.get_most_collaborative_users(days=30, limit=10).to_dict('records')
         
         # Calculate actual date range from trend data
         trend_period_text = f"Last {days} Days"
@@ -263,7 +283,14 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         cumulative_trends=cumulative_trends,
         trend_summary=trend_summary,
         trend_period_text=trend_period_text,
-        user_activity_stats=user_activity_stats
+        user_activity_stats=user_activity_stats,
+        # Leaderboards
+        top_projects_by_fix_rate=top_projects_by_fix_rate,
+        most_improved_projects=most_improved_projects,
+        top_projects_by_triage=top_projects_by_triage,
+        top_users_by_fixes=top_users_by_fixes,
+        top_triagers=top_triagers,
+        most_collaborative_users=most_collaborative_users
     )
     
     # Ensure output directory exists
@@ -324,6 +351,14 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
     cumulative_trends = metrics.get_cumulative_defect_trend(days=days).to_dict('records')
     trend_summary = metrics.get_defect_trend_summary(days=days)
     
+    # Collect leaderboard data (project-level only - database doesn't have history tables for user tracking)
+    top_projects_by_fix_rate = metrics.get_top_projects_by_fix_rate(days=30, limit=10).to_dict('records')
+    most_improved_projects = metrics.get_most_improved_projects(days=90, limit=10).to_dict('records')
+    top_projects_by_triage = metrics.get_top_projects_by_triage_activity(days=30, limit=10).to_dict('records')
+    top_users_by_fixes = []  # Not available without defect_triage_history table
+    top_triagers = []  # Not available without defect_triage_history table
+    most_collaborative_users = []  # Not available without defect_history table
+    
     # Calculate actual date range from trend data
     trend_period_text = f"Last {days} Days"
     
@@ -364,7 +399,13 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
         'cumulative_trends': cumulative_trends,
         'trend_summary': trend_summary,
         'trend_period_text': trend_period_text,
-        'user_activity_stats': user_activity_stats
+        'user_activity_stats': user_activity_stats,
+        'top_projects_by_fix_rate': top_projects_by_fix_rate,
+        'most_improved_projects': most_improved_projects,
+        'top_projects_by_triage': top_projects_by_triage,
+        'top_users_by_fixes': top_users_by_fixes,
+        'top_triagers': top_triagers,
+        'most_collaborative_users': most_collaborative_users
     }
     
     # Cache the data
