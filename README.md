@@ -38,7 +38,9 @@ coverity-dashboard
 
 ## Features
 
-**🆕 Latest Enhancements (2025):**
+**🆕 Latest Enhancements (2025-2026):**
+- **🔒 Complete Security Coverage (v1.0.5)**: OWASP Top 10 and CWE Top 25 reports now show ALL categories with PASS/FAILED status badges, not just defect-affected ones
+- **📊 Enhanced Defect Details (v1.0.5)**: Click FAILED security entries to see ALL defects with CID, Type, Severity, File, and Function
 - **⏱️ Progress Tracking**: Real-time progress bars for multi-instance dashboard generation with ETA and completion percentage
 - **📅 Commit Activity Patterns**: Identify busiest/quietest times (3-hour blocks) and days for commit activity
 - **💰 Technical Debt Estimation**: Automated calculation of remediation effort (hours/days/weeks) based on defect severity
@@ -86,17 +88,24 @@ The tool provides the following metric categories:
 - **Active Triagers**: Most active users in defect triage
 - **Session Analytics**: Average session duration per user
 
-### 6. **Security Compliance Metrics** (NEW!)
-- **OWASP Top 10 2025**: Map defects to OWASP security categories
+### 6. **Security Compliance Metrics** (ENHANCED!)
+- **OWASP Top 10 2025**: Complete security posture visibility
+  - **All 10 categories displayed** with PASS/FAILED status badges
+  - 🟢 PASS (green badge): No defects for this category
+  - 🔴 FAILED (red badge): Has defects requiring attention (clickable to expand)
   - CWE-based mapping to 10 critical web application security risks
-  - Severity breakdown (High/Medium/Low) per category
-  - Coverage analysis showing which OWASP categories affect your code
+  - Click FAILED categories to see ALL defects with CID, Type, Severity, File, Function
+  - Summary metrics showing "X/10 Failed" counts
+  - Visual differentiation: FAILED rows (red-tinted, clickable) vs PASS rows (green-tinted, faded)
   - Project-level security dashboards
-- **CWE Top 25 2025**: Track MITRE's Most Dangerous Software Weaknesses
-  - 25 ranked weaknesses based on real-world vulnerability data
-  - Defect counts mapped to specific CWE IDs
-  - Industry-standard danger scores and rankings
+- **CWE Top 25 2025**: Complete weakness coverage
+  - **All 25 CWE entries displayed** with Status column and PASS/FAILED badges
+  - Track MITRE's Most Dangerous Software Weaknesses
+  - 25 ranked weaknesses based on real-world vulnerability data from NVD
+  - Click FAILED entries to see complete defect lists
+  - Industry-standard danger scores and rankings (1-25)
   - Helps prioritize remediation by recognized danger levels
+  - Summary metrics showing "X/25 Failed" counts
 
 ### 7. **Competitive Leaderboards** (NEW!)
 - **Top Projects by Fix Rate**: Projects ranked by defect elimination velocity

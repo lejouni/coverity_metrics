@@ -1578,14 +1578,14 @@
                         </div>
                         <div style="max-height: 400px; overflow-y: auto; border: 1px solid rgba(0,0,0,0.1); border-radius: 4px;">
                             <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse;">
-                                <thead style="position: sticky; top: 0; background: var(--card-bg); border-bottom: 2px solid rgba(0,0,0,0.1);">
+                                <thead style="position: sticky; top: 0; background: #fff; border-bottom: 2px solid rgba(0,0,0,0.1);">
                                     <tr>
-                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600;">CID</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600;">CWE</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600;">Checker</th>
-                                        <th style="padding: 0.5rem; text-align: center; font-weight: 600;">Severity</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600;">File</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600;">Function</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600; color: #2c3e50;">CID</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600; color: #2c3e50;">CWE</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600; color: #2c3e50;">Type</th>
+                                        <th style="padding: 0.5rem; text-align: center; font-weight: 600; color: #2c3e50;">Severity</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600; color: #2c3e50;">File</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600; color: #2c3e50;">Function</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1679,26 +1679,46 @@
             </p>
             
             <div class="alert alert-warning">
-                <strong>🎯 Security Focus:</strong> {{ cwe_top25_metrics|length }} CWE Top 25 weaknesses detected in this project.
+                <strong>🎯 Security Focus:</strong> {{ cwe_top25_metrics|selectattr('status', 'equalto', 'FAILED')|list|length }} of {{ cwe_top25_metrics|length }} CWE Top 25 weaknesses detected in this project.
+                <strong>💡 Tip:</strong> Click on any FAILED row to view detailed defect information.
+            </div>
+            
+            <div class="grid-2col" style="margin-bottom: 2rem;">
+                <div class="summary-card info">
+                    <div class="label">Total CWE Top 25 Defects</div>
+                    <div class="value">{{ cwe_top25_metrics|sum(attribute='total_defects') }}</div>
+                </div>
+                <div class="summary-card {% if cwe_top25_metrics|selectattr('status', 'equalto', 'FAILED')|list|length > 0 %}warning{% else %}success{% endif %}">
+                    <div class="label">{% if cwe_top25_metrics|selectattr('status', 'equalto', 'FAILED')|list|length > 0 %}Failed CWE Checks{% else %}All CWE Checks Passed{% endif %}</div>
+                    <div class="value">{{ cwe_top25_metrics|selectattr('status', 'equalto', 'FAILED')|list|length }}/25</div>
+                </div>
             </div>
             
             <table class="data-table">
                 <thead>
                     <tr>
+                        <th style="width: 5%;">Status</th>
                         <th style="width: 6%;">Rank</th>
-                        <th style="width: 10%;">CWE ID</th>
-                        <th style="width: 32%;">Weakness Name</th>
-                        <th style="text-align: center; width: 8%;">Score</th>
+                        <th style="width: 9%;">CWE ID</th>
+                        <th style="width: 28%;">Weakness Name</th>
+                        <th style="text-align: center; width: 7%;">Score</th>
                         <th style="text-align: center; width: 8%;">Total</th>
                         <th style="text-align: center; width: 9%;">🔴 High</th>
                         <th style="text-align: center; width: 9%;">🟡 Med</th>
                         <th style="text-align: center; width: 9%;">🟢 Low</th>
-                        <th style="text-align: center; width: 9%;">⚪ Unsp</th>
+                        <th style="text-align: center; width: 10%;">⚪ Unsp</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for item in cwe_top25_metrics %}
-                    <tr>
+                    <tr {% if item.status == 'FAILED' %}style="cursor: pointer; background-color: rgba(220, 53, 69, 0.03);" onclick="toggleCweDetails('cwe-{{ item.cwe_id }}')"{% else %}style="background-color: rgba(40, 167, 69, 0.02); opacity: 0.7;"{% endif %}>
+                        <td style="text-align: center;">
+                            {% if item.status == 'FAILED' %}
+                                <span class="severity-badge severity-high" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">FAILED</span>
+                            {% else %}
+                                <span class="severity-badge severity-low" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">PASS</span>
+                            {% endif %}
+                        </td>
                         <td style="text-align: center;">
                             <span class="severity-badge {% if item.rank <= 5 %}severity-high{% elif item.rank <= 15 %}severity-medium{% else %}severity-low{% endif %}" style="font-weight: 600;">
                                 #{{ item.rank }}
@@ -1713,7 +1733,7 @@
                         <td style="text-align: center; font-size: 0.9rem; opacity: 0.8;">
                             {{ "%.2f"|format(item.score) }}
                         </td>
-                        <td style="text-align: center; font-weight: 600; font-size: 1.1rem; color: var(--danger-color);">
+                        <td style="text-align: center; font-weight: 600; font-size: 1.1rem; {% if item.total_defects > 0 %}color: var(--danger-color);{% else %}color: var(--success-color); opacity: 0.7;{% endif %}">
                             {{ item.total_defects }}
                         </td>
                         <td style="text-align: center;">
@@ -1745,20 +1765,67 @@
                             {% endif %}
                         </td>
                     </tr>
+                    
+                    <!-- Expandable defect details row (only for FAILED entries) -->
+                    {% if item.status == 'FAILED' and cwe_top25_details and item.cwe_id in cwe_top25_details %}
+                    {% set details = cwe_top25_details[item.cwe_id] %}
+                    <tr id="cwe-{{ item.cwe_id }}-details" style="display: none; background-color: rgba(0,0,0,0.02);">
+                        <td colspan="9" style="padding: 1.5rem;">
+                            
+                            <!-- All Defects -->
+                            {% if details.all_defects and details.all_defects|length > 0 %}
+                            <div style="margin-top: 0.5rem;">
+                                <div style="font-weight: 600; font-size: 1rem; margin-bottom: 0.5rem; color: var(--primary-color);">
+                                    🐛 Defects ({{ details.all_defects|length }} total)
+                                </div>
+                                <div style="max-height: 400px; overflow-y: auto; border: 1px solid rgba(0,0,0,0.1); border-radius: 4px;">
+                                    <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse;">
+                                        <thead style="position: sticky; top: 0; background: #fff; border-bottom: 2px solid rgba(0,0,0,0.1);">
+                                            <tr>
+                                                <th style="padding: 0.5rem; text-align: left; font-weight: 600; color: #2c3e50;">CID</th>
+                                                <th style="padding: 0.5rem; text-align: left; font-weight: 600; color: #2c3e50;">Type</th>
+                                                <th style="padding: 0.5rem; text-align: center; font-weight: 600; color: #2c3e50;">Severity</th>
+                                                <th style="padding: 0.5rem; text-align: left; font-weight: 600; color: #2c3e50;">File</th>
+                                                <th style="padding: 0.5rem; text-align: left; font-weight: 600; color: #2c3e50;">Function</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for defect in details.all_defects %}
+                                            <tr style="border-bottom: 1px solid rgba(0,0,0,0.05);">
+                                                <td style="padding: 0.5rem; font-weight: 600; color: var(--primary-color);">{{ defect.cid }}</td>
+                                                <td style="padding: 0.5rem; font-size: 0.8rem;">{{ defect.checker }}</td>
+                                                <td style="padding: 0.5rem; text-align: center;">
+                                                    {% if defect.severity == 'Major' %}
+                                                        <span class="severity-badge severity-high" style="font-size: 0.75rem;">High</span>
+                                                    {% elif defect.severity == 'Moderate' %}
+                                                        <span class="severity-badge severity-medium" style="font-size: 0.75rem;">Med</span>
+                                                    {% elif defect.severity == 'Minor' %}
+                                                        <span class="severity-badge severity-low" style="font-size: 0.75rem;">Low</span>
+                                                    {% else %}
+                                                        <span style="font-size: 0.75rem; opacity: 0.6;">-</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td style="padding: 0.5rem; font-size: 0.8rem; max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ defect.file }}">
+                                                    {{ defect.file }}
+                                                </td>
+                                                <td style="padding: 0.5rem; font-size: 0.8rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ defect.function }}">
+                                                    {{ defect.function }}
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+                            
+                        </td>
+                    </tr>
+                    {% endif %}
+                    
                     {% endfor %}
                 </tbody>
             </table>
-            
-            <div class="grid-2col" style="margin-top: 2rem;">
-                <div class="summary-card info">
-                    <div class="label">Total CWE Top 25 Defects</div>
-                    <div class="value">{{ cwe_top25_metrics|sum(attribute='total_defects') }}</div>
-                </div>
-                <div class="summary-card warning">
-                    <div class="label">High Severity CWE Issues</div>
-                    <div class="value">{{ cwe_top25_metrics|sum(attribute='high') }}</div>
-                </div>
-            </div>
             
             <div class="alert alert-info" style="margin-top: 2rem;">
                 <strong>📚 About CWE Top 25 2025:</strong>
@@ -1768,10 +1835,12 @@
                     National Vulnerability Database (NVD), this list helps developers and security teams prioritize their remediation efforts.
                 </p>
                 <ul style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
+                    <li><strong>Status:</strong> PASS (no defects) or FAILED (has defects for this CWE)</li>
                     <li><strong>Rank:</strong> Position in MITRE's CWE Top 25 list (1-25, lower rank = more dangerous)</li>
                     <li><strong>Score:</strong> MITRE's calculated danger score based on prevalence and impact</li>
                     <li><strong>Total:</strong> Number of outstanding defects for this specific CWE in your project</li>
-                    <li><strong>Coverage:</strong> This table shows only CWE Top 25 entries found in your project ({{ cwe_top25_metrics|length }}/25)</li>
+                    <li><strong>Coverage:</strong> This table shows all 25 CWE entries ({{ cwe_top25_metrics|selectattr('status', 'equalto', 'FAILED')|list|length }} failed, {{ cwe_top25_metrics|selectattr('status', 'equalto', 'PASS')|list|length }} passed)</li>
+                    <li><strong>Expand Details:</strong> Click on any FAILED row to view all defects, including CID, checker, severity, file, and function</li>
                 </ul>
             </div>
         </div>
@@ -2114,6 +2183,14 @@
 
         Plotly.newPlot('triage-trends-chart', triageTrendsData, triageTrendsLayout, {responsive: true});
         {% endif %}
+
+        // Toggle CWE Top 25 details
+        function toggleCweDetails(cweId) {
+            const detailsRow = document.getElementById(cweId + '-details');
+            if (detailsRow) {
+                detailsRow.style.display = detailsRow.style.display === 'none' ? 'table-row' : 'none';
+            }
+        }
 
         // Table sorting functionality
         let sortDirections = {};

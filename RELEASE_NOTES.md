@@ -2,6 +2,74 @@
 
 ## Version History
 
+### Version 1.0.5 - 2026-02-20
+
+**Enhanced Security Reporting & Complete Coverage**
+
+#### Major Enhancements
+
+##### ðŸ”’ Complete OWASP Top 10 2025 Security Coverage
+- **All 10 Categories Always Visible**: Dashboard now shows all OWASP Top 10 categories regardless of defects
+- **PASS/FAILED Status Badges**:
+  - ðŸŸ¢ **PASS** (green): No defects for this category - safe!
+  - ðŸ”´ **FAILED** (red): Has defects requiring attention
+- **Interactive Defect Exploration**:
+  - Click FAILED rows to expand and see ALL defects (no limits)
+  - PASS rows are non-clickable and visually faded
+- **Complete Security Posture**: Instantly see which OWASP categories are clean vs problematic
+- **Summary Metrics**: "X/10 Failed" counts for quick assessment
+
+##### ðŸ›¡ï¸ Complete CWE Top 25 2025 Weakness Coverage
+- **All 25 CWEs Always Visible**: Shows complete MITRE CWE Top 25 list
+- **Status Column**: Each CWE entry has PASS/FAILED badge
+- **Ranked by Danger**: Industry-standard rankings (1-25) from MITRE
+- **Same Interactive Experience**: Click FAILED entries to see all defect details
+- **Summary Metrics**: "X/25 Failed" counts
+
+##### ðŸ“Š Enhanced Defect Detail Tables
+- **Comprehensive Information**:
+  - **CID**: Actual Coverity ID (now correctly using merged_defect_id)
+  - **Type**: Checker name describing defect type
+  - **Severity**: Color-coded High/Med/Low badges
+  - **File**: Full file path (with overflow handling)
+  - **Function**: Function name where defect occurs
+  - **CWE**: CWE identifier (OWASP report only)
+- **Show ALL Defects**: Removed 10-per-CWE limits - see complete defect lists
+- **Scrollable Tables**: Clean 400px height containers for large lists
+- **Fixed Headers**: Sticky headers with proper visibility
+- **Simplified Display**:
+  - Removed aggregated "CWE Breakdown" sections
+  - Removed "Top Checkers" summary from CWE Top 25
+  - Focus on actionable defect details
+
+#### Visual Improvements
+- **Color-Coded Rows**:
+  - FAILED: Red-tinted background, clickable, pointer cursor
+  - PASS: Green-tinted faded background, non-clickable
+- **Fixed Table Headers**: Proper text color (#2c3e50) on white background
+- **Responsive Design**: Tables adapt to content with scrolling
+
+#### Database & Performance
+- **Corrected CID Field**: Now uses `stream_defect.merged_defect_id` (actual user-visible CID)
+- **Fixed Schema Joins**:
+  - Checker names via `checker_type` table
+  - Function names via `stream_defect_occurrence.function_id`
+  - Removed invalid `stream_file` joins
+- **Performance Optimization**: Only loads details for FAILED entries (not PASS)
+
+#### Bug Fixes
+- Fixed table header visibility in security reports
+- Resolved undefined CSS variable issues
+- Fixed UnboundLocalError for commit_activity
+
+#### Use Cases
+- **Security Audits**: Instant view of OWASP/CWE compliance status
+- **Remediation Planning**: Click FAILED categories to see all defects needing fixes
+- **Compliance Reporting**: Show complete coverage for security frameworks
+- **Team Communication**: Clear PASS/FAIL badges for stakeholder presentations
+
+---
+
 ### Version 1.0.4 - 2026-02-19
 
 **Progress Tracking & User Experience Update**
@@ -84,7 +152,7 @@
 - **CWE Top 25 2025 Update**
   - Updated from CWE Top 25 2024 to 2025 version (MITRE)
   - All 25 CWE rankings updated with new scores
-  - Major ranking changes: CWE-306 (#20â†’#8), CWE-416 (#4â†’#18), CWE-787 (#5â†’#21)
+  - Major ranking changes: CWE-306 (#20Ã¢â€ â€™#8), CWE-416 (#4Ã¢â€ â€™#18), CWE-787 (#5Ã¢â€ â€™#21)
   - New entries: CWE-120 (Classic Buffer Overflow #19), CWE-327 (Broken Crypto #23)
   - Removed entries: CWE-94 (Code Injection), CWE-276 (Incorrect Permissions)
   - Dashboard tab updated to show "CWE Top 25 2025"

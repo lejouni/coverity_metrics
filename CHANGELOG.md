@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-02-20
+
+### Enhanced
+- **OWASP Top 10 2025 Report - Complete Security Coverage**
+  - Now displays all 10 OWASP categories regardless of whether defects exist
+  - Added PASS/FAILED status badges for each category:
+    - ðŸŸ¢ **PASS**: No defects found for this category (green badge, non-clickable)
+    - ðŸ”´ **FAILED**: Has defects mapped to this category (red badge, clickable to expand)
+  - Visual differentiation:
+    - FAILED rows: Clickable with red-tinted background and pointer cursor
+    - PASS rows: Non-clickable with green-tinted faded background
+  - Summary cards show pass/fail counts (e.g., "3/10 Failed")
+  - Complete security posture visibility at a glance
+
+- **CWE Top 25 2025 Report - Complete Weakness Coverage**
+  - Now displays all 25 CWE Top 25 entries with Status column
+  - Added PASS/FAILED status badges matching OWASP report format
+  - Same visual differentiation and clickable behavior as OWASP
+  - Summary cards show failed CWE counts (e.g., "5/25 Failed")
+  - Ranks 1-25 based on MITRE's danger scores
+
+- **Enhanced Defect Details for Security Reports**
+  - Removed aggregated "CWE Breakdown" sections for cleaner display
+  - Removed "Top Checkers" summary from CWE Top 25 report
+  - Now shows ALL defects for each failed category/CWE (no 10-per-CWE limit)
+  - Detailed defect tables include:
+    - **CID**: Actual Coverity ID (merged_defect_id from database)
+    - **CWE**: CWE identifier (OWASP report only)
+    - **Type**: Checker name (e.g., "Resource leak", "Null pointer dereference")
+    - **Severity**: High/Med/Low badges
+    - **File**: Full file path with overflow handling
+    - **Function**: Function name where defect occurs
+  - Scrollable table containers (max 400px height) for large defect lists
+  - Fixed table header visibility with proper text colors (#2c3e50 on white background)
+
+- **Database Schema Corrections**
+  - Fixed CID mapping: Uses `stream_defect.merged_defect_id` (actual user-visible CID)
+  - Corrected checker joins via `checker_type` table
+  - Fixed function joins using `stream_defect_occurrence.function_id`
+  - Removed invalid `stream_file` table joins
+
+### Fixed
+- Table header visibility in OWASP and CWE Top 25 defect tables
+- Replaced undefined CSS variables (`var(--text-color)`, `var(--card-bg)`) with actual color values
+- UnboundLocalError for commit_activity variable in dashboard generation
+
+### Performance
+- Optimized to only load detailed defect breakdowns for FAILED categories/CWEs
+- PASS entries don't trigger database queries for details
+- Significant performance improvement for large deployments
+
 ## [1.0.4] - 2026-02-19
 
 ### Added
@@ -24,7 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     3. **All Instances + All Projects (Full Auto)**:
        - Displays pre-flight breakdown: "1 aggregated + N instances + M projects"
        - Single overall progress bar tracking all dashboard types
-       - Dynamic descriptions for each phase: aggregated → instances → projects
+       - Dynamic descriptions for each phase: aggregated â†’ instances â†’ projects
        - Postfix strings: "{project} (X/Y)" showing current item within instance
   - Example output:
     ```
@@ -115,7 +166,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Low impact: 1 hour per defect
     - Unspecified impact: 0.5 hours per defect
   - Returns comprehensive breakdown:
-    - Total hours, work days (Ã·8), work weeks (Ã·40)
+    - Total hours, work days (ÃƒÂ·8), work weeks (ÃƒÂ·40)
     - Total defect count
     - Breakdown by impact level (count, hours, percentage)
     - Average hours per defect
@@ -129,23 +180,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated CWE Top 25 rankings from 2024 to 2025 version (MITRE)
   - Updated `cwe_top25_mapping.py` with all 25 new rankings and scores
   - Major ranking changes:
-    - CWE-306 (Missing Authentication): #20 â†’ #8 (significant jump)
-    - CWE-416 (Use After Free): #4 â†’ #18 (dropped)
-    - CWE-787 (Out-of-bounds Write): #5 â†’ #21 (dropped)
-    - CWE-862 (Missing Authorization): #3 â†’ #5
-    - CWE-269 (Improper Privilege Management): #8 â†’ #12
+    - CWE-306 (Missing Authentication): #20 Ã¢â€ â€™ #8 (significant jump)
+    - CWE-416 (Use After Free): #4 Ã¢â€ â€™ #18 (dropped)
+    - CWE-787 (Out-of-bounds Write): #5 Ã¢â€ â€™ #21 (dropped)
+    - CWE-862 (Missing Authorization): #3 Ã¢â€ â€™ #5
+    - CWE-269 (Improper Privilege Management): #8 Ã¢â€ â€™ #12
   - New CWE entries in 2025:
     - CWE-120 (Classic Buffer Overflow) at #19
     - CWE-327 (Broken or Risky Crypto Algorithm) at #23
   - Removed from 2025 list:
     - CWE-94 (Improper Control of Code Generation)
     - CWE-276 (Incorrect Default Permissions)
-  - Dashboard tab title updated: "CWE Top 25 2024" â†’ "CWE Top 25 2025"
+  - Dashboard tab title updated: "CWE Top 25 2024" Ã¢â€ â€™ "CWE Top 25 2025"
 
 ### Changed
 - **Documentation Enhancements**
   - Updated `README.md` with comprehensive "Latest Enhancements (2025)" section
-  - Added quick reference for new features (ðŸ’° Technical Debt, ðŸ”’ OWASP, ðŸ›¡ï¸ CWE, ðŸ† Leaderboards)
+  - Added quick reference for new features (Ã°Å¸â€™Â° Technical Debt, Ã°Å¸â€â€™ OWASP, Ã°Å¸â€ºÂ¡Ã¯Â¸Â CWE, Ã°Å¸Ââ€  Leaderboards)
   - Expanded Features section with Security Compliance Metrics and Leaderboards
   - Added "For Security Teams" use cases section
   - Updated Available Metric Methods with technical debt and security APIs
@@ -268,9 +319,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependencies**: psycopg2-binary, pandas, matplotlib, seaborn, jinja2, plotly, tqdm, python-dateutil, openpyxl
 - **Installation**: `pip install -e .` for editable/development mode
 - **Entry Points**: 
-  - `coverity-dashboard` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ `coverity_metrics.cli.dashboard:main`
-  - `coverity-metrics` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ `coverity_metrics.cli.report:main`
-  - `coverity-export` ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ `coverity_metrics.cli.export:main`
+  - `coverity-dashboard` ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ `coverity_metrics.cli.dashboard:main`
+  - `coverity-metrics` ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ `coverity_metrics.cli.report:main`
+  - `coverity-export` ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ `coverity_metrics.cli.export:main`
 
 ---
 

@@ -2426,13 +2426,13 @@ class CoverityMetrics:
         }
     
     def get_cwe_top25_metrics(self):
-        """Get defect counts for CWE Top 25 Most Dangerous Software Weaknesses (2024)
+        """Get defect counts for CWE Top 25 Most Dangerous Software Weaknesses (2025)
         
         Only available for project-level dashboards.
-        Shows defects that match CWE Top 25 entries with severity breakdown.
+        Shows ALL 25 CWE entries with PASS/FAILED status.
         
         Returns:
-            pandas.DataFrame: CWE Top 25 entries with defect counts and severity breakdown
+            pandas.DataFrame: All 25 CWE entries with defect counts, severity breakdown, and status
         """
         if not self.project_name:
             # CWE Top 25 tab only for project-level dashboards
@@ -2440,7 +2440,24 @@ class CoverityMetrics:
         
         from .cwe_top25_mapping import CWE_TOP_25_2025
         
-        # Build set of Top 25 CWE IDs
+        # Initialize all 25 CWE entries with PASS status
+        cwe_data = {}
+        for rank, data in CWE_TOP_25_2025.items():
+            cwe_id = data['cwe_id']
+            cwe_data[cwe_id] = {
+                'rank': data['rank'],
+                'cwe_id': cwe_id,
+                'name': data['name'],
+                'score': data['score'],
+                'total_defects': 0,
+                'high': 0,
+                'medium': 0,
+                'low': 0,
+                'unspecified': 0,
+                'status': 'PASS'  # Default to PASS
+            }
+        
+        # Build set of Top 25 CWE IDs for filtering
         top25_cwe_ids = {data['cwe_id'] for data in CWE_TOP_25_2025.values()}
         
         query = """
@@ -2465,55 +2482,30 @@ class CoverityMetrics:
         
         results = self.db.execute_query_dict(query, (self.project_name,))
         
-        # Aggregate by CWE
-        cwe_data = {}
+        # Update CWE data with actual defect counts
         for row in results:
             cwe_id = row['cwe']
             if cwe_id not in top25_cwe_ids:
                 continue  # CWE not in Top 25
             
-            if cwe_id not in cwe_data:
-                # Get CWE Top 25 info
-                cwe_info = None
-                for rank, data in CWE_TOP_25_2025.items():
-                    if data['cwe_id'] == cwe_id:
-                        cwe_info = data
-                        break
+            if cwe_id in cwe_data:
+                severity = row.get('severity', 'Unspecified') or 'Unspecified'
+                count = row['defect_count']
                 
-                if not cwe_info:
-                    continue
+                cwe_data[cwe_id]['total_defects'] += count
+                cwe_data[cwe_id]['status'] = 'FAILED'  # Mark as FAILED if defects exist
                 
-                cwe_data[cwe_id] = {
-                    'rank': cwe_info['rank'],
-                    'cwe_id': cwe_id,
-                    'name': cwe_info['name'],
-                    'score': cwe_info['score'],
-                    'total_defects': 0,
-                    'high': 0,
-                    'medium': 0,
-                    'low': 0,
-                    'unspecified': 0
-                }
-            
-            severity = row.get('severity', 'Unspecified') or 'Unspecified'
-            count = row['defect_count']
-            
-            cwe_data[cwe_id]['total_defects'] += count
-            
-            # Coverity severity mapping: Major=High, Moderate=Medium, Minor=Low
-            if severity == 'Major':
-                cwe_data[cwe_id]['high'] += count
-            elif severity == 'Moderate':
-                cwe_data[cwe_id]['medium'] += count
-            elif severity == 'Minor':
-                cwe_data[cwe_id]['low'] += count
-            else:
-                cwe_data[cwe_id]['unspecified'] += count
+                # Coverity severity mapping: Major=High, Moderate=Medium, Minor=Low
+                if severity == 'Major':
+                    cwe_data[cwe_id]['high'] += count
+                elif severity == 'Moderate':
+                    cwe_data[cwe_id]['medium'] += count
+                elif severity == 'Minor':
+                    cwe_data[cwe_id]['low'] += count
+                else:
+                    cwe_data[cwe_id]['unspecified'] += count
         
-        # Convert to DataFrame
-        if not cwe_data:
-            return pd.DataFrame()
-        
+        # Convert to DataFrame with all 25 entries
         df_data = []
         for cwe_id, data in cwe_data.items():
             df_data.append({
@@ -2525,11 +2517,88 @@ class CoverityMetrics:
                 'high': data['high'],
                 'medium': data['medium'],
                 'low': data['low'],
-                'unspecified': data['unspecified']
+                'unspecified': data['unspecified'],
+                'status': data['status']
             })
         
         df = pd.DataFrame(df_data)
         # Sort by rank (ascending - most dangerous first)
         df = df.sort_values('rank', ascending=True)
         return df
+    
+    def get_cwe_top25_details(self, cwe_id):
+        """Get detailed defect breakdown for a specific CWE Top 25 weakness
+        
+        Args:
+            cwe_id: CWE ID (e.g., 79 for CWE-79)
+            
+        Returns:
+            dict: Detailed breakdown with all defects
+        """
+        if not self.project_name:
+            return {}
+        
+        # Get all defects with CID, file, and function for this CWE
+        defects_query = """
+            SELECT DISTINCT ON (sd.merged_defect_id)
+                sd.merged_defect_id as cid,
+                cp.cwe,
+                ct.name as checker_name,
+                de.name as severity,
+                fp.filename as file_path,
+                func.display_name as function_name
+            FROM stream_defect sd
+            JOIN stream_element se ON sd.stream_element_id = se.id
+            JOIN stream s ON se.stream_id = s.id
+            JOIN project_stream ps ON s.id = ps.stream_id
+            JOIN project p ON ps.project_id = p.id
+            JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+            LEFT JOIN checker_properties cp ON sd.checker_properties_id = cp.id
+            LEFT JOIN checker_type ct ON cp.checker_type_id = ct.id
+            LEFT JOIN dynamic_enum de ON dt.current_severity_id = de.id
+            LEFT JOIN stream_defect_occurrence sdo ON sd.id = sdo.stream_defect_id
+            LEFT JOIN stream_file sf ON sdo.stream_file_id = sf.id
+            LEFT JOIN file_path fp ON sf.file_path_id = fp.id
+            LEFT JOIN function func ON sdo.function_id = func.id
+            WHERE p.name = %s
+                AND cp.cwe = %s
+                AND sd.fixed_snapshot_element_id IS NULL
+                AND sd.merged_defect_id IS NOT NULL
+            ORDER BY sd.merged_defect_id, de.name DESC
+        """
+        
+        defect_results = self.db.execute_query_dict(defects_query, (self.project_name, cwe_id))
+        
+        # Process all defects and collect checker stats
+        checker_breakdown = {}
+        all_defects = []
+        
+        for row in defect_results:
+            checker_name = row['checker_name'] or 'Unknown'
+            
+            # Collect all defects
+            all_defects.append({
+                'cid': row['cid'],
+                'checker': checker_name,
+                'severity': row['severity'] or 'Unspecified',
+                'file': row['file_path'] or 'Unknown',
+                'function': row['function_name'] or 'N/A'
+            })
+            
+            # Checker breakdown for top checkers display
+            if checker_name not in checker_breakdown:
+                checker_breakdown[checker_name] = {
+                    'checker': checker_name,
+                    'defect_count': 0
+                }
+            checker_breakdown[checker_name]['defect_count'] += 1
+        
+        # Sort checker breakdown by count
+        checker_list = sorted(checker_breakdown.values(), key=lambda x: x['defect_count'], reverse=True)[:10]
+        
+        return {
+            'checker_breakdown': checker_list,  # Top 10 checkers
+            'all_defects': all_defects,  # All defects for this CWE
+            'total_checkers': len(checker_breakdown)
+        }
 

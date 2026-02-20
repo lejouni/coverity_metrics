@@ -250,6 +250,14 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         # Collect CWE Top 25 2024 metrics (project-level only)
         cwe_top25_metrics = metrics.get_cwe_top25_metrics().to_dict('records') if project_name else []
         
+        # Collect detailed breakdown for FAILED CWE Top 25 entries only
+        cwe_top25_details = {}
+        if project_name and cwe_top25_metrics:
+            for item in cwe_top25_metrics:
+                if item.get('status') == 'FAILED':
+                    cwe_id = item['cwe_id']
+                    cwe_top25_details[cwe_id] = metrics.get_cwe_top25_details(cwe_id)
+        
         # Calculate actual date range from trend data
         trend_period_text = f"Last {days} Days"
         
@@ -325,7 +333,8 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         owasp_metrics=owasp_metrics,
         owasp_details=owasp_details,
         # CWE Top 25 2024 (project-level only)
-        cwe_top25_metrics=cwe_top25_metrics
+        cwe_top25_metrics=cwe_top25_metrics,
+        cwe_top25_details=cwe_top25_details
     )
     
     # Ensure output directory exists
