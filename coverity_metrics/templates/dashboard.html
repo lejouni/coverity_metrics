@@ -1490,7 +1490,7 @@
         <!-- End Leaderboards Tab -->
 
         <!-- OWASP Top 10 2025 Tab (Project-level only) -->
-        {% if current_project and owasp_metrics %}
+        {% if current_project %}
         <div id="owasp-tab" class="tab-content">
         
         <div class="section">
@@ -1500,78 +1500,146 @@
                 This analysis helps prioritize security remediation efforts based on the most critical web application security risks.
             </p>
             
-            <div class="alert alert-warning">
-                <strong>🎯 Security Focus:</strong> {{ owasp_metrics|length }} OWASP Top 10 categories detected in this project.
-            </div>
+            {% if owasp_metrics and owasp_metrics|length > 0 %}
+            {% set failed_count = owasp_metrics|selectattr('status', 'equalto', 'FAILED')|list|length %}
+            {% set passed_count = owasp_metrics|selectattr('status', 'equalto', 'PASS')|list|length %}
             
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th style="width: 8%;">Rank</th>
-                        <th style="width: 25%;">OWASP Category</th>
-                        <th style="width: 35%;">Description</th>
-                        <th style="text-align: center; width: 8%;">Total</th>
-                        <th style="text-align: center; width: 6%;">🔴 High</th>
-                        <th style="text-align: center; width: 6%;">🟡 Med</th>
-                        <th style="text-align: center; width: 6%;">🟢 Low</th>
-                        <th style="text-align: center; width: 6%;">CWEs</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in owasp_metrics %}
-                    <tr>
-                        <td style="text-align: center;">
-                            <span class="severity-badge {% if loop.index <= 3 %}severity-high{% elif loop.index <= 6 %}severity-medium{% else %}severity-low{% endif %}" style="font-weight: 600;">
-                                #{{ loop.index }}
-                            </span>
-                        </td>
-                        <td>
-                            <div style="font-weight: 600; color: var(--primary-color);">{{ item.category.split(':')[0] }}</div>
-                            <div style="font-size: 0.9rem; margin-top: 0.25rem;">{{ item.category.split(':')[1] if ':' in item.category else item.category }}</div>
-                        </td>
-                        <td style="font-size: 0.9rem; opacity: 0.9;">{{ item.description[:100] }}{% if item.description|length > 100 %}...{% endif %}</td>
-                        <td style="text-align: center; font-weight: 600; font-size: 1.1rem; color: var(--danger-color);">
-                            {{ item.total_defects }}
-                        </td>
-                        <td style="text-align: center;">
-                            {% if item.high > 0 %}
-                            <span class="severity-badge severity-high">{{ item.high }}</span>
-                            {% else %}
-                            <span style="opacity: 0.3;">-</span>
-                            {% endif %}
-                        </td>
-                        <td style="text-align: center;">
-                            {% if item.medium > 0 %}
-                            <span class="severity-badge severity-medium">{{ item.medium }}</span>
-                            {% else %}
-                            <span style="opacity: 0.3;">-</span>
-                            {% endif %}
-                        </td>
-                        <td style="text-align: center;">
-                            {% if item.low > 0 %}
-                            <span class="severity-badge severity-low">{{ item.low }}</span>
-                            {% else %}
-                            <span style="opacity: 0.3;">-</span>
-                            {% endif %}
-                        </td>
-                        <td style="text-align: center; font-size: 0.9rem; opacity: 0.7;">
-                            {{ item.cwe_count }}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            
-            <div class="grid-2col" style="margin-top: 2rem;">
-                <div class="summary-card info">
-                    <div class="label">Total OWASP-Mapped Defects</div>
-                    <div class="value">{{ owasp_metrics|sum(attribute='total_defects') }}</div>
+            <div class="grid-2col" style="margin-bottom: 2rem;">
+                <div class="summary-card {% if failed_count > 0 %}danger{% else %}success{% endif %}">
+                    <div class="label">Categories with Defects (FAILED)</div>
+                    <div class="value">{{ failed_count }} / 10</div>
                 </div>
-                <div class="summary-card warning">
-                    <div class="label">High Severity OWASP Issues</div>
-                    <div class="value">{{ owasp_metrics|sum(attribute='high') }}</div>
+                <div class="summary-card success">
+                    <div class="label">Categories Passed</div>
+                    <div class="value">{{ passed_count }} / 10</div>
                 </div>
             </div>
+            
+            <!-- Display each OWASP category with PASS/FAIL status -->
+            {% for item in owasp_metrics %}
+            <div style="margin-bottom: 1.5rem; border: 2px solid {% if item.status == 'FAILED' %}var(--danger-color){% else %}var(--success-color){% endif %}; border-radius: 8px; padding: 1rem; background: {% if item.status == 'FAILED' %}rgba(220, 53, 69, 0.05){% else %}rgba(40, 167, 69, 0.05){% endif %};">
+                <!-- Category Header -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 1.1rem; color: var(--primary-color);">
+                            {{ item.category.split(':')[0] }}: {{ item.category.split(':')[1] if ':' in item.category else item.category }}
+                        </div>
+                        <div style="font-size: 0.9rem; margin-top: 0.25rem; opacity: 0.8;">{{ item.description }}</div>
+                    </div>
+                    <div style="text-align: right; margin-left: 1rem;">
+                        {% if item.status == 'FAILED' %}
+                        <span style="display: inline-block; padding: 0.5rem 1rem; background: var(--danger-color); color: white; font-weight: 700; font-size: 1.1rem; border-radius: 6px;">
+                            ❌ FAILED
+                        </span>
+                        {% else %}
+                        <span style="display: inline-block; padding: 0.5rem 1rem; background: var(--success-color); color: white; font-weight: 700; font-size: 1.1rem; border-radius: 6px;">
+                            ✅ PASS
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <!-- Defect Details (only for FAILED categories) -->
+                {% if item.status == 'FAILED' %}
+                <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(0,0,0,0.1);">
+                    <div style="display: flex; gap: 1.5rem; align-items: center; margin-bottom: 1rem;">
+                        <div>
+                            <span style="font-weight: 600; color: var(--danger-color); font-size: 1.2rem;">Total Defects: {{ item.total_defects }}</span>
+                        </div>
+                        {% if item.high > 0 %}
+                        <div>
+                            <span class="severity-badge severity-high" style="font-size: 1rem; padding: 0.4rem 0.8rem;">🔴 High: {{ item.high }}</span>
+                        </div>
+                        {% endif %}
+                        {% if item.medium > 0 %}
+                        <div>
+                            <span class="severity-badge severity-medium" style="font-size: 1rem; padding: 0.4rem 0.8rem;">🟡 Medium: {{ item.medium }}</span>
+                        </div>
+                        {% endif %}
+                        {% if item.low > 0 %}
+                        <div>
+                            <span class="severity-badge severity-low" style="font-size: 1rem; padding: 0.4rem 0.8rem;">🟢 Low: {{ item.low }}</span>
+                        </div>
+                        {% endif %}
+                        <div style="margin-left: auto; font-size: 0.9rem; opacity: 0.7;">
+                            {{ item.cwe_count }} CWE{{ 's' if item.cwe_count != 1 else '' }} mapped
+                        </div>
+                    </div>
+                    
+                    <!-- Detailed Breakdown -->
+                    {% if owasp_details and item.category in owasp_details %}
+                    {% set details = owasp_details[item.category] %}
+                    
+                    <!-- All Defects -->
+                    {% if details.all_defects and details.all_defects|length > 0 %}
+                    <div style="margin-top: 1rem;">
+                        <div style="font-weight: 600; font-size: 1rem; margin-bottom: 0.5rem; color: var(--primary-color);">
+                            🐛 Defects ({{ details.all_defects|length }} total)
+                        </div>
+                        <div style="max-height: 400px; overflow-y: auto; border: 1px solid rgba(0,0,0,0.1); border-radius: 4px;">
+                            <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse;">
+                                <thead style="position: sticky; top: 0; background: var(--card-bg); border-bottom: 2px solid rgba(0,0,0,0.1);">
+                                    <tr>
+                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600;">CID</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600;">CWE</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600;">Checker</th>
+                                        <th style="padding: 0.5rem; text-align: center; font-weight: 600;">Severity</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600;">File</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-weight: 600;">Function</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for defect in details.all_defects %}
+                                    <tr style="border-bottom: 1px solid rgba(0,0,0,0.05);">
+                                        <td style="padding: 0.5rem; font-weight: 600; color: var(--primary-color);">{{ defect.cid }}</td>
+                                        <td style="padding: 0.5rem; font-family: monospace;">CWE-{{ defect.cwe }}</td>
+                                        <td style="padding: 0.5rem; font-size: 0.8rem;">{{ defect.checker }}</td>
+                                        <td style="padding: 0.5rem; text-align: center;">
+                                            {% if defect.severity == 'Major' %}
+                                                <span class="severity-badge severity-high" style="font-size: 0.75rem;">High</span>
+                                            {% elif defect.severity == 'Moderate' %}
+                                                <span class="severity-badge severity-medium" style="font-size: 0.75rem;">Med</span>
+                                            {% elif defect.severity == 'Minor' %}
+                                                <span class="severity-badge severity-low" style="font-size: 0.75rem;">Low</span>
+                                            {% else %}
+                                                <span style="font-size: 0.75rem; opacity: 0.6;">-</span>
+                                            {% endif %}
+                                        </td>
+                                        <td style="padding: 0.5rem; font-size: 0.8rem; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ defect.file }}">
+                                            {{ defect.file }}
+                                        </td>
+                                        <td style="padding: 0.5rem; font-size: 0.8rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ defect.function }}">
+                                            {{ defect.function }}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Top Checkers -->
+                    {% if details.checker_breakdown and details.checker_breakdown|length > 0 %}
+                    <div style="margin-top: 1rem;">
+                        <div style="font-weight: 600; font-size: 1rem; margin-bottom: 0.5rem; color: var(--primary-color);">
+                            🔍 Top Checkers ({{ details.checker_breakdown|length }} of {{ details.total_checkers }} total)
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0.5rem;">
+                            {% for checker in details.checker_breakdown %}
+                            <div style="display: flex; justify-content: space-between; padding: 0.5rem; background: rgba(0,0,0,0.02); border-radius: 4px; border-left: 3px solid var(--primary-color);">
+                                <span style="font-size: 0.9rem; font-weight: 500;">{{ checker.checker }}</span>
+                                <span style="font-weight: 600; color: var(--danger-color);">{{ checker.defect_count }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
             
             <div class="alert alert-info" style="margin-top: 2rem;">
                 <strong>📚 About OWASP Top 10 2025:</strong>
@@ -1580,11 +1648,19 @@
                     This report maps your defects to these categories using CWE codes to help prioritize security remediation.
                 </p>
                 <ul style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
-                    <li><strong>Rank:</strong> Position in OWASP Top 10 2025 list</li>
-                    <li><strong>Total:</strong> Number of outstanding defects in this category</li>
+                    <li><strong>PASS:</strong> No outstanding defects found in this OWASP category</li>
+                    <li><strong>FAILED:</strong> Outstanding defects detected in this category requiring attention</li>
                     <li><strong>CWEs:</strong> Number of unique CWE codes contributing to this category</li>
                 </ul>
             </div>
+            {% else %}
+            <div class="alert alert-info">
+                <strong>ℹ️ No OWASP Data Available</strong>
+                <p style="margin: 0.5rem 0 0 0;">
+                    OWASP Top 10 analysis is only available for project-level dashboards. Please select a specific project to view this data.
+                </p>
+            </div>
+            {% endif %}
         </div>
         
         </div>

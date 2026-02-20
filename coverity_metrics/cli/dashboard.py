@@ -118,6 +118,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             largest_tables = metrics_data.get('largest_tables', [])
             snapshot_performance = metrics_data.get('snapshot_performance', [])
             commit_stats = metrics_data.get('commit_stats', {})
+            commit_activity = metrics_data.get('commit_activity', {})
             defect_discovery = metrics_data.get('defect_discovery', [])
             projects_list = metrics_data.get('all_projects', [])
             defect_trends = metrics_data.get('defect_trends', [])
@@ -136,6 +137,10 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             top_users_by_fixes = metrics_data.get('top_users_by_fixes', [])
             top_triagers = metrics_data.get('top_triagers', [])
             most_collaborative_users = metrics_data.get('most_collaborative_users', [])
+            owasp_metrics = metrics_data.get('owasp_metrics', [])
+            owasp_details = metrics_data.get('owasp_details', {})
+            cwe_top25_metrics = metrics_data.get('cwe_top25_metrics', [])
+            tech_debt_summary = metrics_data.get('tech_debt_summary', {})
         else:
             # Collect from database and cache
             metrics_data = _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days)
@@ -154,6 +159,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             largest_tables = metrics_data['largest_tables']
             snapshot_performance = metrics_data['snapshot_performance']
             commit_stats = metrics_data['commit_stats']
+            commit_activity = metrics_data.get('commit_activity', {})
             defect_discovery = metrics_data['defect_discovery']
             projects_list = metrics_data['all_projects']
             defect_trends = metrics_data.get('defect_trends', [])
@@ -172,6 +178,10 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             top_users_by_fixes = metrics_data.get('top_users_by_fixes', [])
             top_triagers = metrics_data.get('top_triagers', [])
             most_collaborative_users = metrics_data.get('most_collaborative_users', [])
+            owasp_metrics = metrics_data.get('owasp_metrics', [])
+            owasp_details = metrics_data.get('owasp_details', {})
+            cwe_top25_metrics = metrics_data.get('cwe_top25_metrics', [])
+            tech_debt_summary = metrics_data.get('tech_debt_summary', {})
     else:
         # Collect without caching
         all_projects = metrics.get_available_projects()
@@ -228,6 +238,14 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         
         # Collect OWASP Top 10 2025 metrics (project-level only)
         owasp_metrics = metrics.get_owasp_top10_metrics().to_dict('records') if project_name else []
+        
+        # Collect detailed breakdown for FAILED OWASP categories
+        owasp_details = {}
+        if project_name and owasp_metrics:
+            for item in owasp_metrics:
+                if item.get('status') == 'FAILED':
+                    category_id = item['category']
+                    owasp_details[category_id] = metrics.get_owasp_category_details(category_id)
         
         # Collect CWE Top 25 2024 metrics (project-level only)
         cwe_top25_metrics = metrics.get_cwe_top25_metrics().to_dict('records') if project_name else []
@@ -305,6 +323,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         most_collaborative_users=most_collaborative_users,
         # OWASP Top 10 2025 (project-level only)
         owasp_metrics=owasp_metrics,
+        owasp_details=owasp_details,
         # CWE Top 25 2024 (project-level only)
         cwe_top25_metrics=cwe_top25_metrics
     )
@@ -376,6 +395,23 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
     top_triagers = []  # Not available without defect_triage_history table
     most_collaborative_users = []  # Not available without defect_history table
     
+    # Collect OWASP Top 10 2025 metrics (project-level only)
+    owasp_metrics = metrics.get_owasp_top10_metrics().to_dict('records') if project_name else []
+    
+    # Collect detailed breakdown for FAILED OWASP categories
+    owasp_details = {}
+    if project_name and owasp_metrics:
+        for item in owasp_metrics:
+            if item.get('status') == 'FAILED':
+                category_id = item['category']
+                owasp_details[category_id] = metrics.get_owasp_category_details(category_id)
+    
+    # Collect CWE Top 25 2024 metrics (project-level only)
+    cwe_top25_metrics = metrics.get_cwe_top25_metrics().to_dict('records') if project_name else []
+    
+    # Collect technical debt summary
+    tech_debt_summary = metrics.get_technical_debt_summary()
+    
     # Calculate actual date range from trend data
     trend_period_text = f"Last {days} Days"
     
@@ -423,7 +459,11 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
         'top_projects_by_triage': top_projects_by_triage,
         'top_users_by_fixes': top_users_by_fixes,
         'top_triagers': top_triagers,
-        'most_collaborative_users': most_collaborative_users
+        'most_collaborative_users': most_collaborative_users,
+        'owasp_metrics': owasp_metrics,
+        'owasp_details': owasp_details,
+        'cwe_top25_metrics': cwe_top25_metrics,
+        'tech_debt_summary': tech_debt_summary
     }
     
     # Cache the data

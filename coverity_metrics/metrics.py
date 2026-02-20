@@ -2226,6 +2226,7 @@ class CoverityMetrics:
         
         Only available for project-level dashboards.
         Maps defects via CWE codes using checker_properties table.
+        Returns ALL 10 OWASP categories (even those with 0 defects).
         
         Returns:
             pandas.DataFrame: OWASP categories with defect counts and severity breakdown
@@ -2235,6 +2236,21 @@ class CoverityMetrics:
             return pd.DataFrame()
         
         from .owasp_mapping import OWASP_TOP_10_2025
+        
+        # Initialize all OWASP categories with 0 defects
+        owasp_data = {}
+        for category_id, data in OWASP_TOP_10_2025.items():
+            owasp_data[category_id] = {
+                'category': category_id,
+                'description': data['description'],
+                'total_defects': 0,
+                'high': 0,
+                'medium': 0,
+                'low': 0,
+                'unspecified': 0,
+                'cwe_codes': set(),
+                'status': 'PASS'  # Default to PASS
+            }
         
         # Build CWE to OWASP category mapping
         cwe_to_owasp = {}
@@ -2271,30 +2287,19 @@ class CoverityMetrics:
         results = self.db.execute_query_dict(query, (self.project_name,))
         
         # Aggregate by OWASP category
-        owasp_data = {}
         for row in results:
             cwe_id = row['cwe']
             if cwe_id not in cwe_to_owasp:
                 continue  # CWE not in OWASP Top 10 2025
             
             category_id = cwe_to_owasp[cwe_id]['category_id']
-            if category_id not in owasp_data:
-                owasp_data[category_id] = {
-                    'category': category_id,
-                    'description': cwe_to_owasp[cwe_id]['description'],
-                    'total_defects': 0,
-                    'high': 0,
-                    'medium': 0,
-                    'low': 0,
-                    'unspecified': 0,
-                    'cwe_codes': set()
-                }
             
             severity = row.get('severity', 'Unspecified') or 'Unspecified'
             count = row['defect_count']
             
             owasp_data[category_id]['total_defects'] += count
             owasp_data[category_id]['cwe_codes'].add(cwe_id)
+            owasp_data[category_id]['status'] = 'FAILED'  # Mark as FAILED if defects found
             
             # Coverity severity mapping: Major=High, Moderate=Medium, Minor=Low
             if severity == 'Major':
@@ -2306,12 +2311,12 @@ class CoverityMetrics:
             else:
                 owasp_data[category_id]['unspecified'] += count
         
-        # Convert to DataFrame
-        if not owasp_data:
-            return pd.DataFrame()
-        
+        # Convert to DataFrame - include all categories
         df_data = []
         for category_id, data in owasp_data.items():
+            # Convert CWE codes set to comma-separated string for display
+            cwe_codes_str = ', '.join(sorted([f"CWE-{cwe}" for cwe in data['cwe_codes']])) if data['cwe_codes'] else ''
+            
             df_data.append({
                 'category': data['category'],
                 'description': data['description'],
@@ -2320,13 +2325,105 @@ class CoverityMetrics:
                 'medium': data['medium'],
                 'low': data['low'],
                 'unspecified': data['unspecified'],
-                'cwe_count': len(data['cwe_codes'])
+                'cwe_count': len(data['cwe_codes']),
+                'cwe_codes_str': cwe_codes_str,
+                'status': data['status']
             })
         
         df = pd.DataFrame(df_data)
-        # Sort by total defects descending
-        df = df.sort_values('total_defects', ascending=False)
+        # Sort by OWASP rank (by category ID: A01, A02, ..., A10)
+        df = df.sort_values('category')
         return df
+    
+    def get_owasp_category_details(self, category_id):
+        """Get detailed defect breakdown for a specific OWASP Top 10 category
+        
+        Args:
+            category_id: OWASP category (e.g., "A01:2025-Broken Access Control")
+            
+        Returns:
+            dict: Detailed breakdown with checkers and all defects
+        """
+        if not self.project_name:
+            return {}
+        
+        from .owasp_mapping import OWASP_TOP_10_2025
+        
+        # Get CWE IDs for this category
+        if category_id not in OWASP_TOP_10_2025:
+            return {}
+        
+        cwe_ids = OWASP_TOP_10_2025[category_id]['cwe_ids']
+        cwe_placeholders = ','.join(['%s'] * len(cwe_ids))
+        
+        # Get all defects with CID, file, and function for this OWASP category
+        defects_query = f"""
+            SELECT DISTINCT ON (sd.merged_defect_id)
+                sd.merged_defect_id as cid,
+                cp.cwe,
+                ct.name as checker_name,
+                de.name as severity,
+                fp.filename as file_path,
+                func.display_name as function_name
+            FROM stream_defect sd
+            JOIN stream_element se ON sd.stream_element_id = se.id
+            JOIN stream s ON se.stream_id = s.id
+            JOIN project_stream ps ON s.id = ps.stream_id
+            JOIN project p ON ps.project_id = p.id
+            JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+            LEFT JOIN checker_properties cp ON sd.checker_properties_id = cp.id
+            LEFT JOIN checker_type ct ON cp.checker_type_id = ct.id
+            LEFT JOIN dynamic_enum de ON dt.current_severity_id = de.id
+            LEFT JOIN stream_defect_occurrence sdo ON sd.id = sdo.stream_defect_id
+            LEFT JOIN stream_file sf ON sdo.stream_file_id = sf.id
+            LEFT JOIN file_path fp ON sf.file_path_id = fp.id
+            LEFT JOIN function func ON sdo.function_id = func.id
+            WHERE p.name = %s
+                AND cp.cwe IN ({cwe_placeholders})
+                AND sd.fixed_snapshot_element_id IS NULL
+                AND sd.merged_defect_id IS NOT NULL
+            ORDER BY sd.merged_defect_id, cp.cwe, de.name DESC
+        """
+        
+        defect_results = self.db.execute_query_dict(defects_query, (self.project_name, *cwe_ids))
+        
+        # Process all defects and collect checker stats
+        checker_breakdown = {}
+        all_defects = []
+        
+        for row in defect_results:
+            cwe_id = row['cwe']
+            if not cwe_id:
+                continue
+            
+            checker_name = row['checker_name'] or 'Unknown'
+            
+            # Collect all defects
+            all_defects.append({
+                'cid': row['cid'],
+                'cwe': cwe_id,
+                'checker': checker_name,
+                'severity': row['severity'] or 'Unspecified',
+                'file': row['file_path'] or 'Unknown',
+                'function': row['function_name'] or 'N/A'
+            })
+            
+            # Checker breakdown for top checkers display
+            if checker_name not in checker_breakdown:
+                checker_breakdown[checker_name] = {
+                    'checker': checker_name,
+                    'defect_count': 0
+                }
+            checker_breakdown[checker_name]['defect_count'] += 1
+        
+        # Sort checker breakdown by count
+        checker_list = sorted(checker_breakdown.values(), key=lambda x: x['defect_count'], reverse=True)[:10]
+        
+        return {
+            'checker_breakdown': checker_list,  # Top 10 checkers
+            'all_defects': all_defects,  # All defects for this category
+            'total_checkers': len(checker_breakdown)
+        }
     
     def get_cwe_top25_metrics(self):
         """Get defect counts for CWE Top 25 Most Dangerous Software Weaknesses (2024)
