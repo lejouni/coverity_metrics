@@ -162,7 +162,7 @@ The package includes these dependencies (automatically installed):
 - `matplotlib` - Plotting library
 - `seaborn` - Statistical data visualization
 - `python-dateutil` - Date/time utilities
-- `openpyxl` - Excel file support for CSV exports
+- `openpyxl` - Excel file support (pandas dependency)
 - `jinja2` - HTML template engine for dashboard generation
 - `plotly` - Interactive charts and visualizations
 - `tqdm` - Progress bars
@@ -230,27 +230,98 @@ After installation, you can use the package in two ways: **Command-Line Interfac
 
 The package provides three CLI commands for different use cases:
 
-| Command | Purpose | Output | Best For |
-|---------|---------|--------|----------|
-| **coverity-dashboard** | Visual HTML dashboard | Interactive HTML files with charts | Presentations, visual analysis, sharing |
-| **coverity-metrics** | Console text report | Terminal output (stdout) | Quick checks, CI/CD, piping |
-| **coverity-export** | Data export | CSV files | Excel analysis, archiving, integrations |
+| Command | Purpose | Output | Data Source | Best For |
+|---------|---------|--------|-------------|----------|
+| **coverity-dashboard** | Visual HTML dashboard | Interactive HTML files with charts | Database **or** ZIP file | Presentations, visual analysis, sharing |
+| **coverity-metrics** | Console text report | Terminal output (stdout) | Database only | Quick checks, CI/CD, piping |
+| **coverity-export** | Data export | ZIP file with JSON | Database only | Offline dashboards, data delivery, archiving |
 
 **Key Differences:**
 
-- **coverity-dashboard**: Creates beautiful interactive HTML dashboards with Plotly charts, saved to `output/` directory. Auto-opens in browser for easy viewing. Supports multi-instance aggregation.
+- **coverity-dashboard**: Creates beautiful interactive HTML dashboards with Plotly charts, saved to `output/` directory. Can read from **database OR exported ZIP files** for offline use. Auto-opens in browser for easy viewing. Supports multi-instance aggregation.
 
 - **coverity-metrics**: Prints all metrics as formatted text tables directly to your terminal. No files created. Great for quick command-line checks or redirecting to log files (`coverity-metrics > report.txt`).
 
-- **coverity-export**: Exports raw metric data to timestamped CSV files in `exports/` directory. Perfect for importing into Excel, Power BI, or custom analysis tools.
+- **coverity-export**: **NEW!** Exports all metrics to ZIP files. **When multiple instances are configured in config.json, a separate ZIP file is created for each instance.** The ZIP files can be transferred (email, file share) and used to generate dashboards offline without database access.
 
-**Note**: All three tools require direct PostgreSQL database access. CSV exports cannot be used as input to generate dashboards—they're export-only for external analysis.
+**Offline Dashboard Workflow:**
+
+The new ZIP export/import feature enables dashboard generation without database access:
+
+```bash
+# 1. Export data from database (on machine with database access)
+coverity-export --output exports --days 365 --config config.json
+
+# With SINGLE instance in config.json:
+# Creates: exports/coverity_export_Production_YYYYMMDD_HHMMSS.zip
+
+# With MULTIPLE instances in config.json:
+# Creates: exports/coverity_export_Production_YYYYMMDD_HHMMSS.zip
+#          exports/coverity_export_Development_YYYYMMDD_HHMMSS.zip
+#          exports/coverity_export_Staging_YYYYMMDD_HHMMSS.zip
+# (one ZIP file per instance)
+
+# 2. Transfer ZIP file(s) (email, USB, file share, etc.)
+#    Each ZIP file is self-contained with all metrics for that instance
+
+# 3. Generate dashboards offline (on any machine, no database needed!)
+coverity-dashboard --zip-file coverity_export_Production_YYYYMMDD_HHMMSS.zip
+
+# Filter by project:
+coverity-dashboard --zip-file export.zip --project MyProject
+
+# Filter by instance (when ZIP contains multiple instances):
+coverity-dashboard --zip-file export.zip --instance Production
+```
+
+**Multi-ZIP Aggregation:**
+
+**NEW!** You can combine multiple ZIP files to create an aggregated view. This is useful when:
+- Instances are exported at different times
+- Instances are on different networks
+- You want to combine exports from different sources
+
+```bash
+# If you have separate ZIP files (from separate exports or from multi-instance export):
+coverity-dashboard --zip-file exports/*.zip
+
+# Or explicitly list them:
+coverity-dashboard --zip-file \
+  coverity_export_Production_YYYYMMDD_HHMMSS.zip \
+  coverity_export_Development_YYYYMMDD_HHMMSS.zip \
+  coverity_export_Staging_YYYYMMDD_HHMMSS.zip
+
+# This generates:
+#   - Aggregated dashboard combining all instances (dashboard_aggregated.html)
+#   - Per-instance dashboards for each ZIP (Production, Development, Staging)
+#   - Per-project dashboards for all projects in all instances
+```
+
+**Use Cases for Multi-ZIP Aggregation:**
+- **Different Networks**: Export from prod/dev instances on isolated networks, combine on analysis machine
+- **Different Time Zones**: Collect exports from global teams and merge
+- **Staggered Exports**: Don't wait for all instances - export when ready, aggregate later
+- **Air-Gapped Delivery**: Transfer multiple ZIP files via USB/file share, combine offline
+- **Historical Comparison**: Merge current exports with archived historical snapshots
+
+**Benefits:**
+- Share metrics with stakeholders without database credentials
+- Generate dashboards on air-gapped networks
+- Archive historical metrics snapshots
+- Reduce database load by using cached exports
+- Easy delivery of reports to management
+- **NEW:** Flexible multi-instance aggregation without simultaneous database access
 
 ---
 
 #### 1. Generate Dashboard (Main Tool)
 
+**Data Sources**:
+- **Database Mode**: Direct PostgreSQL connection (requires `config.json`)
+- **ZIP File Mode**: Exported ZIP file (no database needed)
+
 ```bash
+# ========== DATABASE MODE ==========
 # Basic usage - auto-detects instance type from config.json
 coverity-dashboard
 
@@ -274,15 +345,45 @@ coverity-dashboard --no-browser
 
 # Use different configuration file
 coverity-dashboard --config my-config.json
+
+# ========== ZIP FILE MODE (OFFLINE) ==========
+# Generate from exported ZIP file (no database required!)
+coverity-dashboard --zip-file exports/coverity_export_Production_20260224_120000.zip
+
+# ZIP mode with project filter
+coverity-dashboard --zip-file exports/coverity_export_Production_20260224_120000.zip --project MyProject
+
+# ZIP mode with instance filter (single ZIP only)
+coverity-dashboard --zip-file exports/coverity_export_Prod_Dev_20260224_120000.zip --instance Production
+
+# ZIP mode with custom output
+coverity-dashboard --zip-file export.zip --output offline_reports --no-browser
+
+# ========== MULTI-ZIP AGGREGATION (NEW!) ==========
+# Combine multiple ZIP files from different instances
+coverity-dashboard --zip-file prod_export.zip dev_export.zip staging_export.zip
+
+# Multi-ZIP with project filter (searches across all instances)
+coverity-dashboard --zip-file file1.zip file2.zip file3.zip --project MyApp
+
+# Multi-ZIP with wildcard
+coverity-dashboard --zip-file exports/*.zip --no-browser
 ```
 
-**Auto-Detection Behavior:**
+**Auto-Detection Behavior (Database Mode):**
 - **config.json is required** with at least one enabled instance configured
 - If `config.json` has **2+ enabled instances**: Multi-instance mode (generates aggregated + per-instance + per-project dashboards)
 - If `config.json` has **1 enabled instance**: Single-instance mode (generates dashboard for that instance)
 - Use `--project` to filter by specific project only
 - Use `--instance` to generate for specific instance only (multi-instance mode)
 - Use `--single-instance-mode` to force single-instance behavior even with multiple instances
+
+**ZIP File Mode Behavior:**
+- Automatically uses ZIP as data source when `--zip-file` is specified
+- No `config.json` needed
+- Auto-selects first instance in ZIP if not specified
+- Use `--instance` to select specific instance from ZIP
+- Use `--project` to filter by project (same as database mode)
 
 ### CLI Parameters Reference
 
@@ -293,10 +394,11 @@ coverity-dashboard --config my-config.json
 | `--project` | `-p` | string | None | Filter metrics by specific project name |
 | `--output` | `-o` | string | `output` | Output folder path for dashboard files |
 | `--no-browser` | - | flag | False | Do not open dashboard in browser automatically |
-| `--config` | `-c` | string | `config.json` | Path to configuration file |
+| `--zip-file` | `-z` | string(s) | None | **NEW!** Use exported ZIP file(s) as data source instead of database. Supports multiple files for multi-instance aggregation |
+| `--config` | `-c` | string | `config.json` | Path to configuration file (not needed for ZIP mode) |
 | `--instance` | `-i` | string | None | Generate dashboard for specific instance only |
 | `--single-instance-mode` | - | flag | False | Force single-instance mode even with multiple instances in config |
-| `--cache` | - | flag | False | Enable caching to speed up subsequent generations |
+| `--cache` | - | flag | False | Enable caching to speed up subsequent generations (database mode only) |
 | `--cache-dir` | - | string | `cache` | Directory for cache files |
 | `--cache-ttl` | - | integer | `24` | Cache time-to-live in hours |
 | `--clear-cache` | - | flag | False | Clear all cached data before generating |
@@ -335,12 +437,38 @@ The tool:
 
 #### coverity-export Parameters
 
-**No command-line parameters available.** This tool runs with default settings.
+**NEW!** Exports all metrics to ZIP files. **Creates a separate ZIP file for each configured instance.**
+
+| Parameter | Short | Type | Default | Description |
+|-----------|-------|------|---------|-------------|
+| `--output` | `-o` | string | `exports` | Output directory for ZIP files |
+| `--days` | `-d` | integer | `365` | Number of days for trend analysis |
+| `--config` | `-c` | string | `config.json` | Path to configuration file |
 
 The tool:
-- Automatically uses the first enabled instance from `config.json`
-- Exports to `exports/` directory with timestamped filenames
-- Creates CSV files for all available metrics
+- **Creates a separate ZIP file for each enabled instance** from `config.json`
+- Each ZIP file is named: `{output}/coverity_export_{InstanceName}_{YYYYMMDD_HHMMSS}.zip`
+- Each ZIP contains JSON files with all metrics for that instance
+- Includes metadata.json with export info, instance name, and project list
+- ZIP files are self-contained and can be used for offline dashboard generation
+- Multiple ZIP files can be combined using `coverity-dashboard --zip-file file1.zip file2.zip ...`
+
+**Examples:**
+```bash
+# Basic export (365 days, all instances)
+coverity-export
+# Single instance: exports/coverity_export_Production_20260224_120000.zip
+# Multiple instances: exports/coverity_export_Production_20260224_120000.zip
+#                     exports/coverity_export_Development_20260224_120000.zip
+#                     exports/coverity_export_Staging_20260224_120000.zip
+
+# Custom trend period and output location
+coverity-export --output archive --days 90
+# Output: archive/coverity_export_{InstanceName}_20260224_120000.zip (one per instance)
+
+# Use custom config file
+coverity-export --config my-config.json --days 180
+```
 
 ---
 
@@ -367,31 +495,65 @@ coverity-metrics > "report-$(date +%Y%m%d).txt"
 
 **Note:** This tool has no command-line parameters. To filter by project or instance, modify `config.json` before running.
 
-#### 3. CSV Export
+#### 3. Export to ZIP (NEW!)
 
-**Outputs**: Timestamped CSV files in `exports/` directory
+**Outputs**: Single ZIP file containing all metrics for all instances in JSON format
 
 ```bash
-# Export metrics to CSV
+# Basic export
 coverity-export
+
+# Custom output directory and trend period
+coverity-export --output monthly_archives --days 30
+
+# Export for long-term analysis
+coverity-export --days 730 --output historical
 ```
 
-**Files Created:**
-- `defects_by_project_YYYYMMDD_HHMMSS.csv`
-- `defects_by_severity_YYYYMMDD_HHMMSS.csv`
-- `defect_density_YYYYMMDD_HHMMSS.csv`
-- `file_hotspots_YYYYMMDD_HHMMSS.csv`
-- `code_metrics_YYYYMMDD_HHMMSS.csv`
-- ...and more
+**What Gets Exported:**
+
+The ZIP file contains:
+- **All Metrics (JSON)**: Defects, trends, hotspots, code metrics, performance stats, activity patterns
+- **Project-Specific Data**: OWASP Top 10 and CWE Top 25 metrics per project
+- **Metadata (JSON)**: Export timestamp, instance names, project lists, configuration snapshot
+
+**ZIP File Structure:**
+
+Each instance gets its own ZIP file with the following structure:
+
+```
+coverity_export_Production_YYYYMMDD_HHMMSS.zip
+├── metadata.json                    # Export metadata (timestamp, instance info, etc.)
+└── Production/                      # Instance folder
+    ├── overall_summary.json         # Instance-level metrics
+    ├── defects_by_project.json
+    ├── defects_by_severity.json
+    ├── technical_debt_summary.json
+    ├── ... (other instance metrics)
+    ├── MyProject/                   # Project-specific folder
+    │   ├── owasp_top10_metrics.json
+    │   ├── cwe_top25_metrics.json
+    │   ├── owasp_A01_details.json
+    │   └── cwe_79_details.json
+    └── AnotherProject/              # Another project folder
+        └── ... (project metrics)
+```
+
+When multiple instances are configured, you get multiple ZIP files:
+```
+exports/
+├── coverity_export_Production_YYYYMMDD_HHMMSS.zip
+├── coverity_export_Development_YYYYMMDD_HHMMSS.zip
+└── coverity_export_Staging_YYYYMMDD_HHMMSS.zip
+```
 
 **Use Cases:**
-- Excel pivot tables and analysis
-- Power BI / Tableau dashboards
-- Custom Python/R data analysis
-- Archiving historical metrics
-- Third-party tool integrations
-
-**Note:** This tool has no command-line parameters. Files are always saved to the `exports/` directory with timestamps.
+- Offline dashboard generation (no database access needed)
+- Sharing metrics with stakeholders without credentials
+- Historical snapshots and archiving
+- Air-gapped network deployments
+- Reducing database load with cached exports
+- Selective instance sharing (send only specific instance ZIPs)
 
 ---
 
@@ -419,6 +581,32 @@ coverity-dashboard --days 90 --cache
 coverity-export
 ```
 
+**Offline Dashboard Delivery (NEW!):**
+```bash
+# SINGLE INSTANCE:
+# On machine with database access:
+coverity-export --days 365 --output deliverables
+
+# Transfer ZIP file (email, file share, USB):
+# deliverables/coverity_export_Production_YYYYMMDD_HHMMSS.zip
+
+# On stakeholder's machine (no database access):
+coverity-dashboard --zip-file coverity_export_Production_YYYYMMDD_HHMMSS.zip
+
+# Result: Full interactive dashboards without database!
+
+# MULTI-INSTANCE AGGREGATION:
+# Export from each instance separately:
+# Instance A: coverity-export --output exports_prod
+# Instance B: coverity-export --output exports_dev
+# Instance C: coverity-export --output exports_staging
+
+# Transfer all ZIP files, then aggregate:
+coverity-dashboard --zip-file exports_prod/*.zip exports_dev/*.zip exports_staging/*.zip
+
+# Result: Combined dashboards from all instances offline!
+```
+
 **Complete Analysis Workflow:**
 ```bash
 # 1. Quick overview in terminal
@@ -427,13 +615,13 @@ coverity-metrics
 # 2. Generate interactive dashboard
 coverity-dashboard --cache --no-browser
 
-# 3. Export raw data for deep analysis
-coverity-export
+# 3. Export for offline delivery
+coverity-export --days 365
 
 # Now you have:
 # - Console output for quick reference
-# - HTML dashboard (output/dashboard.html) for presentations
-# - CSV files (exports/*.csv) for custom Excel analysis
+# - HTML dashboards (output/dashboard.html) for presentations
+# - ZIP file (exports/*.zip) for offline dashboards and archiving
 ```
 
 ### Python Library Usage
@@ -622,6 +810,8 @@ When you run `coverity-dashboard` with a multi-instance config.json:
 
 For detailed multi-instance setup and usage, see [MULTI_INSTANCE_GUIDE.md](MULTI_INSTANCE_GUIDE.md)
 
+For multi-ZIP aggregation (combine exports from different instances), see [MULTI_ZIP_GUIDE.md](MULTI_ZIP_GUIDE.md)
+
 ### Performance & Caching
 
 **For large deployments with many instances/projects, enable caching to dramatically improve performance:**
@@ -660,15 +850,15 @@ coverity-dashboard --cache --resume SESSION_ID
 
 For detailed caching configuration, performance tuning, and troubleshooting, see [CACHING_GUIDE.md](CACHING_GUIDE.md)
 
-### Export to CSV
+### Export to JSON
 
-Export all metrics to CSV files:
+Export all metrics to JSON files packaged in a ZIP:
 
 ```bash
 coverity-export
 ```
 
-This creates timestamped CSV files in the `exports/` directory for Excel analysis.
+This creates a timestamped ZIP file in the `exports/` directory containing all metrics in JSON format. See the [Export to ZIP section](#3-export-to-zip-new) above for details.
 
 ### Use Individual Metrics
 
@@ -834,7 +1024,7 @@ coverity_metrics/
 ├── cli/
 │   ├── dashboard.py           # Dashboard generator (main CLI)
 │   ├── report.py              # CLI metrics report
-│   └── export.py              # CSV export utility
+│   └── export.py              # JSON export utility
 ├── templates/                 # HTML dashboard templates
 │   └── dashboard.html         # Main dashboard template with all tabs
 ├── static/                    # CSS/JS assets for dashboards
@@ -842,7 +1032,7 @@ coverity_metrics/
 │   └── js/
 ├── cache/                     # Cache directory (auto-created)
 ├── output/                    # Generated dashboards (auto-created)
-├── exports/                   # CSV exports (auto-created)
+├── exports/                   # JSON/ZIP exports (auto-created)
 ├── requirements.txt           # Python dependencies
 ├── setup.py                   # Package setup
 ├── pyproject.toml             # Modern Python packaging
@@ -850,6 +1040,7 @@ coverity_metrics/
 ├── INSTALL.md                 # Detailed installation guide
 ├── USAGE_GUIDE.md             # Comprehensive usage examples
 ├── MULTI_INSTANCE_GUIDE.md    # Multi-instance setup and usage
+├── MULTI_ZIP_GUIDE.md         # NEW! Multi-ZIP aggregation guide
 ├── CACHING_GUIDE.md           # Performance optimization guide
 └── RELEASE_NOTES.md           # Version history and changelog
 ```

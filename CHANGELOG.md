@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Export Behavior - Separate ZIP Files per Instance**
+  - `coverity-export` now creates a **separate ZIP file for each configured instance** instead of a single combined ZIP
+  - Each ZIP file is named: `coverity_export_{InstanceName}_{timestamp}.zip`
+  - Benefits:
+    - Easier to share individual instance data
+    - Smaller file sizes for selective distribution
+    - Better organization and identification
+    - Supports selective instance transfers
+  - Multi-ZIP aggregation still supported: provide multiple ZIPs to `coverity-dashboard --zip-file`
+  - Example: Config with 3 instances now creates 3 separate ZIPs:
+    - `coverity_export_Production_20260224_113111.zip`
+    - `coverity_export_Development_20260224_113111.zip`
+    - `coverity_export_Emergency_20260224_113111.zip`
+
+### Added
+- **Aggregated Dashboard from ZIP Files**
+  - `coverity-dashboard --zip-file` now **always generates an aggregated dashboard** (`dashboard_aggregated.html`)
+  - Works with both single and multiple ZIP files
+  - Aggregated dashboard shows:
+    - Combined metrics across all instances in ZIP file(s)
+    - Defects by instance breakdown
+    - Aggregated severity distribution
+    - Total defect counts and fix rates
+  - Single ZIP: Generates 1 aggregated + instance/project dashboards
+  - Multiple ZIPs: Generates 1 aggregated + all instance/project dashboards
+  - Example: 3 ZIP files → 16 dashboards total (1 aggregated + 15 instance/project)
+  - **Automatic color assignment**: Each instance gets a distinct color in aggregated view (red, blue, green, orange, etc.)
+    - No need for config.json when using ZIP files - colors are auto-assigned
+    - 15 distinct colors available, cycles if more instances
+
 ## [1.0.5] - 2026-02-20
 
 ### Enhanced

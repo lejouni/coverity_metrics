@@ -7,7 +7,6 @@ import json
 import os
 from datetime import datetime
 from coverity_metrics.metrics import CoverityMetrics
-from coverity_metrics.db_connection import CoverityDatabase
 
 def load_connection_params(config_file='config.json'):
     """Load database connection parameters from config.json
@@ -186,18 +185,7 @@ def main():
     print("\nCoverity Metrics Tool")
     print("=" * 80)
     
-    # Test database connection
-    print("\nTesting database connection...")
-    try:
-        db = CoverityDatabase()
-        db.connect()
-        print("[OK] Database connection successful")
-        db.close()
-    except Exception as e:
-        print(f"[ERROR] Database connection failed: {e}")
-        sys.exit(1)
-    
-    # Generate full report
+    # Generate full report (connection test happens in generate_full_report)
     generate_full_report()
 
 if __name__ == "__main__":

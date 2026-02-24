@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -135,7 +135,7 @@
                         <div style="opacity: 0.8; font-size: 0.85rem;">Database Uptime</div>
                         <div style="font-weight: 600; margin-top: 0.25rem;">{{ instance_info.db_uptime_formatted }}</div>
                         {% if instance_info.db_start_time %}
-                        <div style="opacity: 0.7; font-size: 0.75rem; margin-top: 0.1rem;">Started: {{ instance_info.db_start_time.strftime('%Y-%m-%d %H:%M') if instance_info.db_start_time.strftime else instance_info.db_start_time }}</div>
+                        <div style="opacity: 0.7; font-size: 0.75rem; margin-top: 0.1rem;">Started: {{ (instance_info.db_start_time if instance_info.db_start_time is string else instance_info.db_start_time.strftime('%Y-%m-%d %H:%M'))[:16] if instance_info.db_start_time else 'N/A' }}</div>
                         {% endif %}
                     </div>
                     {% endif %}
@@ -144,7 +144,7 @@
                     <div>
                         <div style="opacity: 0.8; font-size: 0.85rem;">System Active Period</div>
                         <div style="font-weight: 600; margin-top: 0.25rem;">{{ instance_info.usage_period_days }} days</div>
-                        <div style="opacity: 0.7; font-size: 0.75rem; margin-top: 0.1rem;">Since: {{ instance_info.first_snapshot.strftime('%Y-%m-%d') if instance_info.first_snapshot.strftime else instance_info.first_snapshot }}</div>
+                        <div style="opacity: 0.7; font-size: 0.75rem; margin-top: 0.1rem;">Since: {{ (instance_info.first_snapshot if instance_info.first_snapshot is string else instance_info.first_snapshot.strftime('%Y-%m-%d'))[:10] if instance_info.first_snapshot else 'N/A' }}</div>
                     </div>
                     {% endif %}
                     
@@ -153,7 +153,7 @@
                         <div style="opacity: 0.8; font-size: 0.85rem;">Last Activity</div>
                         <div style="font-weight: 600; margin-top: 0.25rem;">{{ instance_info.last_activity_formatted }}</div>
                         {% if instance_info.last_snapshot %}
-                        <div style="opacity: 0.7; font-size: 0.75rem; margin-top: 0.1rem;">{{ instance_info.last_snapshot.strftime('%Y-%m-%d %H:%M') if instance_info.last_snapshot.strftime else instance_info.last_snapshot }}</div>
+                        <div style="opacity: 0.7; font-size: 0.75rem; margin-top: 0.1rem;">{{ (instance_info.last_snapshot if instance_info.last_snapshot is string else instance_info.last_snapshot.strftime('%Y-%m-%d %H:%M'))[:16] if instance_info.last_snapshot else 'N/A' }}</div>
                         {% endif %}
                     </div>
                     {% endif %}
@@ -203,42 +203,82 @@
         <!-- Summary Cards -->
         <div class="summary-grid">
             <div class="summary-card">
-                <div class="label">Total Projects</div>
-                <div class="value">{{ summary.total_projects }}</div>
+                <div class="label">
+                    Total Projects
+                    <span class="info-icon">ℹ
+                        <span class="tooltip">Number of distinct Coverity projects configured in this instance. Projects represent separate codebases or applications being analyzed.</span>
+                    </span>
+                </div>
+                <div class="value">{{ summary.total_projects|default(0) }}</div>
             </div>
             <div class="summary-card">
-                <div class="label">Active Streams</div>
-                <div class="value">{{ summary.total_streams }}</div>
+                <div class="label">
+                    Active Streams
+                    <span class="info-icon">ℹ
+                        <span class="tooltip">Number of active analysis streams. A stream is a code branch or version being tracked. Each project can have multiple streams (e.g., main, develop, release branches).</span>
+                    </span>
+                </div>
+                <div class="value">{{ summary.total_streams|default(0) }}</div>
             </div>
             <div class="summary-card danger">
-                <div class="label">Active Defects</div>
-                <div class="value">{{ summary.total_defects }}</div>
+                <div class="label">
+                    Active Defects
+                    <span class="info-icon">ℹ
+                        <span class="tooltip">Total count of unresolved defects found by Coverity analysis. This includes all defects not marked as Fixed or dismissed. Excludes false positives and intentional issues.</span>
+                    </span>
+                </div>
+                <div class="value">{{ summary.total_defects|default(0) }}</div>
             </div>
             <div class="summary-card warning">
-                <div class="label">High Severity</div>
-                <div class="value">{{ summary.high_severity_defects }}</div>
+                <div class="label">
+                    High Severity
+                    <span class="info-icon">ℹ
+                        <span class="tooltip">Count of defects classified as 'Major' impact level. These represent serious issues requiring immediate attention. Severity is determined by the checker's impact classification.</span>
+                    </span>
+                </div>
+                <div class="value">{{ summary.high_severity_defects|default(0) }}</div>
             </div>
             <div class="summary-card info">
-                <div class="label">Total Files</div>
-                <div class="value">{{ summary.total_files }}</div>
+                <div class="label">
+                    Total Files
+                    <span class="info-icon">ℹ
+                        <span class="tooltip">Total number of source code files analyzed across all streams. This count includes all files submitted for analysis in the latest snapshots.</span>
+                    </span>
+                </div>
+                <div class="value">{{ summary.total_files|default(0) }}</div>
             </div>
             <div class="summary-card success">
-                <div class="label">Lines of Code</div>
-                <div class="value">{{ "{:,}".format(summary.total_loc) }}</div>
+                <div class="label">
+                    Lines of Code
+                    <span class="info-icon">ℹ
+                        <span class="tooltip">Total lines of code (LOC) counted across all analyzed files. This includes code lines only, excluding comments and blank lines. Summed from all active streams.</span>
+                    </span>
+                </div>
+                <div class="value">{{ "{:,}".format(summary.total_loc|default(0)) }}</div>
             </div>
             <div class="summary-card">
-                <div class="label">Functions</div>
-                <div class="value">{{ summary.total_functions }}</div>
+                <div class="label">
+                    Functions
+                    <span class="info-icon">ℹ
+                        <span class="tooltip">Total number of functions/methods identified in the analyzed codebase. Functions are counted across all files and streams currently being tracked.</span>
+                    </span>
+                </div>
+                <div class="value">{{ summary.total_functions|default(0) }}</div>
             </div>
             <div class="summary-card">
-                <div class="label">Active Users</div>
-                <div class="value">{{ summary.total_users }}</div>
+                <div class="label">
+                    Active Users
+                    <span class="info-icon">ℹ
+                        <span class="tooltip">Number of unique users who have logged into the Coverity system. This includes all users with access, regardless of their activity level or role.</span>
+                    </span>
+                </div>
+                <div class="value">{{ summary.total_users|default(0) }}</div>
             </div>
         </div>
 
         {% if high_severity_alert %}
         <div class="alert alert-danger">
-            <strong>Alert!</strong> {{ summary.high_severity_defects }} high-severity defects require immediate attention.
+            <strong>Alert!</strong> {{ summary.high_severity_defects|default(0) }} high-severity defects require immediate attention.
         </div>
         {% endif %}
 
@@ -280,14 +320,14 @@
                                 </td>
                                 <td style="padding: 0.5rem; opacity: 0.8; font-size: 0.85rem;">
                                     {% if ver.first_used %}
-                                        {{ ver.first_used.strftime('%Y-%m-%d %H:%M') if ver.first_used.strftime else ver.first_used }}
+                                        {{ (ver.first_used if ver.first_used is string else ver.first_used.strftime('%Y-%m-%d %H:%M'))[:16] if ver.first_used else 'N/A' }}
                                     {% else %}
                                         N/A
                                     {% endif %}
                                 </td>
                                 <td style="padding: 0.5rem; opacity: 0.8; font-size: 0.85rem;">
                                     {% if ver.last_used %}
-                                        {{ ver.last_used.strftime('%Y-%m-%d %H:%M') if ver.last_used.strftime else ver.last_used }}
+                                        {{ (ver.last_used if ver.last_used is string else ver.last_used.strftime('%Y-%m-%d %H:%M'))[:16] if ver.last_used else 'N/A' }}
                                     {% else %}
                                         N/A
                                     {% endif %}
@@ -303,7 +343,12 @@
 
         <!-- Defects by Severity -->
         <div class="section">
-            <h2 class="section-title">Defects by Severity</h2>
+            <h2 class="section-title">
+                Defects by Severity
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Distribution of defects across severity levels (Major, Moderate, Minor, Unspecified). Severity is based on the checker's impact classification in Coverity. Major = High impact, Moderate = Medium impact, Minor = Low impact.</span>
+                </span>
+            </h2>
             <div class="chart-container" id="severity-chart"></div>
             <table class="data-table">
                 <thead>
@@ -324,9 +369,9 @@
                         <td class="metric-number">{{ row.defect_count }}</td>
                         <td>
                             <div class="progress-bar">
-                                <div class="progress-fill" style="width: {{ (row.defect_count / summary.total_defects * 100)|round(1) }}%"></div>
+                                <div class="progress-fill" style="width: {{ (row.defect_count / (summary.total_defects|default(1)) * 100)|round(1) if summary.total_defects|default(0) > 0 else 0 }}%"></div>
                             </div>
-                            {{ (row.defect_count / summary.total_defects * 100)|round(1) }}%
+                            {{ (row.defect_count / (summary.total_defects|default(1)) * 100)|round(1) if summary.total_defects|default(0) > 0 else 0 }}%
                         </td>
                     </tr>
                     {% endfor %}
@@ -336,7 +381,12 @@
 
         <!-- Defects by Project -->
         <div class="section">
-            <h2 class="section-title">Defects by Project</h2>
+            <h2 class="section-title">
+                Defects by Project
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Total defect count per project, showing both active defects and fixed defects. Calculated by counting all defects (including triaged ones) grouped by project name.</span>
+                </span>
+            </h2>
             <div class="chart-container" id="project-chart"></div>
             <table class="data-table">
                 <thead>
@@ -364,7 +414,12 @@
         <div class="grid-2col">
             <!-- Defects by Category -->
             <div class="section">
-                <h2 class="section-title">Top Defect Categories</h2>
+                <h2 class="section-title">
+                    Top Defect Categories
+                    <span class="info-icon">ℹ
+                        <span class="tooltip">Most common defect categories found in the codebase. Categories group related checkers (e.g., Security, Null pointer, Resource leak). Count represents defects in each category, ranked by frequency.</span>
+                    </span>
+                </h2>
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -385,7 +440,12 @@
 
             <!-- Defect Density -->
             <div class="section">
-                <h2 class="section-title">Defect Density (per KLOC)</h2>
+                <h2 class="section-title">
+                    Defect Density (per KLOC)
+                    <span class="info-icon">ℹ
+                        <span class="tooltip">Defects per thousand lines of code (KLOC). Calculated as: (Total Defects / Lines of Code) × 1000. Lower values indicate better code quality. Useful for comparing projects of different sizes.</span>
+                    </span>
+                </h2>
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -413,7 +473,12 @@
 
         <!-- File Hotspots -->
         <div class="section">
-            <h2 class="section-title">File Hotspots - Top Problem Files</h2>
+            <h2 class="section-title">
+                File Hotspots - Top Problem Files
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Files with the highest defect concentration. Shows total defects per file and density (defects per KLOC). Calculated by: Defects per KLOC = (File Defects / File LOC) × 1000. Helps identify files needing refactoring.</span>
+                </span>
+            </h2>
             {% if file_hotspots|length > 0 %}
             <div class="alert alert-warning">
                 <strong>Attention Required:</strong> These files have the highest defect concentrations.
@@ -457,7 +522,12 @@
             
         <!-- Code Quality Metrics -->
         <div class="section">
-            <h2 class="section-title">Code Quality Metrics by Stream</h2>
+            <h2 class="section-title">
+                Code Quality Metrics by Stream
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Code metrics for each stream: LOC (lines of code), files, functions, and comment ratio. Comment ratio = (Comment lines / Code lines) × 100%. Higher comment ratios indicate better documentation.</span>
+                </span>
+            </h2>
             <table class="data-table">
                 <thead>
                     <tr>
@@ -489,7 +559,12 @@
         <!-- Function Complexity -->
         {% if complexity_distribution|length > 0 %}
         <div class="section">
-            <h2 class="section-title">Function Complexity Distribution</h2>
+            <h2 class="section-title">
+                Function Complexity Distribution
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Distribution of cyclomatic complexity across all functions. Complexity measures the number of independent paths through code. Generally: 1-10 = Simple, 11-20 = Moderate, 21-50 = Complex, >50 = Very Complex.</span>
+                </span>
+            </h2>
             <div class="chart-container" id="complexity-chart"></div>
             <table class="data-table">
                 <thead>
@@ -514,7 +589,12 @@
 
         <!-- Top Checkers -->
         <div class="section">
-            <h2 class="section-title">Top Defect Checkers</h2>
+            <h2 class="section-title">
+                Top Defect Checkers
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Checkers finding the most defects. Each checker detects specific issue types (e.g., NULL_RETURNS, RESOURCE_LEAK). Count shows how many defects each checker has identified across all code.</span>
+                </span>
+            </h2>
             <table class="data-table">
                 <thead>
                     <tr>
@@ -550,7 +630,12 @@
         <!-- Triage Progress Summary -->
         {% if triage_summary %}
         <div class="section">
-            <h2 class="section-title">Current Triage Progress</h2>
+            <h2 class="section-title">
+                Current Triage Progress
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Breakdown of defects by triage status (e.g., Fix Required, Ignore, False Positive). Shows how defects are classified and what action is recommended. Helps track triage backlog.</span>
+                </span>
+            </h2>
             <div class="summary-grid" style="margin-bottom: 2rem;">
                 <div class="summary-card">
                     <div class="label">Total Outstanding</div>
@@ -594,7 +679,12 @@
         <!-- Technical Debt Summary -->
         {% if tech_debt_summary and tech_debt_summary.total_defects > 0 %}
         <div class="section">
-            <h2 class="section-title">💰 Estimated Technical Debt</h2>
+            <h2 class="section-title">
+                💰 Estimated Technical Debt
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Estimated effort to fix all defects. Calculated using: Major = 4 hours, Moderate = 2 hours, Minor = 1 hour, Unspecified = 0.5 hours. Total converted to person-days (8h/day) and person-weeks (40h/week).</span>
+                </span>
+            </h2>
             <p style="margin-bottom: 1.5rem; color: var(--text-color); opacity: 0.8;">
                 Estimated effort required to remediate all outstanding defects based on impact levels.
                 <strong>Formula:</strong> High (4h), Medium (2h), Low (1h), Unspecified (0.5h)
@@ -660,7 +750,12 @@
         <!-- Trend Summary with Velocity Indicators -->
         {% if trend_summary and trend_summary.total_new %}
         <div class="section">
-            <h2 class="section-title">📊 Defect Introduction vs Fix Velocity ({{ trend_period_text }})</h2>
+            <h2 class="section-title">
+                📊 Defect Introduction vs Fix Velocity ({{ trend_period_text }})
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Shows rate of new defects introduced vs. defects fixed over time. Calculated from snapshot history showing defect state changes. Positive fix rate indicates improving code quality.</span>
+                </span>
+            </h2>
             <div class="alert {% if trend_summary.trend_direction == 'improving' %}alert-success{% elif trend_summary.trend_direction == 'declining' %}alert-danger{% else %}alert-info{% endif %}">
                 <strong>Trend Status:</strong> 
                 {% if trend_summary.trend_direction == 'improving' %}
@@ -717,7 +812,12 @@
         <!-- Cumulative Defect Trends -->
         {% if cumulative_trends|length > 0 %}
         <div class="section">
-            <h2 class="section-title">Cumulative Defect Introduction & Fix Trends</h2>
+            <h2 class="section-title">
+                Cumulative Defect Introduction & Fix Trends
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Cumulative count of defects introduced and fixed over time. Shows total defects added and removed since tracking began. Gap between lines represents net technical debt accumulation or reduction.</span>
+                </span>
+            </h2>
             <div class="chart-container" id="cumulative-trends-chart"></div>
             <table class="data-table">
                 <thead>
@@ -753,7 +853,12 @@
         <!-- Defect Velocity Daily -->
         {% if defect_velocity|length > 0 %}
         <div class="section">
-            <h2 class="section-title">Daily Defect Introduction & Fix Velocity</h2>
+            <h2 class="section-title">
+                Daily Defect Introduction & Fix Velocity
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Daily counts of new defects found and existing defects fixed. Calculated from snapshot-to-snapshot comparisons. Shows team's day-to-day responsiveness to code quality issues.</span>
+                </span>
+            </h2>
             <div class="chart-container" id="velocity-chart"></div>
             <table class="data-table">
                 <thead>
@@ -794,7 +899,12 @@
         <!-- Fix Rate Metrics -->
         {% if fix_rate_metrics %}
         <div class="section">
-            <h2 class="section-title">Fix Rate & Velocity ({{ trend_period_text }})</h2>
+            <h2 class="section-title">
+                Fix Rate & Velocity ({{ trend_period_text }})
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Metrics showing fix efficiency: Fix Rate = (Fixes / (Fixes + Introductions)) × 100%, Net Change = Fixes - Introductions. >50% fix rate indicates debt reduction. Values calculated from snapshot comparisons.</span>
+                </span>
+            </h2>
             <div class="grid-2col" style="margin-bottom: 2rem;">
                 <div class="summary-card">
                     <div class="label">Total Defects</div>
@@ -834,7 +944,12 @@
         <!-- Defect Trends Over Time -->
         {% if defect_trends|length > 0 %}
         <div class="section">
-            <h2 class="section-title">Defect Trends Over Time ({{ trend_period_text }})</h2>
+            <h2 class="section-title">
+                Defect Trends Over Time ({{ trend_period_text }})
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Total defect count over time from snapshot history. Shows whether defect backlog is growing, shrinking, or stable. Downward trend indicates improving quality.</span>
+                </span>
+            </h2>
             <div class="chart-container" id="defect-trends-chart"></div>
             <table class="data-table">
                 <thead>
@@ -868,7 +983,12 @@
         <!-- Defect Aging Distribution -->
         {% if defect_aging|length > 0 %}
         <div class="section">
-            <h2 class="section-title">Outstanding Defect Age Distribution</h2>
+            <h2 class="section-title">
+                Outstanding Defect Age Distribution
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Age distribution of unresolved defects. Shows how long defects have been outstanding (0-30 days, 30-90 days, 90+ days). Calculated from first detection date to current date. Older defects may be harder to fix.</span>
+                </span>
+            </h2>
             <div class="alert alert-info">
                 <strong>Info:</strong> This shows how long outstanding defects have been open.
             </div>
@@ -903,7 +1023,12 @@
         <!-- Triage Trends Over Time -->
         {% if triage_trends|length > 0 %}
         <div class="section">
-            <h2 class="section-title">Triage Activity Trends ({{ trend_period_text }})</h2>
+            <h2 class="section-title">
+                Triage Activity Trends ({{ trend_period_text }})
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Number of defects triaged over time. Tracks team's progress in classifying and responding to defects. Calculated by counting daily triage actions (classifications, assignments, status changes).</span>
+                </span>
+            </h2>
             <div class="chart-container" id="triage-trends-chart"></div>
             <table class="data-table">
                 <thead>
@@ -940,7 +1065,12 @@
         <!-- User Activity & License Statistics -->
         {% if user_activity_stats %}
         <div class="section">
-            <h2 class="section-title">👥 User Activity & License Statistics ({{ trend_period_text }})</h2>
+            <h2 class="section-title">
+                👥 User Activity & License Statistics ({{ trend_period_text }})
+                <span class="info-icon">ℹ
+                        <span class="tooltip">User login activity and license utilization metrics. Shows active users, login frequency, and license consumption. Helps optimize license allocation and identify inactive accounts.</span>
+                </span>
+            </h2>
             <div class="summary-grid" style="margin-bottom: 2rem;">
                 <div class="summary-card info">
                     <div class="label">Licensed Users</div>
@@ -995,7 +1125,12 @@
 
         <!-- Database Statistics -->
         <div class="section">
-            <h2 class="section-title">Database Statistics</h2>
+            <h2 class="section-title">
+                Database Statistics
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Coverity PostgreSQL database size and growth metrics. Shows total database size, table count, and disk usage. Useful for capacity planning and performance monitoring.</span>
+                </span>
+            </h2>
             <div class="summary-grid" style="margin-bottom: 2rem;">
                 <div class="summary-card info">
                     <div class="label">Database Size</div>
@@ -1015,7 +1150,12 @@
                 </div>
             </div>
 
-            <h3 style="margin: 2rem 0 1rem 0;">Largest Database Tables</h3>
+            <h3 style="margin: 2rem 0 1rem 0;">
+                Largest Database Tables
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Top database tables by disk size. Shows table name, row count, and size in MB/GB. Helps identify tables consuming most storage and candidates for archiving or optimization.</span>
+                </span>
+            </h3>
             <table class="data-table">
                 <thead>
                     <tr>
@@ -1036,7 +1176,12 @@
 
         <!-- Commit Performance -->
         <div class="section">
-            <h2 class="section-title">Analysis/Commit Performance</h2>
+            <h2 class="section-title">
+                Analysis/Commit Performance
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Analysis execution performance metrics: minimum, maximum, and average commit times. Calculated from snapshot commit timestamps. Shows how long analyses take to complete.</span>
+                </span>
+            </h2>
             <div class="grid-2col" style="margin-bottom: 2rem;">
                 <div class="summary-card">
                     <div class="label">Min Commit Time</div>
@@ -1057,7 +1202,12 @@
             </div>
 
             {% if commit_activity and commit_activity.total_commits > 0 %}
-            <h3 style="margin: 2rem 0 1rem 0;">Commit Activity Patterns</h3>
+            <h3 style="margin: 2rem 0 1rem 0;">
+                Commit Activity Patterns
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Analysis of when commits/snapshots occur: busiest/quietest times (3-hour blocks) and days of week. Shows commit count, average duration, files changed, and defects per hour/day. Helps optimize CI/CD schedules.</span>
+                </span>
+            </h3>
             <div class="alert alert-info" style="margin-bottom: 1.5rem;">
                 <strong>ℹ️ Activity Analysis:</strong> Based on {{ commit_activity.total_commits }} commits/snapshots, showing when development activity is most and least active.
             </div>
@@ -1113,7 +1263,12 @@
             </div>
             {% endif %}
 
-            <h3 style="margin: 2rem 0 1rem 0;">Recent Snapshot Performance</h3>
+            <h3 style="margin: 2rem 0 1rem 0;">
+                Recent Snapshot Performance
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Performance details for recent analysis commits: queue time, analysis duration, and total time. Calculated from snapshot timestamps (submit_time, queue_time, commit_time). Helps identify performance bottlenecks.</span>
+                </span>
+            </h3>
             <table class="data-table" id="snapshot-performance-table">
                 <thead>
                     <tr>
@@ -1129,7 +1284,7 @@
                 <tbody>
                     {% for row in snapshot_performance %}
                     <tr>
-                        <td>{{ row.date_created.strftime('%Y-%m-%d %H:%M') if row.date_created else 'N/A' }}</td>
+                        <td>{{ (row.date_created if row.date_created is string else row.date_created.strftime('%Y-%m-%d %H:%M'))[:16] if row.date_created else 'N/A' }}</td>
                         <td>{{ row.stream_name }}</td>
                         <td class="metric-number">{{ row.total_defect_count or 0 }}</td>
                         <td>
@@ -1148,7 +1303,12 @@
         <!-- Defect Discovery Rate -->
         {% if defect_discovery|length > 0 %}
         <div class="section">
-            <h2 class="section-title">Defect Discovery Rate ({{ trend_period_text }})</h2>
+            <h2 class="section-title">
+                Defect Discovery Rate ({{ trend_period_text }})
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Rate at which new defects are discovered over time. Calculated as count of newly introduced defects per day/week. Helps identify periods of high defect injection and quality degradation.</span>
+                </span>
+            </h2>
             <div class="chart-container" id="discovery-chart"></div>
             <table class="data-table">
                 <thead>
@@ -1188,12 +1348,22 @@
         {% if top_projects_by_fix_rate or most_improved_projects or top_projects_by_triage or top_users_by_fixes or top_triagers or most_collaborative_users %}
         <div class="section">
             {% if current_project %}
-            <h2 class="section-title">🏆 Individual Contributors</h2>
+            <h2 class="section-title">
+                🏆 Individual Contributors
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Top individual contributors ranked by defect fixes and triage activity. Shows who is actively improving code quality and engaging with Coverity findings.</span>
+                </span>
+            </h2>
             <p style="margin-bottom: 2rem; color: var(--text-color); opacity: 0.8;">
                 Recognizing top contributors in defect resolution, triage activity, and collaboration for this project.
             </p>
             {% else %}
-            <h2 class="section-title">🏆 Team Leaderboards</h2>
+            <h2 class="section-title">
+                🏆 Team Leaderboards
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Project rankings by various quality metrics: fix rate, improvement trends, and triage activity. Calculated from snapshot comparisons and triage statistics. Helps identify high-performing teams.</span>
+                </span>
+            </h2>
             <p style="margin-bottom: 2rem; color: var(--text-color); opacity: 0.8;">
                 Recognizing top performers in defect resolution, triage activity, and continuous improvement.
             </p>
@@ -1204,6 +1374,9 @@
                 {% if not current_project %}
                 <h3 style="margin: 2rem 0 1.5rem 0; color: var(--primary-color); border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem;">
                     📊 Project Performance
+                    <span class="info-icon">ℹ
+                        <span class="tooltip">Project-level leaderboards showing top teams by fix velocity (last 30 days), improvement percentage (last 90 days), and triage completion. Rankings calculated from snapshot comparisons and triage activity metrics.</span>
+                    </span>
                 </h3>
                 <div class="leaderboard-grid">
                     <!-- Top Projects by Fix Rate -->
@@ -1337,6 +1510,9 @@
                 {% if not current_project %}
                 <h3 style="margin: 3rem 0 1.5rem 0; color: var(--primary-color); border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem;">
                     👥 Individual Contributors
+                    <span class="info-icon">ℹ
+                        <span class="tooltip">User-level leaderboards showing top fixers (defect eliminations, last 30 days), top triagers (classification actions, last 30 days), and team champions (collaboration activity). Rankings based on actual code changes and triage submissions.</span>
+                    </span>
                 </h3>
                 {% endif %}
                 <div class="leaderboard-grid">
@@ -1492,7 +1668,12 @@
         <div id="owasp-tab" class="tab-content">
         
         <div class="section">
-            <h2 class="section-title">🔒 OWASP Top 10 2025 Security Analysis</h2>
+            <h2 class="section-title">
+                🔒 OWASP Top 10 2025 Security Analysis
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Maps defects to OWASP Top 10 2025 web security risks using CWE codes. Shows PASS/FAILED status for each category. FAILED = has defects requiring attention. Helps prioritize security fixes.</span>
+                </span>
+            </h2>
             <p style="margin-bottom: 2rem; color: var(--text-color); opacity: 0.8;">
                 Defects mapped to OWASP Top 10 2025 categories based on CWE (Common Weakness Enumeration) codes.
                 This analysis helps prioritize security remediation efforts based on the most critical web application security risks.
@@ -1670,7 +1851,12 @@
         <div id="cwe-top25-tab" class="tab-content">
         
         <div class="section">
-            <h2 class="section-title">🛡️ CWE Top 25 Most Dangerous Software Weaknesses (2025)</h2>
+            <h2 class="section-title">
+                🛡️ CWE Top 25 Most Dangerous Software Weaknesses (2025)
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Maps defects to MITRE's CWE Top 25 2025 most dangerous weaknesses. Shows PASS/FAILED status and danger rankings (1-25). Based on real-world vulnerability data from NVD. Lower rank = more dangerous.</span>
+                </span>
+            </h2>
             <p style="margin-bottom: 2rem; color: var(--text-color); opacity: 0.8;">
                 Defects mapped to MITRE's CWE Top 25 list - the most widespread and critical software weaknesses.
                 Rankings are based on real-world vulnerability data and help prioritize remediation by industry-recognized danger level.
@@ -1875,7 +2061,7 @@
             showlegend: true
         };
 
-        Plotly.newPlot('severity-chart', severityData, severityLayout, {responsive: true});
+        Plotly.newPlot('severity-chart', severityData, severityLayout, {responsive: true, displaylogo: false});
 
         // Project Chart
         var projectData = [{
@@ -1900,7 +2086,7 @@
             yaxis: {title: 'Defect Count'}
         };
 
-        Plotly.newPlot('project-chart', projectData, projectLayout, {responsive: true});
+        Plotly.newPlot('project-chart', projectData, projectLayout, {responsive: true, displaylogo: false});
 
         {% if complexity_distribution|length > 0 %}
         // Complexity Chart
@@ -1920,7 +2106,7 @@
             yaxis: {title: 'Number of Functions'}
         };
 
-        Plotly.newPlot('complexity-chart', complexityData, complexityLayout, {responsive: true});
+        Plotly.newPlot('complexity-chart', complexityData, complexityLayout, {responsive: true, displaylogo: false});
         {% endif %}
 
         {% if not current_project %}
@@ -1952,7 +2138,7 @@
             showlegend: true
         };
 
-        Plotly.newPlot('discovery-chart', discoveryData, discoveryLayout, {responsive: true});
+        Plotly.newPlot('discovery-chart', discoveryData, discoveryLayout, {responsive: true, displaylogo: false});
         {% endif %}
         {% endif %}
 
@@ -1993,7 +2179,7 @@
             legend: {x: 0.01, y: 0.99}
         };
 
-        Plotly.newPlot('defect-trends-chart', defectTrendsData, defectTrendsLayout, {responsive: true});
+        Plotly.newPlot('defect-trends-chart', defectTrendsData, defectTrendsLayout, {responsive: true, displaylogo: false});
         {% endif %}
 
         {% if cumulative_trends|length > 0 %}
@@ -2044,7 +2230,7 @@
             legend: {x: 0.01, y: 0.99}
         };
 
-        Plotly.newPlot('cumulative-trends-chart', cumulativeTrendsData, cumulativeTrendsLayout, {responsive: true});
+        Plotly.newPlot('cumulative-trends-chart', cumulativeTrendsData, cumulativeTrendsLayout, {responsive: true, displaylogo: false});
         {% endif %}
 
         {% if defect_velocity|length > 0 %}
@@ -2087,7 +2273,7 @@
             showlegend: true
         };
 
-        Plotly.newPlot('velocity-chart', velocityData, velocityLayout, {responsive: true});
+        Plotly.newPlot('velocity-chart', velocityData, velocityLayout, {responsive: true, displaylogo: false});
         {% endif %}
 
         {% if defect_aging|length > 0 %}
@@ -2111,7 +2297,7 @@
             showlegend: false
         };
 
-        Plotly.newPlot('aging-chart', agingData, agingLayout, {responsive: true});
+        Plotly.newPlot('aging-chart', agingData, agingLayout, {responsive: true, displaylogo: false});
         {% endif %}
 
         {% if triage_trends|length > 0 %}
@@ -2179,7 +2365,7 @@
             showlegend: true
         };
 
-        Plotly.newPlot('triage-trends-chart', triageTrendsData, triageTrendsLayout, {responsive: true});
+        Plotly.newPlot('triage-trends-chart', triageTrendsData, triageTrendsLayout, {responsive: true, displaylogo: false});
         {% endif %}
 
         // Toggle CWE Top 25 details
@@ -2310,6 +2496,41 @@
                 
                 // Add active class to clicked button
                 this.classList.add('active');
+            });
+        });
+
+        // Info icon tooltip functionality for mobile/touch devices
+        document.addEventListener('DOMContentLoaded', function() {
+            const infoIcons = document.querySelectorAll('.info-icon');
+            
+            infoIcons.forEach(icon => {
+                icon.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    
+                    // Close all other tooltips
+                    infoIcons.forEach(otherIcon => {
+                        if (otherIcon !== icon) {
+                            otherIcon.classList.remove('active');
+                        }
+                    });
+                    
+                    // Toggle this tooltip
+                    this.classList.toggle('active');
+                });
+            });
+            
+            // Close tooltip when clicking outside
+            document.addEventListener('click', function() {
+                infoIcons.forEach(icon => {
+                    icon.classList.remove('active');
+                });
+            });
+            
+            // Prevent tooltip from closing when clicking inside it
+            document.querySelectorAll('.tooltip').forEach(tooltip => {
+                tooltip.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                });
             });
         });
     </script>

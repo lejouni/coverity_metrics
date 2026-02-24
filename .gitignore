@@ -130,8 +130,13 @@ db_config.ini
 
 # Output directories
 output/
+output_*/
 exports/
+exports_*/
 reports/
+test_*/
+emoji_test/
+final_emoji*/
 
 # Cache directories
 cache/
@@ -182,3 +187,8 @@ verify_*.py
 TOP_FIXERS_FIX_DOCUMENTATION.md
 config_test.json
 TRENDS_UPDATE_SUMMARY.txt
+fix_*.py
+fix_*.ps1
+
+final_scan.py
+inspect_bytes.py

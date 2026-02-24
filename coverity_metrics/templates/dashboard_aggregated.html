@@ -6,6 +6,136 @@
     <title>Coverity Metrics - Aggregated Multi-Instance Dashboard</title>
     <style>
 {{ inline_css }}
+
+        /* Info Icon and Tooltip Styles */
+        .info-icon {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            line-height: 18px;
+            text-align: center;
+            background: rgba(52, 152, 219, 0.1);
+            color: #3498db;
+            border-radius: 50%;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: help;
+            margin-left: 6px;
+            position: relative;
+            vertical-align: middle;
+            border: 1px solid rgba(52, 152, 219, 0.3);
+        }
+        
+        .info-icon:hover {
+            background: rgba(52, 152, 219, 0.2);
+            border-color: #3498db;
+        }
+        
+        .tooltip {
+            visibility: hidden;
+            position: absolute;
+            z-index: 1000;
+            background-color: rgba(44, 62, 80, 0.95);
+            color: #ffffff;
+            text-align: left;
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            line-height: 1.5;
+            max-width: 320px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            white-space: normal;
+            word-wrap: break-word;
+            opacity: 0;
+            transition: opacity 0.3s, visibility 0.3s;
+            pointer-events: none;
+        }
+        
+        .tooltip::before {
+            content: "";
+            position: absolute;
+            border-style: solid;
+        }
+        
+        /* Default: tooltip appears below */
+        .tooltip {
+            bottom: auto;
+            top: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        
+        .tooltip::before {
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 0 6px 6px 6px;
+            border-color: transparent transparent rgba(44, 62, 80, 0.95) transparent;
+        }
+        
+        /* Tooltip appears above */
+        .tooltip-top {
+            bottom: calc(100% + 8px);
+            top: auto;
+        }
+        
+        .tooltip-top::before {
+            top: 100%;
+            bottom: auto;
+            border-width: 6px 6px 0 6px;
+            border-color: rgba(44, 62, 80, 0.95) transparent transparent transparent;
+        }
+        
+        /* Tooltip appears to the right */
+        .tooltip-right {
+            left: calc(100% + 8px);
+            top: 50%;
+            bottom: auto;
+            transform: translateY(-50%);
+        }
+        
+        .tooltip-right::before {
+            right: 100%;
+            left: auto;
+            top: 50%;
+            bottom: auto;
+            transform: translateY(-50%);
+            border-width: 6px 6px 6px 0;
+            border-color: transparent rgba(44, 62, 80, 0.95) transparent transparent;
+        }
+        
+        /* Tooltip appears to the left */
+        .tooltip-left {
+            right: calc(100% + 8px);
+            left: auto;
+            top: 50%;
+            bottom: auto;
+            transform: translateY(-50%);
+        }
+        
+        .tooltip-left::before {
+            left: 100%;
+            right: auto;
+            top: 50%;
+            bottom: auto;
+            transform: translateY(-50%);
+            border-width: 6px 0 6px 6px;
+            border-color: transparent transparent transparent rgba(44, 62, 80, 0.95);
+        }
+        
+        .info-icon:hover .tooltip,
+        .info-icon.active .tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+        
+        /* Mobile/touch support */
+        @media (max-width: 768px) {
+            .tooltip {
+                max-width: 280px;
+                font-size: 12px;
+            }
+        }
     </style>
     <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 </head>
@@ -73,26 +203,36 @@
         <!-- Instance Overview Cards -->
         <div class="summary-grid">
             <div class="summary-card">
-                <div class="label">Total Instances</div>
+                <div class="label">Total Instances
+                    <span class="info-icon">ℹ<span class="tooltip tooltip-top">Number of Coverity Connect instances being monitored and aggregated in this dashboard.</span></span>
+                </div>
                 <div class="value">{{ summary.total_instances }}</div>
             </div>
             <div class="summary-card">
-                <div class="label">Total Projects</div>
+                <div class="label">Total Projects
+                    <span class="info-icon">ℹ<span class="tooltip tooltip-top">Total number of projects across all monitored Coverity instances.</span></span>
+                </div>
                 <div class="value">{{ summary.total_projects }}</div>
             </div>
             <div class="summary-card danger">
-                <div class="label">Total Defects</div>
+                <div class="label">Total Defects
+                    <span class="info-icon">ℹ<span class="tooltip tooltip-top">Aggregated count of all outstanding defects across all instances, projects, and streams.</span></span>
+                </div>
                 <div class="value">{{ summary.total_defects }}</div>
             </div>
             <div class="summary-card warning">
-                <div class="label">High Severity</div>
+                <div class="label">High Severity
+                    <span class="info-icon">ℹ<span class="tooltip tooltip-top">Number of high-severity defects across all instances. These require immediate attention.</span></span>
+                </div>
                 <div class="value">{{ summary.high_severity_defects }}</div>
             </div>
         </div>
 
         <!-- Defects by Instance Chart -->
         <div class="section">
-            <h2 class="section-title">Defects by Coverity Instance</h2>
+            <h2 class="section-title">Defects by Coverity Instance
+                <span class="info-icon">ℹ<span class="tooltip tooltip-right">Comparison of total outstanding defects across all monitored Coverity instances.</span></span>
+            </h2>
             <div class="chart-container" id="instance-chart"></div>
             
             <table class="data-table" style="margin-top: 2rem;">
@@ -132,7 +272,9 @@
 
         <!-- Aggregated Severity Distribution -->
         <div class="section">
-            <h2 class="section-title">Aggregated Defect Severity Distribution</h2>
+            <h2 class="section-title">Aggregated Defect Severity Distribution
+                <span class="info-icon">ℹ<span class="tooltip tooltip-right">Combined severity breakdown of all defects across all instances. Severity levels: High (critical issues), Medium (moderate concerns), Low (minor issues), Unspecified (not yet classified).</span></span>
+            </h2>
             <div class="grid-2col">
                 <div class="chart-container" id="severity-chart"></div>
                 <div>
@@ -186,23 +328,33 @@
         <!-- Triage Progress Summary -->
         {% if triage_summary %}
         <div class="section">
-            <h2 class="section-title">📋 Aggregated Triage Progress</h2>
+            <h2 class="section-title">📋 Aggregated Triage Progress
+                <span class="info-icon">ℹ<span class="tooltip tooltip-right">Triage status of all defects across instances. Shows how many defects have been reviewed and classified versus those still awaiting triage.</span></span>
+            </h2>
             <div class="summary-grid" style="margin-bottom: 2rem;">
                 <div class="summary-card">
-                    <div class="label">Total Outstanding</div>
+                    <div class="label">Total Outstanding
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Total number of defects that are still open/outstanding across all instances.</span></span>
+                    </div>
                     <div class="value">{{ triage_summary.total_defects }}</div>
                     <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">Across all instances</div>
                 </div>
                 <div class="summary-card success">
-                    <div class="label">Classified</div>
+                    <div class="label">Classified
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Defects that have been reviewed and assigned a triage classification (Bug, False Positive, Intentional, etc.).</span></span>
+                    </div>
                     <div class="value">{{ triage_summary.classified_count }}</div>
                 </div>
                 <div class="summary-card warning">
-                    <div class="label">Unclassified</div>
+                    <div class="label">Unclassified
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Defects that have not yet been triaged or classified. These require developer review.</span></span>
+                    </div>
                     <div class="value">{{ triage_summary.unclassified_count }}</div>
                 </div>
                 <div class="summary-card info">
-                    <div class="label">Triage Completion</div>
+                    <div class="label">Triage Completion
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Percentage of defects that have been triaged. Formula: (Classified / Total Outstanding) × 100%</span></span>
+                    </div>
                     <div class="value" style="font-size: 2rem;">{{ (triage_summary.triage_completion_percentage|round(1)) if triage_summary.triage_completion_percentage else '0' }}%</div>
                 </div>
             </div>
@@ -231,7 +383,9 @@
         <!-- Trend Summary with Velocity Indicators -->
         {% if trend_summary and trend_summary.total_new %}
         <div class="section">
-            <h2 class="section-title">📊 Aggregated Defect Introduction vs Fix Velocity ({{ trend_period_text }})</h2>
+            <h2 class="section-title">📊 Aggregated Defect Introduction vs Fix Velocity ({{ trend_period_text }})
+                <span class="info-icon">ℹ<span class="tooltip tooltip-right">Tracks the rate at which new defects are introduced versus the rate at which defects are fixed across all instances. A positive trend (fixing faster than introducing) indicates improving code quality.</span></span>
+            </h2>
             <div class="alert {% if trend_summary.trend_direction == 'improving' %}alert-success{% elif trend_summary.trend_direction == 'declining' %}alert-danger{% else %}alert-info{% endif %}">
                 <strong>🌐 Multi-Instance Trend Status:</strong> 
                 {% if trend_summary.trend_direction == 'improving' %}
@@ -245,7 +399,9 @@
             
             <div class="summary-grid" style="margin-bottom: 2rem;">
                 <div class="summary-card {% if trend_summary.avg_new_per_day and trend_summary.avg_fixed_per_day and trend_summary.avg_new_per_day > trend_summary.avg_fixed_per_day %}warning{% endif %}">
-                    <div class="label">Avg New Defects/Day</div>
+                    <div class="label">Avg New Defects/Day
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Average number of new defects introduced per day over the tracking period. Formula: Total New Defects / Days in Period</span></span>
+                    </div>
                     <div class="value" style="font-size: 2.5rem; color: #e74c3c;">
                         {{ (trend_summary.avg_new_per_day|round(1)) if trend_summary.avg_new_per_day else '0' }}
                         <span style="font-size: 1rem;">↑</span>
@@ -253,7 +409,9 @@
                     <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">Across all instances</div>
                 </div>
                 <div class="summary-card {% if trend_summary.avg_fixed_per_day and trend_summary.avg_new_per_day and trend_summary.avg_fixed_per_day > trend_summary.avg_new_per_day %}success{% endif %}">
-                    <div class="label">Avg Fixed Defects/Day</div>
+                    <div class="label">Avg Fixed Defects/Day
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Average number of defects fixed per day over the tracking period. Formula: Total Fixed Defects / Days in Period</span></span>
+                    </div>
                     <div class="value" style="font-size: 2.5rem; color: #27ae60;">
                         {{ (trend_summary.avg_fixed_per_day|round(1)) if trend_summary.avg_fixed_per_day else '0' }}
                         <span style="font-size: 1rem;">↓</span>
@@ -261,13 +419,17 @@
                     <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">Across all instances</div>
                 </div>
                 <div class="summary-card {% if trend_summary.net_change and trend_summary.net_change > 0 %}danger{% elif trend_summary.net_change and trend_summary.net_change < 0 %}success{% endif %}">
-                    <div class="label">Net Change</div>
+                    <div class="label">Net Change
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Net change in defect count over the period. Formula: Total New - Total Fixed. Negative values indicate improvement.</span></span>
+                    </div>
                     <div class="value" style="font-size: 2.5rem;">
                         {{ ('+' if trend_summary.net_change > 0 else '') if trend_summary.net_change else '' }}{{ trend_summary.net_change if trend_summary.net_change else '0' }}
                     </div>
                 </div>
                 <div class="summary-card info">
-                    <div class="label">Fix Rate Efficiency</div>
+                    <div class="label">Fix Rate Efficiency
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Percentage showing fix efficiency. Formula: (Fixed / (Fixed + New)) × 100%. Values over 50% indicate more fixes than introductions.</span></span>
+                    </div>
                     <div class="value" style="font-size: 2.5rem;">
                         {{ (trend_summary.fix_rate_pct|round(1)) if trend_summary.fix_rate_pct else '0' }}%
                     </div>
@@ -290,22 +452,32 @@
         <!-- Fix Rate Metrics -->
         {% if fix_rate_metrics %}
         <div class="section">
-            <h2 class="section-title">⚡ Aggregated Fix Rate & Velocity ({{ trend_period_text }})</h2>
+            <h2 class="section-title">⚡ Aggregated Fix Rate & Velocity ({{ trend_period_text }})
+                <span class="info-icon">ℹ<span class="tooltip tooltip-right">Measures the efficiency of defect resolution across all instances. Fix Rate = (Fixed Defects / Total Defects) × 100%. Higher rates indicate better remediation efforts.</span></span>
+            </h2>
             <div class="grid-2col" style="margin-bottom: 2rem;">
                 <div class="summary-card">
-                    <div class="label">Total Defects</div>
+                    <div class="label">Total Defects
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Total number of defects tracked during the measurement period.</span></span>
+                    </div>
                     <div class="value">{{ fix_rate_metrics.total_defects }}</div>
                 </div>
                 <div class="summary-card success">
-                    <div class="label">Fixed Defects</div>
+                    <div class="label">Fixed Defects
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Number of defects that were successfully resolved and fixed during the period.</span></span>
+                    </div>
                     <div class="value">{{ fix_rate_metrics.fixed_defects }}</div>
                 </div>
                 <div class="summary-card info">
-                    <div class="label">Fix Rate</div>
+                    <div class="label">Fix Rate
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Percentage of defects fixed. Formula: (Fixed Defects / Total Defects) × 100%</span></span>
+                    </div>
                     <div class="value" style="font-size: 2rem;">{{ fix_rate_metrics.fix_rate_percentage }}%</div>
                 </div>
                 <div class="summary-card">
-                    <div class="label">Current Outstanding</div>
+                    <div class="label">Current Outstanding
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Current total count of defects that remain open and unresolved.</span></span>
+                    </div>
                     <div class="value" style="font-size: 2rem;">{{ trend_summary.current_outstanding if trend_summary else 'N/A' }}</div>
                 </div>
             </div>
@@ -315,7 +487,9 @@
         <!-- Per-Instance Trend Breakdown -->
         {% if trends_by_instance %}
         <div class="section">
-            <h2 class="section-title">📈 Trends by Instance</h2>
+            <h2 class="section-title">📈 Trends by Instance
+                <span class="info-icon">ℹ<span class="tooltip tooltip-right">Detailed breakdown of triage completion, defect introduction, and fix trends for each individual instance.</span></span>
+            </h2>
             <table class="data-table">
                 <thead>
                     <tr>
@@ -433,29 +607,39 @@
         <!-- User Activity & License Statistics -->
         {% if user_statistics %}
         <div class="section">
-            <h2 class="section-title">👥 Aggregated User Activity & License Statistics (Last 90 Days)</h2>
+            <h2 class="section-title">👥 Aggregated User Activity & License Statistics (Last 90 Days)
+                <span class="info-icon">ℹ<span class="tooltip tooltip-right">Shows license utilization and user engagement across all instances. Active users are those who have logged in or interacted with Coverity in the last 90 days.</span></span>
+            </h2>
             <div class="summary-grid" style="margin-bottom: 2rem;">
                 <div class="summary-card info">
-                    <div class="label">Total Licensed Users</div>
+                    <div class="label">Total Licensed Users
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Total number of Coverity licenses allocated across all instances.</span></span>
+                    </div>
                     <div class="value">{{ user_statistics.total_licensed_users }}</div>
                     <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">Across all instances</div>
                 </div>
                 <div class="summary-card success">
-                    <div class="label">Users with Login</div>
+                    <div class="label">Users with Login
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Number of licensed users who have logged into Coverity at least once.</span></span>
+                    </div>
                     <div class="value">{{ user_statistics.users_with_login }}</div>
                     <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
                         {{ user_statistics.login_user_percentage }}% of licenses
                     </div>
                 </div>
                 <div class="summary-card {% if user_statistics.active_user_percentage < 50 %}warning{% else %}success{% endif %}">
-                    <div class="label">Active Users</div>
+                    <div class="label">Active Users
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Users who have actively used Coverity within the last 90 days. Indicates license utilization.</span></span>
+                    </div>
                     <div class="value">{{ user_statistics.active_users }}</div>
                     <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
                         {{ user_statistics.active_user_percentage }}% of licenses
                     </div>
                 </div>
                 <div class="summary-card">
-                    <div class="label">Inactive Licenses</div>
+                    <div class="label">Inactive Licenses
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Number of licenses allocated to users who have not been active in the last 90 days. These licenses may be reassignable.</span></span>
+                    </div>
                     <div class="value">{{ user_statistics.total_licensed_users - user_statistics.active_users }}</div>
                     <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
                         {{ (100 - user_statistics.active_user_percentage)|round(1) }}% of licenses
@@ -511,25 +695,35 @@
         <!-- Database Statistics -->
         {% if database_statistics %}
         <div class="section">
-            <h2 class="section-title">💾 Aggregated Database Statistics</h2>
+            <h2 class="section-title">💾 Aggregated Database Statistics
+                <span class="info-icon">ℹ<span class="tooltip tooltip-right">Combined database metrics across all instances, including total storage size, snapshot counts, and commit performance statistics.</span></span>
+            </h2>
             <div class="summary-grid" style="margin-bottom: 2rem;">
                 <div class="summary-card info">
-                    <div class="label">Total Database Size</div>
+                    <div class="label">Total Database Size
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Combined size of all Coverity databases across monitored instances.</span></span>
+                    </div>
                     <div class="value" style="font-size: 2rem;">{{ database_statistics.total_db_size }}</div>
                     <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">Across all instances</div>
                 </div>
                 <div class="summary-card">
-                    <div class="label">Total Snapshots</div>
+                    <div class="label">Total Snapshots
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Total number of analysis snapshots stored across all instances. Each snapshot represents a code analysis run.</span></span>
+                    </div>
                     <div class="value">{{ database_statistics.total_snapshots }}</div>
                     <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">All instances combined</div>
                 </div>
                 <div class="summary-card">
-                    <div class="label">Avg Commit Time</div>
+                    <div class="label">Avg Commit Time
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Average time to commit analysis results to the database, weighted across all instances.</span></span>
+                    </div>
                     <div class="value" style="font-size: 2rem;">{{ database_statistics.avg_duration_seconds }}s</div>
                     <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">Weighted average</div>
                 </div>
                 <div class="summary-card">
-                    <div class="label">Total Commits</div>
+                    <div class="label">Total Commits
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Total number of commit operations (analysis uploads) across all instances.</span></span>
+                    </div>
                     <div class="value">{{ database_statistics.total_commits }}</div>
                     <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">All instances combined</div>
                 </div>
@@ -695,7 +889,7 @@
             showlegend: false
         };
 
-        Plotly.newPlot('instance-chart', instanceData, instanceLayout, {responsive: true});
+        Plotly.newPlot('instance-chart', instanceData, instanceLayout, {responsive: true, displaylogo: false});
 
         // Severity Distribution Pie Chart
         var severityData = [{
@@ -714,7 +908,31 @@
             showlegend: true
         };
 
-        Plotly.newPlot('severity-chart', severityData, severityLayout, {responsive: true});
+        Plotly.newPlot('severity-chart', severityData, severityLayout, {responsive: true, displaylogo: false});
+    </script>
+    
+    <script>
+        // Mobile/touch support for tooltips
+        document.addEventListener('DOMContentLoaded', function() {
+            const infoIcons = document.querySelectorAll('.info-icon');
+            infoIcons.forEach(icon => {
+                icon.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    // Toggle active class for mobile
+                    this.classList.toggle('active');
+                    // Close other tooltips
+                    infoIcons.forEach(other => {
+                        if (other !== this) {
+                            other.classList.remove('active');
+                        }
+                    });
+                });
+            });
+            // Close tooltips when clicking outside
+            document.addEventListener('click', function() {
+                infoIcons.forEach(icon => icon.classList.remove('active'));
+            });
+        });
     </script>
 </body>
 </html>

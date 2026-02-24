@@ -2,6 +2,7 @@
 Coverity Metrics HTML Dashboard Generator
 Creates a beautiful HTML dashboard using Jinja2 templates
 Supports single-instance and multi-instance deployments
+Supports reading from database or exported ZIP files
 """
 import os
 import sys
@@ -11,6 +12,7 @@ import json
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader
 from coverity_metrics.metrics import CoverityMetrics
+from coverity_metrics.zip_data_loader import ZipDataLoader
 import webbrowser
 from tqdm import tqdm
 from coverity_metrics.metrics_cache import MetricsCache, ProgressTracker, collect_metrics_with_cache
@@ -20,6 +22,40 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+
+# Color palette for automatic instance color assignment
+INSTANCE_COLOR_PALETTE = [
+    "#e74c3c",  # Red
+    "#3498db",  # Blue
+    "#2ecc71",  # Green
+    "#f39c12",  # Orange
+    "#9b59b6",  # Purple
+    "#1abc9c",  # Turquoise
+    "#e67e22",  # Carrot
+    "#34495e",  # Dark gray
+    "#16a085",  # Green Sea
+    "#c0392b",  # Dark red
+    "#2980b9",  # Belize blue
+    "#8e44ad",  # Wisteria
+    "#27ae60",  # Nephritis
+    "#d35400",  # Pumpkin
+    "#7f8c8d",  # Asbestos
+]
+
+def assign_instance_colors(instance_names):
+    """Automatically assign distinct colors to instances
+    
+    Args:
+        instance_names: List of instance names
+        
+    Returns:
+        dict: Mapping of instance name to color hex code
+    """
+    color_map = {}
+    for i, name in enumerate(instance_names):
+        # Cycle through colors if we have more instances than colors
+        color_map[name] = INSTANCE_COLOR_PALETTE[i % len(INSTANCE_COLOR_PALETTE)]
+    return color_map
 
 def load_inline_css():
     """
@@ -271,7 +307,8 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         tqdm.write(f"  [OK] Code quality metrics: {len(code_metrics)} records")
         tqdm.write(f"  [OK] Performance metrics: {len(snapshot_performance)} snapshots")
         tqdm.write(f"  [OK] Trend analysis: {len(defect_trends)} periods")
-        tqdm.write(f"  [OK] User activity: {user_activity_stats['active_users']} active users")
+        active_users = user_activity_stats.get('active_users', 0) if user_activity_stats else 0
+        tqdm.write(f"  [OK] User activity: {active_users} active users")
     
     # Check for high severity alert
     high_severity_alert = summary.get('high_severity_defects', 0) > 0
@@ -436,7 +473,8 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
     tqdm.write(f"  [OK] Code quality metrics: {len(code_metrics)} records")
     tqdm.write(f"  [OK] Performance metrics: {len(snapshot_performance)} snapshots")
     tqdm.write(f"  [OK] Trend analysis: {len(defect_trends)} periods")
-    tqdm.write(f"  [OK] User activity: {user_activity_stats['active_users']} active users")
+    active_users = user_activity_stats.get('active_users', 0) if user_activity_stats else 0
+    tqdm.write(f"  [OK] User activity: {active_users} active users")
     
     metrics_data = {
         'summary': summary,
@@ -572,15 +610,597 @@ def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_a
     return abs_path
 
 
+def generate_aggregated_dashboard_from_zips(zip_loaders, instance_configs, output_file="output/dashboard_aggregated.html", days=365):
+    """Generate aggregated dashboard from ZIP file data loaders
+    
+    Args:
+        zip_loaders: Dict mapping instance names to ZipDataLoader objects
+        instance_configs: List of dicts with instance config (name, description, color)
+        output_file: Path to output HTML file
+        days: Number of days for trend analysis
+    """
+    tqdm.write("\nGenerating Aggregated Dashboard from ZIP files...")
+    tqdm.write("=" * 80)
+    
+    # Collect aggregated data from all ZIP loaders
+    tqdm.write("Collecting aggregated metrics from ZIP files...")
+    
+    # Initialize aggregated statistics
+    total_defects = 0
+    total_outstanding = 0
+    total_fixed = 0
+    total_dismissed = 0
+    total_triaged = 0
+    total_new = 0
+    total_projects = 0
+    total_high_severity = 0
+    total_licensed_users = 0
+    total_users_with_login = 0
+    total_active_users = 0
+    total_snapshots = 0
+    total_db_size_bytes = 0
+    total_commits = 0
+    min_duration_seconds = None
+    max_duration_seconds = None
+    weighted_duration_sum = 0  # For calculating weighted average
+    
+    defects_by_instance_list = []
+    defects_by_severity_agg = {}
+    analysis_versions_agg = {}
+    user_statistics_by_instance = []
+    database_statistics_by_instance = []
+    trends_by_instance = []
+    triage_by_state_agg = {}
+    commit_activity_by_hour = {}
+    commit_activity_by_day = {}
+    
+    # Aggregate data from each instance
+    for instance_name, loader in zip_loaders.items():
+        try:
+            summary = loader.get_overall_summary()
+            
+            # Get trend summary for this instance
+            trend_data = loader.get_defect_trend_summary(days=days)
+            
+            # Get triage summary for this instance
+            triage_data = loader.get_triage_progress_summary()
+            
+            # Aggregate totals from summary
+            total_defects += summary.get('total_defects', 0)
+            total_projects += summary.get('total_projects', 0)
+            
+            # Aggregate totals from trend data
+            if trend_data:
+                total_new += trend_data.get('total_new', 0)
+                total_fixed += trend_data.get('total_fixed', 0)
+                total_outstanding += trend_data.get('current_outstanding', summary.get('total_defects', 0))
+            else:
+                total_outstanding += summary.get('total_defects', 0)
+            
+            # Aggregate triage data
+            if triage_data:
+                total_triaged += triage_data.get('classified_count', 0)
+            
+            # Note: dismissed_defects is typically tracked in trend data or separate metrics
+            # For now, using total_dismissed from available data
+            total_dismissed += 0  # Not typically in summary; would need separate metric
+            
+            # Get severity breakdown for this instance
+            severity_df = loader.get_defects_by_severity()
+            high_severity = 0
+            medium_severity = 0
+            low_severity = 0
+            
+            if not severity_df.empty:
+                for _, row in severity_df.iterrows():
+                    severity = row.get('impact', row.get('severity', 'Unknown'))
+                    count = row.get('defect_count', row.get('count', 0))
+                    
+                    # Count for instance-level metrics
+                    if severity == 'High':
+                        high_severity += count
+                        total_high_severity += count
+                    elif severity == 'Medium':
+                        medium_severity += count
+                    elif severity == 'Low':
+                        low_severity += count
+                    
+                    # Aggregate for overall severity
+                    if severity in defects_by_severity_agg:
+                        defects_by_severity_agg[severity] += count
+                    else:
+                        defects_by_severity_agg[severity] = count
+            
+            # Get instance description and color from config
+            instance_config = next((cfg for cfg in instance_configs if cfg['name'] == instance_name), None)
+            description = instance_config.get('description', '') if instance_config else ''
+            color = instance_config.get('color', '#3498db') if instance_config else '#3498db'
+            
+            # Per-instance defect count with all fields needed by template
+            defects_by_instance_list.append({
+                'instance_name': instance_name,
+                'description': description,
+                'color': color,
+                'total_defects': summary.get('total_defects', 0),
+                'high_severity': high_severity,
+                'medium_severity': medium_severity,
+                'low_severity': low_severity,
+                'total_projects': summary.get('total_projects', 0),
+                'total_streams': summary.get('total_streams', 0)
+            })
+            
+            # Collect user statistics from each instance
+            try:
+                user_stats = loader.get_user_license_statistics(days=90)
+                if user_stats:
+                    licensed_users = user_stats.get('total_licensed_users', 0)
+                    users_with_login = user_stats.get('users_with_login', 0)
+                    active_users = user_stats.get('active_users', 0)
+                    
+                    total_licensed_users += licensed_users
+                    total_users_with_login += users_with_login
+                    total_active_users += active_users
+                    
+                    active_percentage = round((active_users / licensed_users * 100) if licensed_users > 0 else 0, 1)
+                    
+                    user_statistics_by_instance.append({
+                        'instance_name': instance_name,
+                        'color': color,
+                        'licensed_users': licensed_users,
+                        'users_with_login': users_with_login,
+                        'active_users': active_users,
+                        'active_percentage': active_percentage
+                    })
+            except Exception as e:
+                tqdm.write(f"  [WARNING] Failed to load user statistics from {instance_name}: {e}")
+            
+            # Collect database statistics from each instance
+            try:
+                db_stats = loader.get_database_statistics()
+                if db_stats:
+                    # Use db_size_bytes if available, otherwise try to parse db_size
+                    db_size = db_stats.get('db_size_bytes', 0)
+                    if db_size == 0:
+                        db_size_str = db_stats.get('total_db_size', db_stats.get('db_size', '0'))
+                        if isinstance(db_size_str, str):
+                            # Try to extract bytes from formatted string (e.g., "123.45 MB")
+                            import re
+                            match = re.search(r'([\d.]+)\s*(GB|MB|KB|B)', db_size_str, re.IGNORECASE)
+                            if match:
+                                value = float(match.group(1))
+                                unit = match.group(2).upper()
+                                if unit == 'GB':
+                                    db_size = int(value * 1024 * 1024 * 1024)
+                                elif unit == 'MB':
+                                    db_size = int(value * 1024 * 1024)
+                                elif unit == 'KB':
+                                    db_size = int(value * 1024)
+                                else:
+                                    db_size = int(value)
+                    
+                    snapshots = db_stats.get('total_snapshots', 0)
+                    
+                    total_db_size_bytes += db_size
+                    total_snapshots += snapshots
+                    
+                    # Store for per-instance table (will add commit stats later)
+                    db_instance_entry = {
+                        'instance_name': instance_name,
+                        'color': color,
+                        'db_size': db_size,
+                        'total_snapshots': snapshots
+                    }
+                    database_statistics_by_instance.append(db_instance_entry)
+            except Exception as e:
+                tqdm.write(f"  [WARNING] Failed to load database statistics from {instance_name}: {e}")
+            
+            # Collect commit time statistics from each instance
+            try:
+                commit_stats = loader.get_commit_time_statistics()
+                if commit_stats:
+                    commits = commit_stats.get('total_commits', 0)
+                    avg_duration = commit_stats.get('avg_duration_seconds', 0)
+                    min_duration = commit_stats.get('min_duration_seconds', 0)
+                    max_duration = commit_stats.get('max_duration_seconds', 0)
+                    
+                    total_commits += commits
+                    weighted_duration_sum += avg_duration * commits
+                    
+                    # Track global min/max
+                    if min_duration_seconds is None or (min_duration > 0 and min_duration < min_duration_seconds):
+                        min_duration_seconds = min_duration
+                    if max_duration_seconds is None or max_duration > max_duration_seconds:
+                        max_duration_seconds = max_duration
+                    
+                    # Update database_statistics_by_instance entry with commit stats
+                    if database_statistics_by_instance:
+                        database_statistics_by_instance[-1]['total_commits'] = commits
+                        database_statistics_by_instance[-1]['avg_duration_seconds'] = round(avg_duration, 2)
+            except Exception as e:
+                tqdm.write(f"  [WARNING] Failed to load commit statistics from {instance_name}: {e}")
+            
+            # Collect commit activity patterns from each instance
+            try:
+                activity_patterns = loader.get_commit_activity_patterns()
+                if activity_patterns:
+                    # Aggregate by hour
+                    by_hour = activity_patterns.get('by_hour', [])
+                    for hour_data in by_hour:
+                        hour = int(hour_data.get('hour', 0))
+                        commit_count = hour_data.get('commit_count', 0)
+                        avg_duration = hour_data.get('avg_duration_seconds', 0)
+                        
+                        if hour in commit_activity_by_hour:
+                            commit_activity_by_hour[hour]['commit_count'] += commit_count
+                            commit_activity_by_hour[hour]['total_duration'] += avg_duration * commit_count
+                        else:
+                            commit_activity_by_hour[hour] = {
+                                'hour': hour,
+                                'commit_count': commit_count,
+                                'total_duration': avg_duration * commit_count
+                            }
+                    
+                    # Aggregate by day
+                    by_day = activity_patterns.get('by_day_of_week', [])
+                    for day_data in by_day:
+                        day_name = day_data.get('day_name', 'Unknown')
+                        day_num = int(day_data.get('day_num', 0))
+                        commit_count = day_data.get('commit_count', 0)
+                        avg_duration = day_data.get('avg_duration_seconds', 0)
+                        
+                        if day_name in commit_activity_by_day:
+                            commit_activity_by_day[day_name]['commit_count'] += commit_count
+                            commit_activity_by_day[day_name]['total_duration'] += avg_duration * commit_count
+                        else:
+                            commit_activity_by_day[day_name] = {
+                                'day_num': day_num,
+                                'day_name': day_name,
+                                'commit_count': commit_count,
+                                'total_duration': avg_duration * commit_count
+                            }
+            except Exception as e:
+                tqdm.write(f"  [WARNING] Failed to load commit activity patterns from {instance_name}: {e}")
+            
+            # Collect analysis versions from each instance
+            try:
+                versions = loader.get_analysis_versions(limit=10, days=days)
+                if versions and len(versions) > 0:
+                    for ver in versions:
+                        version = ver.get('version', ver.get('analysis_version', 'Unknown'))
+                        snapshot_count = ver.get('snapshot_count', 1)
+                        first_used = ver.get('first_used')
+                        last_used = ver.get('last_used')
+                        
+                        if version in analysis_versions_agg:
+                            # Merge data
+                            analysis_versions_agg[version]['snapshot_count'] += snapshot_count
+                            analysis_versions_agg[version]['instances'].add(instance_name)
+                            
+                            # Update first/last used dates
+                            if first_used:
+                                if analysis_versions_agg[version]['first_used'] is None or first_used < analysis_versions_agg[version]['first_used']:
+                                    analysis_versions_agg[version]['first_used'] = first_used
+                            if last_used:
+                                if analysis_versions_agg[version]['last_used'] is None or last_used > analysis_versions_agg[version]['last_used']:
+                                    analysis_versions_agg[version]['last_used'] = last_used
+                        else:
+                            analysis_versions_agg[version] = {
+                                'version': version,
+                                'snapshot_count': snapshot_count,
+                                'instances': {instance_name},
+                                'first_used': first_used,
+                                'last_used': last_used
+                            }
+            except Exception as e:
+                tqdm.write(f"  [WARNING] Failed to load analysis versions from {instance_name}: {e}")
+            
+            # Collect triage trends from each instance
+            if triage_data:
+                # Use triage_progress_summary data
+                for key in ['bug_count', 'false_positive_count', 'intentional_count', 'action_assigned_count']:
+                    state_name = key.replace('_count', '').replace('_', ' ').title()
+                    count = triage_data.get(key, 0)
+                    if count > 0:
+                        if state_name in triage_by_state_agg:
+                            triage_by_state_agg[state_name] += count
+                        else:
+                            triage_by_state_agg[state_name] = count
+            
+            # Collect defect trends for per-instance breakdown
+            if trend_data:
+                trends_by_instance.append({
+                    'instance_name': instance_name,
+                    'color': color,
+                    'triage_completion': round((triage_data.get('classified_count', 0) / summary.get('total_defects', 1) * 100) if summary.get('total_defects', 0) > 0 else 0, 1),
+                    'classified': triage_data.get('classified_count', 0) if triage_data else 0,
+                    'total_new': trend_data.get('total_new', 0),
+                    'total_fixed': trend_data.get('total_fixed', 0),
+                    'net_change': trend_data.get('net_change', 0),
+                    'trend_direction': trend_data.get('trend_direction', 'unknown').lower()
+                })
+        
+        except Exception as e:
+            tqdm.write(f"  [WARNING] Failed to load metrics from {instance_name}: {e}")
+    
+    # Calculate aggregated triage summary
+    # Use total_triaged which correctly sums classified_count from each instance
+    # Don't use sum(triage_by_state_agg.values()) as it includes action_assigned_count which may include unclassified defects
+    total_classified = total_triaged
+    total_unclassified = total_defects - total_classified if total_defects > total_classified else 0
+    triage_completion_pct = round((total_classified / total_defects * 100) if total_defects > 0 else 0, 1)
+    
+    # Count by specific triage states
+    bug_count = triage_by_state_agg.get('Bug', 0) + triage_by_state_agg.get('Action Required', 0)
+    false_positive_count = triage_by_state_agg.get('False Positive', 0)
+    intentional_count = triage_by_state_agg.get('Intentional', 0)
+    action_assigned_count = triage_by_state_agg.get('Action Assigned', 0)
+    
+    # Calculate trend metrics
+    avg_new_per_day = round(total_new / days, 1) if days > 0 else 0
+    avg_fixed_per_day = round(total_fixed / days, 1) if days > 0 else 0
+    net_change = total_new - total_fixed
+    fix_rate_pct = round((total_fixed / (total_fixed + total_new) * 100) if (total_fixed + total_new) > 0 else 0, 1)
+    
+    if total_fixed > total_new:
+        trend_direction = 'improving'
+    elif total_new > total_fixed:
+        trend_direction = 'declining'
+    else:
+        trend_direction = 'stable'
+    
+    # Format aggregated summary
+    summary = {
+        'total_instances': len(zip_loaders),
+        'total_defects': total_defects,
+        'outstanding_defects': total_outstanding,
+        'fixed_defects': total_fixed,
+        'dismissed_defects': total_dismissed,
+        'triaged_defects': total_triaged,
+        'new_defects': total_new,
+        'total_projects': total_projects,
+        'high_severity_defects': total_high_severity,
+        'fix_rate': round((total_fixed / total_defects * 100) if total_defects > 0 else 0, 1),
+        'triage_rate': round((total_triaged / total_defects * 100) if total_defects > 0 else 0, 1)
+    }
+    
+    # Format defects by severity for template
+    defects_by_severity = [
+        {'severity': severity, 'count': count}
+        for severity, count in defects_by_severity_agg.items()
+    ]
+    
+    # Format analysis versions for template (sorted by snapshot count)
+    analysis_versions = sorted([
+        {
+            'version': data['version'],
+            'snapshot_count': data['snapshot_count'],
+            'instances': list(data['instances']),
+            'first_used': data['first_used'],
+            'last_used': data['last_used']
+        }
+        for data in analysis_versions_agg.values()
+    ], key=lambda x: x['snapshot_count'], reverse=True)
+    
+    # Format user statistics
+    user_statistics = {
+        'total_licensed_users': total_licensed_users,
+        'users_with_login': total_users_with_login,
+        'login_user_percentage': round((total_users_with_login / total_licensed_users * 100) if total_licensed_users > 0 else 0, 1),
+        'active_users': total_active_users,
+        'active_user_percentage': round((total_active_users / total_licensed_users * 100) if total_licensed_users > 0 else 0, 1),
+        'top_fixers': [],
+        'top_triagers': [],
+        'by_instance': user_statistics_by_instance
+    }
+    
+    # Format database statistics
+    def format_db_size(bytes_size):
+        if bytes_size >= 1024 * 1024 * 1024:
+            return f"{bytes_size / (1024 * 1024 * 1024):.2f} GB"
+        elif bytes_size >= 1024 * 1024:
+            return f"{bytes_size / (1024 * 1024):.2f} MB"
+        elif bytes_size >= 1024:
+            return f"{bytes_size / 1024:.2f} KB"
+        else:
+            return f"{bytes_size} B"
+    
+    # Calculate weighted average commit duration
+    avg_duration_seconds = round(weighted_duration_sum / total_commits, 2) if total_commits > 0 else 0
+    
+    # Format per-instance database statistics (add formatted db_size)
+    for inst in database_statistics_by_instance:
+        inst['db_size'] = format_db_size(inst['db_size'])
+    
+    database_statistics = {
+        'total_db_size': format_db_size(total_db_size_bytes),
+        'total_snapshots': total_snapshots,
+        'total_commits': total_commits,
+        'avg_duration_seconds': avg_duration_seconds,
+        'min_duration_seconds': round(min_duration_seconds, 2) if min_duration_seconds is not None else 0,
+        'max_duration_seconds': round(max_duration_seconds, 2) if max_duration_seconds is not None else 0,
+        'by_instance': database_statistics_by_instance
+    }
+    
+    # Calculate commit activity patterns
+    # Find busiest and quietest hours (3-hour blocks)
+    busiest_hours = None
+    quietest_hours = None
+    if commit_activity_by_hour:
+        # Calculate 3-hour rolling windows
+        hours_sorted = sorted(commit_activity_by_hour.keys())
+        best_window = {'commit_count': 0}
+        worst_window = {'commit_count': float('inf')}
+        
+        for start_hour in hours_sorted:
+            window_commits = 0
+            window_duration = 0
+            hours_in_window = []
+            
+            for h in range(start_hour, min(start_hour + 3, 24)):
+                if h in commit_activity_by_hour:
+                    window_commits += commit_activity_by_hour[h]['commit_count']
+                    window_duration += commit_activity_by_hour[h]['total_duration']
+                    hours_in_window.append(h)
+            
+            if len(hours_in_window) >= 2:  # At least 2 hours of data
+                if window_commits > best_window['commit_count']:
+                    best_window = {
+                        'block_start': start_hour,
+                        'block_end': min(start_hour + 2, 23),
+                        'hours_display': f"{start_hour:02d}:00-{min(start_hour + 2, 23):02d}:00 ({start_hour % 12 or 12} {'AM' if start_hour < 12 else 'PM'} - {(min(start_hour + 2, 23)) % 12 or 12} {'AM' if min(start_hour + 2, 23) < 12 else 'PM'})",
+                        'commit_count': window_commits,
+                        'avg_duration_seconds': round(window_duration / window_commits, 2) if window_commits > 0 else 0
+                    }
+                
+                if window_commits < worst_window['commit_count'] and window_commits > 0:
+                    worst_window = {
+                        'block_start': start_hour,
+                        'block_end': min(start_hour + 2, 23),
+                        'hours_display': f"{start_hour:02d}:00-{min(start_hour + 2, 23):02d}:00 ({start_hour % 12 or 12} {'AM' if start_hour < 12 else 'PM'} - {(min(start_hour + 2, 23)) % 12 or 12} {'AM' if min(start_hour + 2, 23) < 12 else 'PM'})",
+                        'commit_count': window_commits,
+                        'avg_duration_seconds': round(window_duration / window_commits, 2) if window_commits > 0 else 0
+                    }
+        
+        if best_window['commit_count'] > 0:
+            busiest_hours = best_window
+        if worst_window['commit_count'] < float('inf'):
+            quietest_hours = worst_window
+    
+    # Find busiest and quietest days
+    busiest_day = None
+    quietest_day = None
+    if commit_activity_by_day:
+        for day_name, day_data in commit_activity_by_day.items():
+            commit_count = day_data['commit_count']
+            avg_duration = round(day_data['total_duration'] / commit_count, 2) if commit_count > 0 else 0
+            
+            day_entry = {
+                'day_num': day_data['day_num'],
+                'day_name': day_name,
+                'commit_count': commit_count,
+                'avg_duration_seconds': avg_duration
+            }
+            
+            if busiest_day is None or commit_count > busiest_day['commit_count']:
+                busiest_day = day_entry
+            
+            if (quietest_day is None or commit_count < quietest_day['commit_count']) and commit_count > 0:
+                quietest_day = day_entry
+    
+    commit_activity = {
+        'total_commits': total_commits,
+        'commits_by_hour': [],
+        'by_instance': [],
+        'busiest_hours': busiest_hours,
+        'quietest_hours': quietest_hours,
+        'busiest_day': busiest_day,
+        'quietest_day': quietest_day
+    }
+    
+    # Triage summary
+    triage_summary = {
+        'total': total_classified,
+        'total_defects': total_defects,
+        'classified_count': total_classified,
+        'unclassified_count': total_unclassified,
+        'triage_completion_percentage': triage_completion_pct,
+        'bug_count': bug_count,
+        'false_positive_count': false_positive_count,
+        'intentional_count': intentional_count,
+        'action_assigned_count': action_assigned_count,
+        'by_state': [
+            {'state': state, 'count': count}
+            for state, count in triage_by_state_agg.items()
+        ]
+    }
+    
+    # Trend summary
+    trend_summary = {
+        'total_new': total_new,
+        'total_fixed': total_fixed,
+        'total_dismissed': total_dismissed,
+        'avg_new_per_day': avg_new_per_day,
+        'avg_fixed_per_day': avg_fixed_per_day,
+        'net_change': net_change,
+        'fix_rate_pct': fix_rate_pct,
+        'trend_direction': trend_direction,
+        'current_outstanding': total_outstanding
+    }
+    
+    # Fix rate metrics
+    fix_rate_metrics = {
+        'total_defects': total_defects,
+        'fixed_defects': total_fixed,
+        'fix_rate_percentage': round((total_fixed / total_defects * 100) if total_defects > 0 else 0, 1)
+    }
+    
+    tqdm.write(f"  [OK] Aggregated summary across {summary['total_instances']} instances")
+    tqdm.write(f"  [OK] Total defects: {total_defects:,}")
+    tqdm.write(f"  [OK] Outstanding: {total_outstanding:,}, Fixed: {total_fixed:,}")
+    
+    # Load CSS content for inline embedding
+    inline_css = load_inline_css()
+    
+    # Set up Jinja2 environment
+    template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
+    env = Environment(loader=FileSystemLoader(template_dir))
+    
+    # Load aggregated template
+    template = env.get_template('dashboard_aggregated.html')
+    
+    # Render template with data
+    html_content = template.render(
+        inline_css=inline_css,
+        timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        summary=summary,
+        defects_by_instance=defects_by_instance_list,
+        defects_by_severity=defects_by_severity,
+        analysis_versions=analysis_versions,
+        instance_configs=instance_configs,
+        user_statistics=user_statistics,
+        database_statistics=database_statistics,
+        commit_activity=commit_activity,
+        triage_summary=triage_summary,
+        trend_summary=trend_summary,
+        fix_rate_metrics=fix_rate_metrics,
+        trends_by_instance=trends_by_instance,
+        trend_period_text=f"Last {days} Days",
+        multi_instance_mode=True,
+        zip_mode=True  # Flag to indicate ZIP mode (some features unavailable)
+    )
+    
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else '.', exist_ok=True)
+    
+    # Write HTML file
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    
+    # Get absolute path for display
+    abs_path = os.path.abspath(output_file)
+    
+    tqdm.write("\n" + "=" * 80)
+    tqdm.write(f"[SUCCESS] Aggregated dashboard generated successfully!")
+    tqdm.write(f"Location: {abs_path}")
+    tqdm.write(f"File size: {os.path.getsize(output_file):,} bytes")
+    tqdm.write("=" * 80)
+    
+    return abs_path
+
+
 def main():
     """Main entry point with automatic multi-instance detection"""
     parser = argparse.ArgumentParser(
-        description='Generate Coverity Metrics HTML Dashboard (auto-detects multi-instance from config.json)',
+        description='Generate Coverity Metrics HTML Dashboard (auto-detects multi-instance from config.json)\n'
+                    'Supports reading from database or exported ZIP files.',
         epilog='Examples:\n'
-               '  coverity-dashboard                    # Auto-detect and generate all\n'
-               '  coverity-dashboard --project MyApp    # Filter by project\n'
-               '  coverity-dashboard --instance Prod    # Specific instance only\n'
-               '  coverity-dashboard --days 365         # Change trend period\n',
+               '  coverity-dashboard                          # Auto-detect and generate all (database)\n'
+               '  coverity-dashboard --project MyApp          # Filter by project (database)\n'
+               '  coverity-dashboard --instance Prod          # Specific instance only (database)\n'
+               '  coverity-dashboard --zip-file export.zip    # Generate from ZIP export\n'
+               '  coverity-dashboard --zip-file export1.zip export2.zip export3.zip  # Multi-ZIP aggregation\n'
+               '  coverity-dashboard --zip-file export.zip --instance Prod --project MyApp\n'
+               '  coverity-dashboard --days 365               # Change trend period\n',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('--project', '-p', type=str, 
@@ -589,6 +1209,10 @@ def main():
                        help='Output folder path (default: output)')
     parser.add_argument('--no-browser', action='store_true',
                        help='Do not open dashboard in browser')
+    
+    # Data source arguments
+    parser.add_argument('--zip-file', '-z', type=str, nargs='+',
+                       help='Use exported ZIP file(s) as data source instead of database (supports multiple files for aggregation)')
     
     # Multi-instance arguments (mostly for backward compatibility and override)
     parser.add_argument('--config', '-c', type=str, default='config.json',
@@ -626,6 +1250,310 @@ def main():
     
     tqdm.write("\nCoverity Metrics HTML Dashboard Generator")
     tqdm.write("=" * 80)
+    
+    # ========================================================================
+    # ZIP FILE MODE - Read from exported ZIP instead of database
+    # ========================================================================
+    if args.zip_file:
+        zip_files = args.zip_file if isinstance(args.zip_file, list) else [args.zip_file]
+        
+        # Validate all ZIP files exist
+        for zip_file in zip_files:
+            if not os.path.exists(zip_file):
+                tqdm.write(f"[ERROR] ZIP file not found: {zip_file}")
+                sys.exit(1)
+        
+        # ==============================================================
+        # MULTI-ZIP AGGREGATION MODE - Multiple ZIP files provided
+        # ==============================================================
+        if len(zip_files) > 1:
+            tqdm.write(f"\n[Multi-ZIP Aggregation Mode] Combining {len(zip_files)} ZIP files:")
+            for zip_file in zip_files:
+                tqdm.write(f"  - {zip_file}")
+            
+            try:
+                # Load all ZIP files and extract instance information
+                zip_loaders = {}
+                all_instances = []
+                days = 365  # Default, will use from first ZIP
+                
+                for zip_file in zip_files:
+                    loader = ZipDataLoader(zip_file)
+                    metadata = loader.get_metadata()
+                    available_instances = loader.list_available_instances()
+                    
+                    if not available_instances:
+                        tqdm.write(f"[WARNING] No instances found in {zip_file}, skipping")
+                        continue
+                    
+                    # Use first instance from each ZIP file
+                    instance_name = available_instances[0]
+                    loader.instance_name = instance_name
+                   
+                    zip_loaders[instance_name] = loader
+                    all_instances.append(instance_name)
+                    days = metadata.get('days', days)
+                    
+                    tqdm.write(f"  [OK] Loaded instance '{instance_name}' from {os.path.basename(zip_file)}")
+                
+                if not zip_loaders:
+                    tqdm.write("[ERROR] No valid instances found in any ZIP file")
+                    sys.exit(1)
+                
+                tqdm.write(f"\nTotal instances loaded: {len(all_instances)}")
+                tqdm.write(f"Instances: {', '.join(all_instances)}")
+                
+                generated_files = []
+                
+                # Generate aggregated dashboard (if no project filter)
+                if not args.project:
+                    tqdm.write("\n[1/3] Generating aggregated dashboard...")
+                    aggregated_output = f"{args.output}/dashboard_aggregated.html"
+                    
+                    # Get instance configs from metadata with auto-assigned colors
+                    color_map = assign_instance_colors(all_instances)
+                    instance_configs = []
+                    for instance_name in all_instances:
+                        instance_configs.append({
+                            'name': instance_name,
+                            'description': f'{instance_name} Instance',
+                            'color': color_map[instance_name]
+                        })
+                    
+                    # Generate aggregated dashboard
+                    dashboard_path = generate_aggregated_dashboard_from_zips(
+                        zip_loaders,
+                        instance_configs,
+                        aggregated_output,
+                        days
+                    )
+                    generated_files.append(("Aggregated View", dashboard_path))
+                
+                # Generate per-instance dashboards
+                instance_num = 0 if args.project else 2
+                total_steps = len(all_instances) + instance_num
+                current_step = instance_num
+                
+                tqdm.write(f"\n[{current_step+1}/{total_steps}] Generating per-instance dashboards...")
+                for instance_name in all_instances:
+                    loader = zip_loaders[instance_name]
+                    
+                    output_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
+                    os.makedirs(output_folder, exist_ok=True)
+                    
+                    # Get projects for this instance
+                    loader.project_name = None
+                    available_projects = loader.list_available_projects()
+                    
+                    # Filter by project if specified
+                    if args.project:
+                        if args.project not in available_projects:
+                            tqdm.write(f"  [SKIP] Instance '{instance_name}': Project '{args.project}' not found")
+                            continue
+                        
+                        tqdm.write(f"  Generating dashboard for {instance_name} - {args.project}")
+                        loader.project_name = args.project
+                        output_file = f"{output_folder}/dashboard_{args.project.replace(' ', '_')}.html"
+                        dashboard_path = generate_html_dashboard(
+                            output_file, 
+                            args.project, 
+                            instance_name, 
+                            loader, 
+                            cache=None, 
+                            use_cache=False, 
+                            days=days
+                        )
+                        generated_files.append((f"{instance_name} - {args.project}", dashboard_path))
+                    else:
+                        # Instance-level dashboard
+                        tqdm.write(f"  Generating instance dashboard: {instance_name}")
+                        output_file = f"{output_folder}/dashboard.html"
+                        dashboard_path = generate_html_dashboard(
+                            output_file, 
+                            None, 
+                            instance_name, 
+                            loader, 
+                            cache=None, 
+                            use_cache=False, 
+                            days=days
+                        )
+                        generated_files.append((f"{instance_name} - All Projects", dashboard_path))
+                        
+                        # Project-level dashboards
+                        for project_name in available_projects:
+                            tqdm.write(f"    • Project: {project_name}")
+                            loader.project_name = project_name
+                            output_file = f"{output_folder}/dashboard_{project_name.replace(' ', '_')}.html"
+                            dashboard_path = generate_html_dashboard(
+                                output_file, 
+                                project_name, 
+                                instance_name, 
+                                loader, 
+                                cache=None, 
+                                use_cache=False, 
+                                days=days
+                            )
+                            generated_files.append((f"{instance_name} - {project_name}", dashboard_path))
+                
+                # Summary
+                tqdm.write("\n" + "=" * 80)
+                tqdm.write(f"[SUCCESS] Multi-instance dashboards generated successfully!")
+                tqdm.write(f"  Total ZIP files: {len(zip_files)}")
+                tqdm.write(f"  Total instances: {len(all_instances)}")
+                tqdm.write(f"  Total dashboards: {len(generated_files)}")
+                tqdm.write("\nGenerated dashboards:")
+                for name, path in generated_files:
+                    tqdm.write(f"  • {name}: {path}")
+                
+                # Open in browser
+                if not args.no_browser and generated_files:
+                    main_dashboard = generated_files[0][1]
+                    tqdm.write(f"\nOpening dashboard in browser: {main_dashboard}")
+                    webbrowser.open('file://' + os.path.abspath(main_dashboard))
+                
+                return
+            
+            except Exception as e:
+                tqdm.write(f"[ERROR] Failed to process ZIP files: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+        
+        # ==============================================================
+        # SINGLE-ZIP MODE - One ZIP file provided
+        # ==============================================================
+        else:
+            zip_file = zip_files[0]
+            tqdm.write(f"\n[ZIP File Mode] Using exported data: {zip_file}")
+            
+            # Load ZIP data
+            try:
+                zip_loader = ZipDataLoader(zip_file, instance_name=args.instance)
+                metadata = zip_loader.get_metadata()
+                
+                tqdm.write(f"  Export date: {metadata.get('export_date', 'Unknown')}")
+                tqdm.write(f"  Trend period: {metadata.get('days', 'Unknown')} days")
+                
+                available_instances = zip_loader.list_available_instances()
+                tqdm.write(f"  Available instances: {', '.join(available_instances)}")
+                
+                # Auto-select instance if not specified
+                if not args.instance and available_instances:
+                    args.instance = available_instances[0]
+                    tqdm.write(f"  Auto-selected instance: {args.instance}")
+                    zip_loader.instance_name = args.instance
+                
+                # Get available projects
+                available_projects = zip_loader.list_available_projects()
+                tqdm.write(f"  Available projects: {', '.join(available_projects) if available_projects else 'None'}")
+                
+                generated_files = []
+                
+                if args.project:
+                    # Generate dashboard for specific project
+                    if args.project not in available_projects:
+                        tqdm.write(f"\n[ERROR] Project '{args.project}' not found in ZIP file")
+                        tqdm.write(f"Available projects: {', '.join(available_projects)}")
+                        sys.exit(1)
+                    
+                    tqdm.write(f"\nGenerating dashboard for project: {args.project}")
+                    zip_loader.project_name = args.project
+                    
+                    output_folder = f"{args.output}/{args.instance.replace(' ', '_')}" if args.instance else args.output
+                    os.makedirs(output_folder, exist_ok=True)
+                    output_file = f"{output_folder}/dashboard_{args.project.replace(' ', '_')}.html"
+                    
+                    dashboard_path = generate_html_dashboard(
+                        output_file, 
+                        args.project, 
+                        args.instance, 
+                        zip_loader, 
+                        cache=None, 
+                        use_cache=False, 
+                        days=metadata.get('days', 365)
+                    )
+                    generated_files.append((f"{args.instance} - {args.project}", dashboard_path))
+                else:
+                    # Generate dashboards for all projects
+                    tqdm.write(f"\nGenerating dashboards for all projects in {args.instance}...")
+                    
+                    output_folder = f"{args.output}/{args.instance.replace(' ', '_')}" if args.instance else args.output
+                    os.makedirs(output_folder, exist_ok=True)
+                    
+                    # Generate aggregated dashboard first (even for single instance)
+                    tqdm.write(f"  Generating aggregated dashboard...")
+                    zip_loaders_dict = {args.instance: zip_loader}
+                    # Auto-assign color for single instance
+                    color_map = assign_instance_colors([args.instance])
+                    instance_configs = [{
+                        'name': args.instance,
+                        'description': f'{args.instance} Instance',
+                        'color': color_map[args.instance]
+                    }]
+                    aggregated_output = f"{args.output}/dashboard_aggregated.html"
+                    dashboard_path = generate_aggregated_dashboard_from_zips(
+                        zip_loaders_dict,
+                        instance_configs,
+                        aggregated_output,
+                        metadata.get('days', 365)
+                    )
+                    generated_files.append(("Aggregated View", dashboard_path))
+                    
+                    # Instance-level dashboard (all projects)
+                    tqdm.write(f"  Generating instance dashboard: {args.instance}")
+                    output_file = f"{output_folder}/dashboard.html"
+                    zip_loader.project_name = None
+                    dashboard_path = generate_html_dashboard(
+                        output_file, 
+                        None, 
+                        args.instance, 
+                        zip_loader, 
+                        cache=None, 
+                        use_cache=False, 
+                        days=metadata.get('days', 365)
+                    )
+                    generated_files.append((f"{args.instance} - All Projects", dashboard_path))
+                    
+                    # Project-level dashboards
+                    for project_name in available_projects:
+                        tqdm.write(f"  Generating project dashboard: {project_name}")
+                        zip_loader.project_name = project_name
+                        output_file = f"{output_folder}/dashboard_{project_name.replace(' ', '_')}.html"
+                        dashboard_path = generate_html_dashboard(
+                            output_file, 
+                            project_name, 
+                            args.instance, 
+                            zip_loader, 
+                            cache=None, 
+                            use_cache=False, 
+                            days=metadata.get('days', 365)
+                        )
+                        generated_files.append((f"{args.instance} - {project_name}", dashboard_path))
+                
+                # Summary
+                tqdm.write("\n" + "=" * 80)
+                tqdm.write(f"[SUCCESS] Dashboard(s) generated successfully!")
+                tqdm.write(f"  Total dashboards: {len(generated_files)}")
+                for name, path in generated_files:
+                    tqdm.write(f"    {name}: {path}")
+                
+                # Open in browser
+                if not args.no_browser and generated_files:
+                    main_dashboard = generated_files[0][1]
+                    tqdm.write(f"\nOpening dashboard in browser: {main_dashboard}")
+                    webbrowser.open('file://' + os.path.abspath(main_dashboard))
+                
+                return
+            
+            except Exception as e:
+                tqdm.write(f"[ERROR] Failed to process ZIP file: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                sys.exit(1)
+    
+    # ========================================================================
+    # DATABASE MODE - Continue with normal database logic
+    # ========================================================================
     
     # Auto-detect multi-instance configuration
     is_multi_instance, instance_count, config_data = detect_multi_instance_config(args.config)

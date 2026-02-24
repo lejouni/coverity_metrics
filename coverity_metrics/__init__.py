@@ -8,6 +8,7 @@ Main components:
 - CoverityMetrics: Core metrics calculation engine
 - MultiInstanceMetrics: Multi-instance aggregation and management
 - MetricsCache: Performance caching layer
+- ZipDataLoader: Read metrics from exported ZIP files
 - CLI tools: Command-line interface for dashboard generation and reporting
 """
 
@@ -16,6 +17,7 @@ from coverity_metrics.metrics import CoverityMetrics
 from coverity_metrics.multi_instance_metrics import MultiInstanceMetrics, InstanceConfig
 from coverity_metrics.db_connection import CoverityDatabase
 from coverity_metrics.metrics_cache import MetricsCache
+from coverity_metrics.zip_data_loader import ZipDataLoader
 
 __all__ = [
     "__version__",
@@ -26,4 +28,5 @@ __all__ = [
     "InstanceConfig",
     "CoverityDatabase",
     "MetricsCache",
+    "ZipDataLoader",
 ]
