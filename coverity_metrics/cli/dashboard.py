@@ -214,8 +214,10 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         user_activity_stats = metrics.get_user_license_statistics(days=days)
         
         # Collect trend analysis data
-        defect_trends = metrics.get_defect_trends(days=days, granularity='week').to_dict('records')
-        triage_trends = metrics.get_triage_trends(days=days).to_dict('records')
+        # Use daily granularity for project-level reports, weekly for instance-level
+        granularity = 'day' if project_name else 'week'
+        defect_trends = metrics.get_defect_trends(days=days, granularity=granularity).to_dict('records')
+        triage_trends = metrics.get_triage_trends(days=days, granularity=granularity).to_dict('records')
         fix_rate_metrics = metrics.get_fix_rate_metrics(days=days)
         defect_aging = metrics.get_defect_aging_distribution().to_dict('records')
         triage_summary = metrics.get_triage_progress_summary()
@@ -385,8 +387,10 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
     user_activity_stats = metrics.get_user_license_statistics(days=days)
     
     # Collect trend analysis data
-    defect_trends = metrics.get_defect_trends(days=days, granularity='week').to_dict('records')
-    triage_trends = metrics.get_triage_trends(days=days).to_dict('records')
+    # Use daily granularity for project-level reports, weekly for instance-level
+    granularity = 'day' if project_name else 'week'
+    defect_trends = metrics.get_defect_trends(days=days, granularity=granularity).to_dict('records')
+    triage_trends = metrics.get_triage_trends(days=days, granularity=granularity).to_dict('records')
     fix_rate_metrics = metrics.get_fix_rate_metrics(days=days)
     defect_aging = metrics.get_defect_aging_distribution().to_dict('records')
     triage_summary = metrics.get_triage_progress_summary()
@@ -846,8 +850,12 @@ def main():
         # ========================================================================
         # SINGLE-INSTANCE MODE
         # ========================================================================
-        # For single-instance mode, read first enabled instance from config.json
+        # For single-instance mode, we still generate aggregated dashboard for consistency
+        from coverity_metrics.multi_instance_metrics import MultiInstanceMetrics
+        
+        # Read first enabled instance from config.json
         connection_params = None
+        instance_name = None
         if config_data and config_data.get('instances'):
             enabled_instances = [inst for inst in config_data['instances'] if inst.get('enabled', True)]
             if enabled_instances:
@@ -859,29 +867,76 @@ def main():
                     'user': first_instance['database']['user'],
                     'password': first_instance['database']['password']
                 }
-                tqdm.write(f"  Using instance: {first_instance['name']}")
+                instance_name = first_instance['name']
+                tqdm.write(f"  Using instance: {instance_name}")
         
         if not connection_params:
             tqdm.write("\n[ERROR] No database configuration found in config.json")
             tqdm.write("Please configure at least one instance in config.json")
             sys.exit(1)
         
-        # Generate single dashboard
-        os.makedirs(args.output, exist_ok=True)
-        if args.project:
-            # Project-specific dashboard
-            output_file = f"{args.output}/dashboard_{args.project.replace(' ', '_')}.html"
-        else:
-            # All projects dashboard
-            output_file = f"{args.output}/dashboard.html"
-        
         # Create metrics instance with connection params from config.json
         metrics = CoverityMetrics(connection_params=connection_params)
-        dashboard_path = generate_html_dashboard(output_file, args.project, None, metrics, cache, use_cache, args.days)
         
-        if not args.no_browser:
+        # Use same folder structure as multi-instance mode
+        generated_files = []
+        
+        if args.project:
+            # Specific project only
+            tqdm.write(f"\nGenerating dashboard for project: {args.project}")
+            instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
+            os.makedirs(instance_folder, exist_ok=True)
+            output_file = f"{instance_folder}/dashboard_{args.project.replace(' ', '_')}.html"
+            dashboard_path = generate_html_dashboard(output_file, args.project, instance_name, metrics, cache, use_cache, args.days)
+            generated_files.append((f"{instance_name} - {args.project}", dashboard_path))
+        else:
+            # All projects (AUTO MODE) - same as multi-instance
+            tqdm.write(f"\nGenerating all dashboards for instance: {instance_name}")
+            projects = metrics.get_available_projects()
+            
+            # Calculate total work: aggregated + instance + projects
+            total_dashboards = 1 + 1 + (len(projects) if not projects.empty else 0)  # 1 aggregated + 1 instance + N projects
+            tqdm.write(f"  Total dashboards to generate: {total_dashboards} (1 aggregated + 1 instance + {len(projects) if not projects.empty else 0} projects)")
+            
+            with tqdm(total=total_dashboards, desc=f"{instance_name}", unit="dashboard") as pbar:
+                # Generate aggregated dashboard (even for single instance, for consistency)
+                pbar.set_description("Aggregated View")
+                multi_metrics = MultiInstanceMetrics(args.config)
+                os.makedirs(args.output, exist_ok=True)
+                output_file = f"{args.output}/dashboard_aggregated.html"
+                dashboard_path = generate_aggregated_dashboard(multi_metrics, output_file, args.days)
+                generated_files.append(("Aggregated View", dashboard_path))
+                pbar.update(1)
+                
+                # Generate instance-level dashboard (all projects)
+                instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
+                os.makedirs(instance_folder, exist_ok=True)
+                pbar.set_description(f"{instance_name} - Overview")
+                output_file = f"{instance_folder}/dashboard.html"
+                dashboard_path = generate_html_dashboard(output_file, None, instance_name, metrics, cache, use_cache, args.days)
+                generated_files.append((f"{instance_name} - All Projects", dashboard_path))
+                pbar.update(1)
+                
+                # Generate project-level dashboards
+                if not projects.empty:
+                    for idx, project in enumerate(projects['project_name'], 1):
+                        pbar.set_description(f"{instance_name} - {project}")
+                        pbar.set_postfix_str(f"{idx}/{len(projects)}")
+                        # Create a new metrics instance with project filter
+                        metrics_proj = CoverityMetrics(connection_params=connection_params, project_name=project)
+                        output_file = f"{instance_folder}/dashboard_{project.replace(' ', '_')}.html"
+                        dashboard_path = generate_html_dashboard(output_file, project, instance_name, metrics_proj, cache, use_cache, args.days)
+                        generated_files.append((f"{instance_name} - {project}", dashboard_path))
+                        pbar.update(1)
+        
+        # Summary and completion
+        tqdm.write("\n" + "=" * 80)
+        tqdm.write(f"[SUCCESS] Generated {len(generated_files)} dashboard(s)!")
+        tqdm.write("=" * 80)
+        
+        if generated_files and not args.no_browser:
             tqdm.write("\nOpening dashboard in default browser...")
-            webbrowser.open('file://' + dashboard_path)
+            webbrowser.open('file://' + os.path.abspath(generated_files[0][1]))
             tqdm.write("[OK] Dashboard opened")
         
         tqdm.write("\n" + "=" * 80)

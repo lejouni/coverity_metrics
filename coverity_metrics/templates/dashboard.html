@@ -780,9 +780,9 @@
                         <td class="metric-number">{{ row.outstanding|int }}</td>
                         <td>
                             <div class="progress-bar">
-                                <div class="progress-fill" style="width: {{ [row.fix_efficiency_pct, 100]|min }}%"></div>
+                                <div class="progress-fill" style="width: {{ [row.fix_efficiency_pct|default(0), 100]|min }}%"></div>
                             </div>
-                            {{ row.fix_efficiency_pct }}%
+                            {{ row.fix_efficiency_pct|default(0) }}%
                         </td>
                     </tr>
                     {% endfor %}
@@ -810,22 +810,22 @@
                 </div>
                 <div class="summary-card">
                     <div class="label">Avg Days to Fix</div>
-                    <div class="value" style="font-size: 2rem;">{{ (fix_rate_metrics.avg_days_to_fix|round(1)) if fix_rate_metrics.avg_days_to_fix else 'N/A' }}</div>
+                    <div class="value" style="font-size: 2rem;">{{ (fix_rate_metrics.avg_days_to_fix|round(1)) if fix_rate_metrics.avg_days_to_fix is not none else 'N/A' }}</div>
                 </div>
             </div>
 
             <div class="grid-2col">
                 <div class="summary-card">
                     <div class="label">Median Fix Time</div>
-                    <div class="value">{{ (fix_rate_metrics.median_days_to_fix|round(1)) if fix_rate_metrics.median_days_to_fix else 'N/A' }} days</div>
+                    <div class="value">{{ (fix_rate_metrics.median_days_to_fix|round(1)) if fix_rate_metrics.median_days_to_fix is not none else 'N/A' }} days</div>
                 </div>
                 <div class="summary-card success">
                     <div class="label">Fastest Fix</div>
-                    <div class="value">{{ (fix_rate_metrics.min_days_to_fix|round(1)) if fix_rate_metrics.min_days_to_fix else 'N/A' }} days</div>
+                    <div class="value">{{ (fix_rate_metrics.min_days_to_fix|round(1)) if fix_rate_metrics.min_days_to_fix is not none else 'N/A' }} days</div>
                 </div>
                 <div class="summary-card warning">
                     <div class="label">Slowest Fix</div>
-                    <div class="value">{{ (fix_rate_metrics.max_days_to_fix|round(1)) if fix_rate_metrics.max_days_to_fix else 'N/A' }} days</div>
+                    <div class="value">{{ (fix_rate_metrics.max_days_to_fix|round(1)) if fix_rate_metrics.max_days_to_fix is not none else 'N/A' }} days</div>
                 </div>
             </div>
         </div>
@@ -908,22 +908,20 @@
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Date</th>
+                        <th>Period</th>
                         <th>Classification</th>
-                        <th>Action</th>
                         <th>Count</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for row in triage_trends[:50] %}
                     <tr>
-                        <td>{{ row.detected_date }}</td>
+                        <td>{{ row.period }}</td>
                         <td>
                             <span class="severity-badge {% if row.classification == 'Bug' %}severity-high{% elif row.classification == 'False Positive' %}severity-low{% else %}severity-medium{% endif %}">
                                 {{ row.classification }}
                             </span>
                         </td>
-                        <td>{{ row.action }}</td>
                         <td class="metric-number">{{ row.count }}</td>
                     </tr>
                     {% endfor %}
@@ -986,7 +984,7 @@
             <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(52, 152, 219, 0.1); border-radius: 8px; border-left: 4px solid var(--secondary-color);">
                 <strong>📊 Definition of Activity:</strong>
                 <ul style="margin: 0.5rem 0 0 1.5rem; line-height: 1.8;">
-                    <li><strong>Licensed Users:</strong> All user accounts in the system (not deleted)</li>
+                    <li><strong>Licensed Users:</strong> All user accounts in the system (excludes deleted and internal users: 'system', 'reporter')</li>
                     <li><strong>Users with Login:</strong> Users who have logged in at least once (ever)</li>
                     <li><strong>Active Users:</strong> Users who logged in OR performed triage actions within {{ trend_period_text.lower() }}</li>
                     <li><strong>Inactive Licenses:</strong> Licensed users without recent activity</li>
@@ -2065,7 +2063,7 @@
             marker: {color: '#27ae60'}
         }, {
             x: [{% for row in defect_velocity %}'{{ row.snapshot_date }}'{% if not loop.last %}, {% endif %}{% endfor %}],
-            y: [{% for row in defect_velocity %}{{ row.fix_efficiency_pct }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in defect_velocity %}{{ row.fix_efficiency_pct|default(0) }}{% if not loop.last %}, {% endif %}{% endfor %}],
             name: 'Fix Efficiency %',
             type: 'scatter',
             mode: 'lines+markers',
@@ -2120,10 +2118,10 @@
         // Triage Trends Chart - Group by classification over time
         var triageByDate = {};
         {% for row in triage_trends %}
-        if (!triageByDate['{{ row.detected_date }}']) {
-            triageByDate['{{ row.detected_date }}'] = {};
+        if (!triageByDate['{{ row.period }}']) {
+            triageByDate['{{ row.period }}'] = {};
         }
-        triageByDate['{{ row.detected_date }}']['{{ row.classification }}'] = {{ row.count }};
+        triageByDate['{{ row.period }}']['{{ row.classification }}'] = {{ row.count }};
         {% endfor %}
 
         var triageDates = Object.keys(triageByDate).sort();
@@ -2176,7 +2174,7 @@
         var triageTrendsLayout = {
             title: 'Triage Activity Over Time',
             height: 400,
-            xaxis: {title: 'Date'},
+            xaxis: {title: 'Period'},
             yaxis: {title: 'Defect Count'},
             showlegend: true
         };

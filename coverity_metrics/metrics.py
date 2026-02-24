@@ -28,6 +28,7 @@ class CoverityMetrics:
     
     def get_total_defects_by_project(self):
         """Get total defect count grouped by project
+        Includes both code-based fixes and triaged defects (False Positive/Intentional)
         
         Returns:
             pandas.DataFrame: Project name and defect count
@@ -36,13 +37,23 @@ class CoverityMetrics:
             SELECT 
                 p.name as project_name,
                 COUNT(DISTINCT sd.id) as defect_count,
-                COUNT(DISTINCT CASE WHEN sd.fixed_snapshot_element_id IS NULL THEN sd.id END) as active_defects,
-                COUNT(DISTINCT CASE WHEN sd.fixed_snapshot_element_id IS NOT NULL THEN sd.id END) as fixed_defects
+                COUNT(DISTINCT CASE 
+                    WHEN sd.fixed_snapshot_element_id IS NULL 
+                        AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
+                    THEN sd.id 
+                END) as active_defects,
+                COUNT(DISTINCT CASE 
+                    WHEN sd.fixed_snapshot_element_id IS NOT NULL 
+                        OR de_cls.name IN ('False Positive', 'Intentional')
+                    THEN sd.id 
+                END) as fixed_defects
             FROM project p
             JOIN project_stream ps ON p.id = ps.project_id
             JOIN stream s ON ps.stream_id = s.id
             JOIN stream_element se ON s.id = se.stream_id
             LEFT JOIN stream_defect sd ON se.id = sd.stream_element_id
+            LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+            LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
             WHERE p.deleted = false AND s.deleted = false
                 AND p.name != 'Developer Streams'
                 {project_filter}
@@ -505,8 +516,8 @@ class CoverityMetrics:
                 - users_with_login: Users who have logged in at least once
                 - active_users: Users with commits or triage activity in given period
         """
-        # Total licensed users (all users in the system)
-        total_users_query = "SELECT COUNT(*) FROM users WHERE deleted = false"
+        # Total licensed users (all users in the system, excluding system and internal users)
+        total_users_query = "SELECT COUNT(*) FROM users WHERE deleted = false AND username NOT IN ('system', 'reporter')"
         total_users_result = self.db.execute_query(total_users_query)
         total_licensed_users = total_users_result[0][0] if total_users_result else 0
         
@@ -516,6 +527,7 @@ class CoverityMetrics:
             FROM users u
             INNER JOIN user_login ul ON u.id = ul.user_id
             WHERE u.deleted = false
+                AND u.username NOT IN ('system', 'reporter')
         """
         users_with_login_result = self.db.execute_query(users_with_login_query)
         users_with_login = users_with_login_result[0][0] if users_with_login_result else 0
@@ -528,16 +540,20 @@ class CoverityMetrics:
                 -- Users who performed triage actions
                 SELECT DISTINCT ts.user_created_id as user_id
                 FROM triage_state ts
+                JOIN users u ON ts.user_created_id = u.id
                 WHERE ts.date_created >= CURRENT_DATE - INTERVAL '{days} days'
                     AND ts.user_created_id IS NOT NULL
+                    AND u.username NOT IN ('system', 'reporter')
                 
                 UNION
                 
                 -- Users who had login activity (showing engagement)
                 SELECT DISTINCT ul.user_id
                 FROM user_login ul
+                JOIN users u ON ul.user_id = u.id
                 WHERE ul.session_start >= CURRENT_DATE - INTERVAL '{days} days'
                     AND ul.user_id IS NOT NULL
+                    AND u.username NOT IN ('system', 'reporter')
             ) active_user_list
         """
         active_users_result = self.db.execute_query(active_users_query)
@@ -1305,6 +1321,7 @@ class CoverityMetrics:
     
     def get_defect_trends(self, days=90, granularity='week'):
         """Get defect trends over time showing new, fixed, and outstanding defects
+        Includes both code-based fixes and triaged defects (False Positive/Intentional)
         
         Args:
             days: Number of days to analyze
@@ -1326,7 +1343,7 @@ class CoverityMetrics:
                 SELECT 
                     {date_trunc} as period,
                     SUM(sn.new_defect_count) as new_defects,
-                    SUM(sn.eliminated_defect_count) as fixed_defects,
+                    SUM(sn.eliminated_defect_count) as code_fixed_defects,
                     AVG(sn.total_defect_count) as avg_outstanding_defects,
                     MAX(sn.total_defect_count) as max_outstanding_defects
                 FROM snapshot sn
@@ -1335,17 +1352,36 @@ class CoverityMetrics:
                     AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
                     {{project_filter}}
                 GROUP BY period
-                ORDER BY period ASC
+            ),
+            triaged_metrics AS (
+                -- Count defects triaged as False Positive or Intentional in each period
+                SELECT 
+                    {date_trunc.replace('sn.date_created', 'ts.date_created')} as period,
+                    COUNT(DISTINCT sd.id) as triaged_defects
+                FROM stream_defect sd
+                JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                JOIN triage_state ts ON dt.current_triage_state_id = ts.id
+                JOIN dynamic_enum de ON dt.current_classification_id = de.id
+                JOIN stream_element se ON sd.stream_element_id = se.id
+                JOIN stream s ON se.stream_id = s.id
+                {{project_filter_join_triage}}
+                WHERE de.dtype = 'Cls'
+                    AND de.name IN ('False Positive', 'Intentional')
+                    AND sd.fixed_snapshot_element_id IS NULL
+                    AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    {{project_filter_triage}}
+                GROUP BY period
             )
             SELECT 
-                period,
-                new_defects,
-                fixed_defects,
-                ROUND(avg_outstanding_defects::numeric, 0) as outstanding_defects,
-                max_outstanding_defects,
-                (new_defects - fixed_defects) as net_change
-            FROM snapshot_metrics
-            ORDER BY period ASC
+                COALESCE(sm.period, tm.period) as period,
+                COALESCE(sm.new_defects, 0) as new_defects,
+                COALESCE(sm.code_fixed_defects, 0) + COALESCE(tm.triaged_defects, 0) as fixed_defects,
+                ROUND(COALESCE(sm.avg_outstanding_defects, 0)::numeric, 0) as outstanding_defects,
+                COALESCE(sm.max_outstanding_defects, 0) as max_outstanding_defects,
+                (COALESCE(sm.new_defects, 0) - (COALESCE(sm.code_fixed_defects, 0) + COALESCE(tm.triaged_defects, 0))) as net_change
+            FROM snapshot_metrics sm
+            FULL OUTER JOIN triaged_metrics tm ON sm.period = tm.period
+            ORDER BY COALESCE(sm.period, tm.period) ASC
         """
         
         if self.project_name:
@@ -1355,57 +1391,77 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
+                project_filter="AND p.name = %s",
+                project_filter_join_triage="""
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
+                project_filter_triage="AND p.name = %s"
+            )
+            results = self.db.execute_query_dict(query, (days, self.project_name, days, self.project_name))
+        else:
+            query = query.format(
+                project_filter_join="", 
+                project_filter="",
+                project_filter_join_triage="",
+                project_filter_triage=""
+            )
+            results = self.db.execute_query_dict(query, (days, days))
+        
+        return pd.DataFrame(results)
+    
+    def get_triage_trends(self, days=90, granularity='week'):
+        """Get defect triage/classification trends over time
+        
+        Shows when defects were triaged (classified) over the specified time period.
+        Groups by time period to show triage activity trends.
+        
+        Args:
+            days: Number of days to analyze
+            granularity: 'day', 'week', or 'month'
+            
+        Returns:
+            pandas.DataFrame: Triage activity trends over time with classification counts
+        """
+        # Map granularity to SQL date truncation
+        trunc_map = {
+            'day': 'DATE(ts.date_created)',
+            'week': 'DATE_TRUNC(\'week\', ts.date_created)::date',
+            'month': 'DATE_TRUNC(\'month\', ts.date_created)::date'
+        }
+        date_trunc = trunc_map.get(granularity, trunc_map['week'])
+        
+        query = f"""
+            SELECT 
+                {date_trunc} as period,
+                de.name as classification,
+                COUNT(DISTINCT sd.id) as count
+            FROM stream_defect sd
+            JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+            JOIN triage_state ts ON dt.current_triage_state_id = ts.id
+            JOIN dynamic_enum de ON dt.current_classification_id = de.id
+            JOIN stream_element se ON sd.stream_element_id = se.id
+            JOIN stream s ON se.stream_id = s.id
+            {{project_filter_join}}
+            WHERE de.dtype = 'Cls'
+                AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                {{project_filter}}
+            GROUP BY {date_trunc}, de.name
+            ORDER BY {date_trunc} ASC, de.name
+        """
+        
+        if self.project_name:
+            query = query.format(
+                project_filter_join="""
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
                 project_filter="AND p.name = %s"
             )
             results = self.db.execute_query_dict(query, (days, self.project_name))
         else:
             query = query.format(project_filter_join="", project_filter="")
             results = self.db.execute_query_dict(query, (days,))
-        
-        return pd.DataFrame(results)
-    
-    def get_triage_trends(self, days=90):
-        """Get defect triage/classification trends over time
-        
-        Args:
-            days: Number of days to analyze
-            
-        Returns:
-            pandas.DataFrame: Triage status trends over time
-        """
-        # Use snapshot dates to show trending of classified vs unclassified defects
-        query = """
-            WITH classification_data AS (
-                SELECT 
-                    de.name as classification,
-                    COUNT(dt.id) as count
-                FROM defect_triage dt
-                JOIN dynamic_enum de ON dt.current_classification_id = de.id
-                LEFT JOIN stream_defect sd ON dt.id = sd.defect_triage_id
-                LEFT JOIN stream_element se ON sd.stream_element_id = se.id
-                LEFT JOIN stream s ON se.stream_id = s.id
-                LEFT JOIN project_stream ps ON s.id = ps.stream_id
-                LEFT JOIN project p ON ps.project_id = p.id
-                WHERE de.dtype = 'Cls'
-                    AND sd.fixed_snapshot_element_id IS NULL
-                    {project_filter}
-                GROUP BY de.name
-            )
-            SELECT 
-                CURRENT_DATE as detected_date,
-                classification,
-                'Current' as action,
-                count
-            FROM classification_data
-            ORDER BY count DESC
-        """
-        
-        if self.project_name:
-            query = query.format(project_filter="AND p.name = %s")
-            results = self.db.execute_query_dict(query, (self.project_name,))
-        else:
-            query = query.format(project_filter="")
-            results = self.db.execute_query_dict(query)
         
         return pd.DataFrame(results)
     
@@ -1422,23 +1478,87 @@ class CoverityMetrics:
             WITH fix_stats AS (
                 SELECT 
                     SUM(sn.new_defect_count) as total_new,
-                    SUM(sn.eliminated_defect_count) as total_fixed,
+                    SUM(sn.eliminated_defect_count) as code_fixed,
                     AVG(sn.total_defect_count) as avg_outstanding
                 FROM snapshot sn
                 {project_filter_join}
                 WHERE sn.deleted = false
                     AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
                     {project_filter}
+            ),
+            triaged_stats AS (
+                -- Count defects triaged as False Positive or Intentional
+                SELECT 
+                    COUNT(DISTINCT sd.id) as triaged_fixed
+                FROM stream_defect sd
+                JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                JOIN triage_state ts ON dt.current_triage_state_id = ts.id
+                JOIN dynamic_enum de ON dt.current_classification_id = de.id
+                JOIN stream_element se ON sd.stream_element_id = se.id
+                JOIN stream s ON se.stream_id = s.id
+                {project_filter_join_triaged_stats}
+                WHERE de.dtype = 'Cls'
+                    AND de.name IN ('False Positive', 'Intentional')
+                    AND sd.fixed_snapshot_element_id IS NULL
+                    AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    {project_filter_triaged_stats}
+            ),
+            fix_times AS (
+                -- Calculate actual fix times using snapshot_element and snapshot
+                -- Includes both: defects removed from code + defects triaged as FP/Intentional
+                SELECT 
+                    EXTRACT(EPOCH FROM (sn_fix.date_created - sn_detect.date_created)) / 86400.0 as days_to_fix
+                FROM stream_defect sd
+                -- Join to get detection snapshot date
+                JOIN snapshot_element se_detect ON sd.first_snapshot_element_id = se_detect.id
+                JOIN snapshot sn_detect ON se_detect.snapshot_id = sn_detect.id
+                -- Join to get fix snapshot date
+                JOIN snapshot_element se_fix ON sd.fixed_snapshot_element_id = se_fix.id
+                JOIN snapshot sn_fix ON se_fix.snapshot_id = sn_fix.id
+                -- Join to stream for project filtering
+                JOIN stream_element se ON sd.stream_element_id = se.id
+                JOIN stream s ON se.stream_id = s.id
+                {project_filter_join_fix}
+                WHERE sd.fixed_snapshot_element_id IS NOT NULL
+                    AND sd.first_snapshot_element_id IS NOT NULL
+                    AND sn_fix.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND sn_fix.date_created > sn_detect.date_created
+                    {project_filter_fix}
+                
+                UNION ALL
+                
+                -- Include defects triaged as False Positive or Intentional
+                SELECT 
+                    EXTRACT(EPOCH FROM (ts.date_created - sn_detect.date_created)) / 86400.0 as days_to_fix
+                FROM stream_defect sd
+                -- Join to get detection snapshot date
+                JOIN snapshot_element se_detect ON sd.first_snapshot_element_id = se_detect.id
+                JOIN snapshot sn_detect ON se_detect.snapshot_id = sn_detect.id
+                -- Join to get triage classification
+                JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                JOIN triage_state ts ON dt.current_triage_state_id = ts.id
+                JOIN dynamic_enum de ON dt.current_classification_id = de.id
+                -- Join to stream for project filtering
+                JOIN stream_element se ON sd.stream_element_id = se.id
+                JOIN stream s ON se.stream_id = s.id
+                {project_filter_join_triage}
+                WHERE de.dtype = 'Cls'
+                    AND de.name IN ('False Positive', 'Intentional')
+                    AND sd.fixed_snapshot_element_id IS NULL  -- Not already counted in code-based fixes
+                    AND sd.first_snapshot_element_id IS NOT NULL
+                    AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND ts.date_created > sn_detect.date_created
+                    {project_filter_triage}
             )
             SELECT 
-                total_new as total_defects,
-                total_fixed as fixed_defects,
-                ROUND((total_fixed::numeric / NULLIF(total_new, 0) * 100), 2) as fix_rate_percentage,
-                ROUND(avg_outstanding, 1) as avg_days_to_fix,
-                ROUND(avg_outstanding, 1) as median_days_to_fix,
-                0 as min_days_to_fix,
-                ROUND(avg_outstanding * 2, 1) as max_days_to_fix
-            FROM fix_stats
+                fs.total_new as total_defects,
+                COALESCE(fs.code_fixed, 0) + COALESCE(ts.triaged_fixed, 0) as fixed_defects,
+                ROUND(((COALESCE(fs.code_fixed, 0) + COALESCE(ts.triaged_fixed, 0))::numeric / NULLIF(fs.total_new, 0) * 100), 2) as fix_rate_percentage,
+                ROUND((SELECT AVG(days_to_fix)::numeric FROM fix_times), 1) as avg_days_to_fix,
+                ROUND((SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY days_to_fix)::numeric FROM fix_times), 1) as median_days_to_fix,
+                ROUND((SELECT MIN(days_to_fix)::numeric FROM fix_times WHERE days_to_fix >= 0), 1) as min_days_to_fix,
+                ROUND((SELECT MAX(days_to_fix)::numeric FROM fix_times), 1) as max_days_to_fix
+            FROM fix_stats fs, triaged_stats ts
         """
         
         if self.project_name:
@@ -1448,17 +1568,42 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s"
+                project_filter="AND p.name = %s",
+                project_filter_join_triaged_stats="""
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
+                project_filter_triaged_stats="AND p.name = %s",
+                project_filter_join_fix="""
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
+                project_filter_fix="AND p.name = %s",
+                project_filter_join_triage="""
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
+                project_filter_triage="AND p.name = %s"
             )
-            result = self.db.execute_query_dict(query, (days, self.project_name))
+            result = self.db.execute_query_dict(query, (days, self.project_name, days, self.project_name, days, self.project_name, days, self.project_name))
         else:
-            query = query.format(project_filter_join="", project_filter="")
-            result = self.db.execute_query_dict(query, (days,))
+            query = query.format(
+                project_filter_join="", 
+                project_filter="",
+                project_filter_join_triaged_stats="",
+                project_filter_triaged_stats="",
+                project_filter_join_fix="",
+                project_filter_fix="",
+                project_filter_join_triage="",
+                project_filter_triage=""
+            )
+            result = self.db.execute_query_dict(query, (days, days, days, days))
         
         return result[0] if result else {}
     
     def get_defect_velocity_trend(self, days=90):
         """Get defect velocity showing introduction rate vs fix rate over time
+        Includes both code-based fixes and triaged defects (False Positive/Intentional)
         
         Args:
             days: Number of days to analyze
@@ -1467,11 +1612,11 @@ class CoverityMetrics:
             pandas.DataFrame: Daily velocities with introduction and fix rates
         """
         query = """
-            WITH daily_metrics AS (
+            WITH daily_snapshot_metrics AS (
                 SELECT 
                     DATE(sn.date_created) as snapshot_date,
                     SUM(sn.new_defect_count) as new_count,
-                    SUM(sn.eliminated_defect_count) as fixed_count,
+                    SUM(sn.eliminated_defect_count) as code_fixed_count,
                     AVG(sn.total_defect_count) as outstanding_count
                 FROM snapshot sn
                 {project_filter_join}
@@ -1479,19 +1624,41 @@ class CoverityMetrics:
                     AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
                     {project_filter}
                 GROUP BY DATE(sn.date_created)
+            ),
+            daily_triaged_metrics AS (
+                -- Count defects triaged as False Positive or Intentional per day
+                SELECT 
+                    DATE(ts.date_created) as snapshot_date,
+                    COUNT(DISTINCT sd.id) as triaged_count
+                FROM stream_defect sd
+                JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                JOIN triage_state ts ON dt.current_triage_state_id = ts.id
+                JOIN dynamic_enum de ON dt.current_classification_id = de.id
+                JOIN stream_element se ON sd.stream_element_id = se.id
+                JOIN stream s ON se.stream_id = s.id
+                {project_filter_join_triage}
+                WHERE de.dtype = 'Cls'
+                    AND de.name IN ('False Positive', 'Intentional')
+                    AND sd.fixed_snapshot_element_id IS NULL
+                    AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    {project_filter_triage}
+                GROUP BY DATE(ts.date_created)
             )
             SELECT 
-                snapshot_date,
-                new_count,
-                fixed_count,
-                (new_count - fixed_count) as net_change,
-                ROUND(outstanding_count::numeric, 0) as outstanding,
+                COALESCE(sm.snapshot_date, tm.snapshot_date) as snapshot_date,
+                COALESCE(sm.new_count, 0) as new_count,
+                COALESCE(sm.code_fixed_count, 0) + COALESCE(tm.triaged_count, 0) as fixed_count,
+                (COALESCE(sm.new_count, 0) - (COALESCE(sm.code_fixed_count, 0) + COALESCE(tm.triaged_count, 0))) as net_change,
+                ROUND(COALESCE(sm.outstanding_count, 0)::numeric, 0) as outstanding,
                 CASE 
-                    WHEN fixed_count > 0 THEN ROUND((fixed_count::numeric / NULLIF(new_count, 0) * 100), 1)
+                    WHEN COALESCE(sm.new_count, 0) = 0 THEN 0
+                    WHEN (COALESCE(sm.code_fixed_count, 0) + COALESCE(tm.triaged_count, 0)) > 0 
+                    THEN ROUND(((COALESCE(sm.code_fixed_count, 0) + COALESCE(tm.triaged_count, 0))::numeric / sm.new_count * 100), 1)
                     ELSE 0
                 END as fix_efficiency_pct
-            FROM daily_metrics
-            ORDER BY snapshot_date ASC
+            FROM daily_snapshot_metrics sm
+            FULL OUTER JOIN daily_triaged_metrics tm ON sm.snapshot_date = tm.snapshot_date
+            ORDER BY COALESCE(sm.snapshot_date, tm.snapshot_date) ASC
         """
         
         if self.project_name:
@@ -1501,17 +1668,28 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s"
+                project_filter="AND p.name = %s",
+                project_filter_join_triage="""
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
+                project_filter_triage="AND p.name = %s"
             )
-            results = self.db.execute_query_dict(query, (days, self.project_name))
+            results = self.db.execute_query_dict(query, (days, self.project_name, days, self.project_name))
         else:
-            query = query.format(project_filter_join="", project_filter="")
-            results = self.db.execute_query_dict(query, (days,))
+            query = query.format(
+                project_filter_join="", 
+                project_filter="",
+                project_filter_join_triage="",
+                project_filter_triage=""
+            )
+            results = self.db.execute_query_dict(query, (days, days))
         
         return pd.DataFrame(results)
     
     def get_cumulative_defect_trend(self, days=90):
         """Get cumulative defect counts over time
+        Includes both code-based fixes and triaged defects (False Positive/Intentional)
         
         Args:
             days: Number of days to analyze
@@ -1520,18 +1698,45 @@ class CoverityMetrics:
             pandas.DataFrame: Cumulative new, fixed, and net defects
         """
         query = """
-            WITH daily_metrics AS (
+            WITH daily_snapshot_metrics AS (
                 SELECT 
                     DATE(sn.date_created) as snapshot_date,
                     SUM(sn.new_defect_count) as daily_new,
-                    SUM(sn.eliminated_defect_count) as daily_fixed
+                    SUM(sn.eliminated_defect_count) as daily_code_fixed
                 FROM snapshot sn
                 {project_filter_join}
                 WHERE sn.deleted = false
                     AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
                     {project_filter}
                 GROUP BY DATE(sn.date_created)
-                ORDER BY DATE(sn.date_created) ASC
+            ),
+            daily_triaged_metrics AS (
+                -- Count defects triaged as False Positive or Intentional per day
+                SELECT 
+                    DATE(ts.date_created) as snapshot_date,
+                    COUNT(DISTINCT sd.id) as daily_triaged
+                FROM stream_defect sd
+                JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                JOIN triage_state ts ON dt.current_triage_state_id = ts.id
+                JOIN dynamic_enum de ON dt.current_classification_id = de.id
+                JOIN stream_element se ON sd.stream_element_id = se.id
+                JOIN stream s ON se.stream_id = s.id
+                {project_filter_join_triage}
+                WHERE de.dtype = 'Cls'
+                    AND de.name IN ('False Positive', 'Intentional')
+                    AND sd.fixed_snapshot_element_id IS NULL
+                    AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    {project_filter_triage}
+                GROUP BY DATE(ts.date_created)
+            ),
+            daily_combined AS (
+                SELECT 
+                    COALESCE(sm.snapshot_date, tm.snapshot_date) as snapshot_date,
+                    COALESCE(sm.daily_new, 0) as daily_new,
+                    COALESCE(sm.daily_code_fixed, 0) + COALESCE(tm.daily_triaged, 0) as daily_fixed
+                FROM daily_snapshot_metrics sm
+                FULL OUTER JOIN daily_triaged_metrics tm ON sm.snapshot_date = tm.snapshot_date
+                ORDER BY snapshot_date ASC
             )
             SELECT 
                 snapshot_date,
@@ -1540,7 +1745,7 @@ class CoverityMetrics:
                 SUM(daily_new) OVER (ORDER BY snapshot_date) as cumulative_new,
                 SUM(daily_fixed) OVER (ORDER BY snapshot_date) as cumulative_fixed,
                 SUM(daily_new - daily_fixed) OVER (ORDER BY snapshot_date) as cumulative_net
-            FROM daily_metrics
+            FROM daily_combined
             ORDER BY snapshot_date ASC
         """
         
@@ -1551,17 +1756,28 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s"
+                project_filter="AND p.name = %s",
+                project_filter_join_triage="""
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
+                project_filter_triage="AND p.name = %s"
             )
-            results = self.db.execute_query_dict(query, (days, self.project_name))
+            results = self.db.execute_query_dict(query, (days, self.project_name, days, self.project_name))
         else:
-            query = query.format(project_filter_join="", project_filter="")
-            results = self.db.execute_query_dict(query, (days,))
+            query = query.format(
+                project_filter_join="", 
+                project_filter="",
+                project_filter_join_triage="",
+                project_filter_triage=""
+            )
+            results = self.db.execute_query_dict(query, (days, days))
         
         return pd.DataFrame(results)
     
     def get_defect_trend_summary(self, days=90):
         """Get summary statistics for defect trends
+        Includes both code-based fixes and triaged defects (False Positive/Intentional)
         
         Args:
             days: Number of days to analyze
@@ -1570,16 +1786,33 @@ class CoverityMetrics:
             dict: Summary statistics including rates and trends
         """
         query = """
-            WITH period_metrics AS (
+            WITH period_snapshot_metrics AS (
                 SELECT 
                     SUM(sn.new_defect_count) as total_new,
-                    SUM(sn.eliminated_defect_count) as total_fixed,
+                    SUM(sn.eliminated_defect_count) as total_code_fixed,
                     COUNT(DISTINCT DATE(sn.date_created)) as days_with_data
                 FROM snapshot sn
                 {project_filter_join_period}
                 WHERE sn.deleted = false
                     AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
                     {project_filter_period}
+            ),
+            period_triaged_metrics AS (
+                -- Count defects triaged as False Positive or Intentional in period
+                SELECT 
+                    COUNT(DISTINCT sd.id) as total_triaged
+                FROM stream_defect sd
+                JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                JOIN triage_state ts ON dt.current_triage_state_id = ts.id
+                JOIN dynamic_enum de ON dt.current_classification_id = de.id
+                JOIN stream_element se ON sd.stream_element_id = se.id
+                JOIN stream s ON se.stream_id = s.id
+                {project_filter_join_triaged}
+                WHERE de.dtype = 'Cls'
+                    AND de.name IN ('False Positive', 'Intentional')
+                    AND sd.fixed_snapshot_element_id IS NULL
+                    AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    {project_filter_triaged}
             ),
             current_state AS (
                 SELECT COUNT(*) as current_outstanding
@@ -1592,18 +1825,18 @@ class CoverityMetrics:
             )
             SELECT 
                 pm.total_new,
-                pm.total_fixed,
-                (pm.total_new - pm.total_fixed) as net_change,
+                (pm.total_code_fixed + COALESCE(tm.total_triaged, 0)) as total_fixed,
+                (pm.total_new - (pm.total_code_fixed + COALESCE(tm.total_triaged, 0))) as net_change,
                 ROUND((pm.total_new::numeric / NULLIF(pm.days_with_data, 0)), 2) as avg_new_per_day,
-                ROUND((pm.total_fixed::numeric / NULLIF(pm.days_with_data, 0)), 2) as avg_fixed_per_day,
-                ROUND(((pm.total_fixed::numeric / NULLIF(pm.total_new, 0)) * 100), 2) as fix_rate_pct,
+                ROUND(((pm.total_code_fixed + COALESCE(tm.total_triaged, 0))::numeric / NULLIF(pm.days_with_data, 0)), 2) as avg_fixed_per_day,
+                ROUND((((pm.total_code_fixed + COALESCE(tm.total_triaged, 0))::numeric / NULLIF(pm.total_new, 0)) * 100), 2) as fix_rate_pct,
                 cs.current_outstanding,
                 CASE 
-                    WHEN pm.total_fixed > pm.total_new THEN 'improving'
-                    WHEN pm.total_fixed < pm.total_new THEN 'declining'
+                    WHEN (pm.total_code_fixed + COALESCE(tm.total_triaged, 0)) > pm.total_new THEN 'improving'
+                    WHEN (pm.total_code_fixed + COALESCE(tm.total_triaged, 0)) < pm.total_new THEN 'declining'
                     ELSE 'stable'
                 END as trend_direction
-            FROM period_metrics pm, current_state cs
+            FROM period_snapshot_metrics pm, period_triaged_metrics tm, current_state cs
         """
         
         if self.project_name:
@@ -1614,45 +1847,93 @@ class CoverityMetrics:
                     JOIN project p ON ps.project_id = p.id
                 """,
                 project_filter_period="AND p.name = %s",
+                project_filter_join_triaged="""
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
+                project_filter_triaged="AND p.name = %s",
                 project_filter_join_current="""
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
                 project_filter_current="AND p.name = %s"
             )
-            result = self.db.execute_query_dict(query, (days, self.project_name, self.project_name))
+            result = self.db.execute_query_dict(query, (days, self.project_name, days, self.project_name, self.project_name))
         else:
             query = query.format(
                 project_filter_join_period="",
                 project_filter_period="",
+                project_filter_join_triaged="",
+                project_filter_triaged="",
                 project_filter_join_current="",
                 project_filter_current=""
             )
-            result = self.db.execute_query_dict(query, (days,))
+            result = self.db.execute_query_dict(query, (days, days))
         
         return result[0] if result else {}
     
     def get_defect_aging_distribution(self):
-        """Get distribution of defect severity for outstanding defects (simplified)
+        """Get distribution of outstanding defects by age ranges
+        
+        Calculates how long outstanding defects have been open based on their first detection date.
+        Groups defects into age ranges and calculates average age and severity breakdown.
         
         Returns:
-            pandas.DataFrame: Age ranges and defect counts
+            pandas.DataFrame: Age ranges with defect counts, average age, and severity breakdown
         """
         query = """
+            WITH defect_ages AS (
+                SELECT 
+                    sd.id,
+                    cp.impact,
+                    CURRENT_DATE - DATE(sn.date_created) as age_days
+                FROM stream_defect sd
+                JOIN checker_properties cp ON sd.checker_properties_id = cp.id
+                JOIN snapshot_element se_first ON sd.first_snapshot_element_id = se_first.id
+                JOIN snapshot sn ON se_first.snapshot_id = sn.id
+                JOIN stream_element se ON sd.stream_element_id = se.id
+                JOIN stream s ON se.stream_id = s.id
+                {project_filter_join}
+                WHERE sd.fixed_snapshot_element_id IS NULL
+                    {project_filter}
+            )
             SELECT 
-                'Current' as age_range,
-                COUNT(sd.id) as defect_count,
-                30 as avg_age_days,
-                COUNT(CASE WHEN cp.impact = 'High' THEN 1 END) as high_severity,
-                COUNT(CASE WHEN cp.impact = 'Medium' THEN 1 END) as medium_severity,
-                COUNT(CASE WHEN cp.impact = 'Low' THEN 1 END) as low_severity
-            FROM stream_defect sd
-            JOIN checker_properties cp ON sd.checker_properties_id = cp.id
-            JOIN stream_element se ON sd.stream_element_id = se.id
-            JOIN stream s ON se.stream_id = s.id
-            {project_filter_join}
-            WHERE sd.fixed_snapshot_element_id IS NULL
-                {project_filter}
+                CASE 
+                    WHEN age_days <= 30 THEN '0-30 days'
+                    WHEN age_days <= 90 THEN '31-90 days'
+                    WHEN age_days <= 180 THEN '91-180 days'
+                    WHEN age_days <= 365 THEN '181-365 days'
+                    ELSE 'Over 1 year'
+                END as age_range,
+                COUNT(*) as defect_count,
+                ROUND(AVG(age_days)::numeric, 0) as avg_age_days,
+                COUNT(CASE WHEN impact = 'High' THEN 1 END) as high_severity,
+                COUNT(CASE WHEN impact = 'Medium' THEN 1 END) as medium_severity,
+                COUNT(CASE WHEN impact = 'Low' THEN 1 END) as low_severity
+            FROM defect_ages
+            GROUP BY 
+                CASE 
+                    WHEN age_days <= 30 THEN '0-30 days'
+                    WHEN age_days <= 90 THEN '31-90 days'
+                    WHEN age_days <= 180 THEN '91-180 days'
+                    WHEN age_days <= 365 THEN '181-365 days'
+                    ELSE 'Over 1 year'
+                END,
+                CASE 
+                    WHEN age_days <= 30 THEN 1
+                    WHEN age_days <= 90 THEN 2
+                    WHEN age_days <= 180 THEN 3
+                    WHEN age_days <= 365 THEN 4
+                    ELSE 5
+                END
+            ORDER BY 
+                CASE 
+                    WHEN age_days <= 30 THEN 1
+                    WHEN age_days <= 90 THEN 2
+                    WHEN age_days <= 180 THEN 3
+                    WHEN age_days <= 365 THEN 4
+                    ELSE 5
+                END
         """
         
         if self.project_name:
@@ -1711,6 +1992,9 @@ class CoverityMetrics:
     def get_technical_debt_summary(self):
         """Calculate estimated technical debt based on defect impact levels
         
+        Excludes defects triaged as False Positive or Intentional (already resolved).
+        Only counts defects that require actual remediation work.
+        
         Estimation formula:
         - High impact: 4 hours per defect
         - Medium impact: 2 hours per defect  
@@ -1734,8 +2018,12 @@ class CoverityMetrics:
             JOIN checker_properties cp ON sd.checker_properties_id = cp.id
             JOIN stream_element se ON sd.stream_element_id = se.id
             JOIN stream s ON se.stream_id = s.id
+            -- Join to exclude False Positive and Intentional classifications
+            LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+            LEFT JOIN dynamic_enum de ON dt.current_classification_id = de.id AND de.dtype = 'Cls'
             {project_filter_join}
             WHERE sd.fixed_snapshot_element_id IS NULL
+                AND (de.name IS NULL OR de.name NOT IN ('False Positive', 'Intentional'))
                 {project_filter}
             GROUP BY cp.impact
             ORDER BY 
