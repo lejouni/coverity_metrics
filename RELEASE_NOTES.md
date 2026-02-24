@@ -2,31 +2,79 @@
 
 ## Version History
 
+### Version 1.0.6 - 2026-02-24
+
+**ZIP Export Critical Bug Fixes**
+
+#### Bug Fixes
+
+##### ðŸ”§ Fixed Project-Level Dashboard Data Filtering from ZIP Files
+- **Issue**: Project-level dashboards generated from ZIP files were showing instance-level aggregate data instead of project-specific data
+  - Example: Project dashboard showed 90 defects (instance total) instead of 5 defects (project actual)
+- **Root Cause**: 
+  - Export only created project-level files for OWASP and CWE metrics
+  - ZipDataLoader always read from instance-level files regardless of `project_name` setting
+  - Core metrics (overall_summary, defects_by_severity, trends, etc.) were missing at project level
+- **Fix**:
+  - **Updated export.py**: Now exports complete project-specific versions of all core metrics
+    - overall_summary.json
+    - defects_by_severity.json
+    - defect_trends.json
+    - triage_progress_summary.json
+    - fix_rate_metrics.json
+    - defect_aging_distribution.json
+    - technical_debt_summary.json
+    - All other dashboard metrics
+  - **Updated zip_data_loader.py**: Added intelligent file path resolution
+    - New `_read_metric_json()` method checks for project-specific files first
+    - Falls back to instance-level files if project file doesn't exist
+    - All metric getter methods now use this smart lookup
+- **Impact**: Project dashboards from ZIP files now correctly show filtered data matching database mode behavior
+
+##### ðŸ“Š Fixed Triage Progress Aggregation Discrepancy
+- **Issue**: Aggregated triage progress showed different numbers between database and ZIP sources
+  - Database: 36 Classified, 234 Unclassified, 13.3% Completion âœ…
+  - ZIP (before): 57 Classified, 213 Unclassified, 21.1% Completion âŒ
+- **Root Cause**: Aggregation code incorrectly summed individual triage state counts (bug_count + false_positive_count + intentional_count + action_assigned_count = 57) instead of using the `classified_count` field
+  - Problem: `action_assigned_count` includes defects with actions assigned but still marked as "Unclassified"
+  - The `classified_count` field correctly counts only defects with actual classifications
+- **Fix**: Changed aggregation in dashboard.py to use `total_triaged` (sum of `classified_count` from each instance) instead of `sum(triage_by_state_agg.values())`
+- **Impact**: ZIP and database sources now produce identical triage statistics
+
+#### Technical Details
+- ZIP file structure now includes project subdirectories with complete metric sets
+  - `{instance}/{metric}.json` - instance-level data
+  - `{instance}/{project}/{metric}.json` - project-specific data
+- ZipDataLoader maintains backward compatibility with older ZIP exports
+- No changes to database query logic - already correct
+
+---
+
 ### Version 1.0.5 - 2026-02-20
 
 **Enhanced Security Reporting & Complete Coverage**
 
 #### Major Enhancements
 
-##### ðŸ”’ Complete OWASP Top 10 2025 Security Coverage
+##### Ã°Å¸â€â€™ Complete OWASP Top 10 2025 Security Coverage
 - **All 10 Categories Always Visible**: Dashboard now shows all OWASP Top 10 categories regardless of defects
 - **PASS/FAILED Status Badges**:
-  - ðŸŸ¢ **PASS** (green): No defects for this category - safe!
-  - ðŸ”´ **FAILED** (red): Has defects requiring attention
+  - Ã°Å¸Å¸Â¢ **PASS** (green): No defects for this category - safe!
+  - Ã°Å¸â€Â´ **FAILED** (red): Has defects requiring attention
 - **Interactive Defect Exploration**:
   - Click FAILED rows to expand and see ALL defects (no limits)
   - PASS rows are non-clickable and visually faded
 - **Complete Security Posture**: Instantly see which OWASP categories are clean vs problematic
 - **Summary Metrics**: "X/10 Failed" counts for quick assessment
 
-##### ðŸ›¡ï¸ Complete CWE Top 25 2025 Weakness Coverage
+##### Ã°Å¸â€ºÂ¡Ã¯Â¸Â Complete CWE Top 25 2025 Weakness Coverage
 - **All 25 CWEs Always Visible**: Shows complete MITRE CWE Top 25 list
 - **Status Column**: Each CWE entry has PASS/FAILED badge
 - **Ranked by Danger**: Industry-standard rankings (1-25) from MITRE
 - **Same Interactive Experience**: Click FAILED entries to see all defect details
 - **Summary Metrics**: "X/25 Failed" counts
 
-##### ðŸ“Š Enhanced Defect Detail Tables
+##### Ã°Å¸â€œÅ  Enhanced Defect Detail Tables
 - **Comprehensive Information**:
   - **CID**: Actual Coverity ID (now correctly using merged_defect_id)
   - **Type**: Checker name describing defect type
@@ -152,7 +200,7 @@
 - **CWE Top 25 2025 Update**
   - Updated from CWE Top 25 2024 to 2025 version (MITRE)
   - All 25 CWE rankings updated with new scores
-  - Major ranking changes: CWE-306 (#20Ã¢â€ â€™#8), CWE-416 (#4Ã¢â€ â€™#18), CWE-787 (#5Ã¢â€ â€™#21)
+  - Major ranking changes: CWE-306 (#20ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢#8), CWE-416 (#4ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢#18), CWE-787 (#5ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢#21)
   - New entries: CWE-120 (Classic Buffer Overflow #19), CWE-327 (Broken Crypto #23)
   - Removed entries: CWE-94 (Code Injection), CWE-276 (Incorrect Permissions)
   - Dashboard tab updated to show "CWE Top 25 2025"
