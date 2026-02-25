@@ -192,3 +192,5 @@ fix_*.ps1
 
 final_scan.py
 inspect_bytes.py
+Coverity_Metrics_Presentation.pptx
+create_presentation.py
