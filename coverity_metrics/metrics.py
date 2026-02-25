@@ -532,30 +532,100 @@ class CoverityMetrics:
         users_with_login_result = self.db.execute_query(users_with_login_query)
         users_with_login = users_with_login_result[0][0] if users_with_login_result else 0
         
-        # Active users: those who have done triage OR had recent logins within the given threshold
-        # Note: Focusing on triage activity and login activity as indicators of engagement
-        active_users_query = f"""
-            SELECT COUNT(DISTINCT user_id) as active_users
-            FROM (
-                -- Users who performed triage actions
-                SELECT DISTINCT ts.user_created_id as user_id
-                FROM triage_state ts
-                JOIN users u ON ts.user_created_id = u.id
-                WHERE ts.date_created >= CURRENT_DATE - INTERVAL '{days} days'
-                    AND ts.user_created_id IS NOT NULL
-                    AND u.username NOT IN ('system', 'reporter')
-                
-                UNION
-                
-                -- Users who had login activity (showing engagement)
-                SELECT DISTINCT ul.user_id
-                FROM user_login ul
-                JOIN users u ON ul.user_id = u.id
-                WHERE ul.session_start >= CURRENT_DATE - INTERVAL '{days} days'
-                    AND ul.user_id IS NOT NULL
-                    AND u.username NOT IN ('system', 'reporter')
-            ) active_user_list
-        """
+        # Active users: those who have done triage, added comments, or committed snapshots
+        # For project-level: only count users with activity on that specific project
+        # Note: Excluding 'system' and 'reporter' users from counts
+        if self.project_name:
+            # Project-specific active users: triage, comment, or snapshot commit activity for this project
+            active_users_query = f"""
+                SELECT COUNT(DISTINCT user_id) as active_users
+                FROM (
+                    -- Users who performed triage actions on defects in this project
+                    SELECT DISTINCT ts.user_created_id as user_id
+                    FROM triage_state ts
+                    JOIN users u ON ts.user_created_id = u.id
+                    JOIN defect_triage dt ON ts.defect_triage_id = dt.id
+                    JOIN stream_defect sd ON dt.id = sd.defect_triage_id
+                    JOIN stream_element se ON sd.stream_element_id = se.id
+                    JOIN stream s ON se.stream_id = s.id
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '{days} days'
+                        AND ts.user_created_id IS NOT NULL
+                        AND u.username NOT IN ('system', 'reporter')
+                        AND p.name = '{self.project_name}'
+                    
+                    UNION
+                    
+                    -- Users who added comments on defects in this project
+                    SELECT DISTINCT ts.user_created_id as user_id
+                    FROM triage_state ts
+                    JOIN users u ON ts.user_created_id = u.id
+                    JOIN defect_triage dt ON ts.defect_triage_id = dt.id
+                    JOIN stream_defect sd ON dt.id = sd.defect_triage_id
+                    JOIN stream_element se ON sd.stream_element_id = se.id
+                    JOIN stream s ON se.stream_id = s.id
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '{days} days'
+                        AND ts.user_created_id IS NOT NULL
+                        AND u.username NOT IN ('system', 'reporter')
+                        AND ts.cmnt IS NOT NULL
+                        AND ts.cmnt != ''
+                        AND p.name = '{self.project_name}'
+                    
+                    UNION
+                    
+                    -- Users who committed snapshots for streams in this project
+                    SELECT DISTINCT sn.committer_user_id as user_id
+                    FROM snapshot sn
+                    JOIN users u ON sn.committer_user_id = u.id
+                    JOIN stream s ON sn.stream_id = s.id
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                    WHERE sn.date_created >= CURRENT_DATE - INTERVAL '{days} days'
+                        AND sn.committer_user_id IS NOT NULL
+                        AND u.username NOT IN ('system', 'reporter')
+                        AND sn.deleted = false
+                        AND p.name = '{self.project_name}'
+                ) active_user_list
+            """
+        else:
+            # Instance-level active users: triage, login, or snapshot commit activity across all projects
+            active_users_query = f"""
+                SELECT COUNT(DISTINCT user_id) as active_users
+                FROM (
+                    -- Users who performed triage actions
+                    SELECT DISTINCT ts.user_created_id as user_id
+                    FROM triage_state ts
+                    JOIN users u ON ts.user_created_id = u.id
+                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '{days} days'
+                        AND ts.user_created_id IS NOT NULL
+                        AND u.username NOT IN ('system', 'reporter')
+                    
+                    UNION
+                    
+                    -- Users who had login activity (showing engagement)
+                    SELECT DISTINCT ul.user_id
+                    FROM user_login ul
+                    JOIN users u ON ul.user_id = u.id
+                    WHERE ul.session_start >= CURRENT_DATE - INTERVAL '{days} days'
+                        AND ul.user_id IS NOT NULL
+                        AND u.username NOT IN ('system', 'reporter')
+                    
+                    UNION
+                    
+                    -- Users who committed snapshots
+                    SELECT DISTINCT sn.committer_user_id as user_id
+                    FROM snapshot sn
+                    JOIN users u ON sn.committer_user_id = u.id
+                    WHERE sn.date_created >= CURRENT_DATE - INTERVAL '{days} days'
+                        AND sn.committer_user_id IS NOT NULL
+                        AND u.username NOT IN ('system', 'reporter')
+                        AND sn.deleted = false
+                ) active_user_list
+            """
+        
         active_users_result = self.db.execute_query(active_users_query)
         active_users = active_users_result[0][0] if active_users_result else 0
         
@@ -667,7 +737,55 @@ class CoverityMetrics:
                     JOIN project p ON ps.project_id = p.id
                     WHERE p.name = %s
                 """, (self.project_name,)),
-                'total_users': ("SELECT COUNT(*) FROM users WHERE deleted = false", None),
+                'total_users': ("""
+                    SELECT COUNT(DISTINCT user_id) FROM (
+                        -- Users with triage activity on this project's defects
+                        SELECT DISTINCT ts.user_created_id as user_id
+                        FROM triage_state ts
+                        JOIN users u ON ts.user_created_id = u.id
+                        JOIN defect_triage dt ON ts.defect_triage_id = dt.id
+                        JOIN stream_defect sd ON dt.id = sd.defect_triage_id
+                        JOIN stream_element se ON sd.stream_element_id = se.id
+                        JOIN stream s ON se.stream_id = s.id
+                        JOIN project_stream ps ON s.id = ps.stream_id
+                        JOIN project p ON ps.project_id = p.id
+                        WHERE ts.user_created_id IS NOT NULL
+                            AND u.username NOT IN ('system', 'reporter')
+                            AND p.name = %s
+                        
+                        UNION
+                        
+                        -- Users with comment activity on this project's defects
+                        SELECT DISTINCT ts.user_created_id as user_id
+                        FROM triage_state ts
+                        JOIN users u ON ts.user_created_id = u.id
+                        JOIN defect_triage dt ON ts.defect_triage_id = dt.id
+                        JOIN stream_defect sd ON dt.id = sd.defect_triage_id
+                        JOIN stream_element se ON sd.stream_element_id = se.id
+                        JOIN stream s ON se.stream_id = s.id
+                        JOIN project_stream ps ON s.id = ps.stream_id
+                        JOIN project p ON ps.project_id = p.id
+                        WHERE ts.user_created_id IS NOT NULL
+                            AND u.username NOT IN ('system', 'reporter')
+                            AND ts.cmnt IS NOT NULL
+                            AND ts.cmnt != ''
+                            AND p.name = %s
+                        
+                        UNION
+                        
+                        -- Users who committed snapshots for streams in this project
+                        SELECT DISTINCT sn.committer_user_id as user_id
+                        FROM snapshot sn
+                        JOIN users u ON sn.committer_user_id = u.id
+                        JOIN stream s ON sn.stream_id = s.id
+                        JOIN project_stream ps ON s.id = ps.stream_id
+                        JOIN project p ON ps.project_id = p.id
+                        WHERE sn.committer_user_id IS NOT NULL
+                            AND u.username NOT IN ('system', 'reporter')
+                            AND sn.deleted = false
+                            AND p.name = %s
+                    ) active_users
+                """, (self.project_name, self.project_name, self.project_name)),
                 'high_severity_defects': ("""
                     SELECT COUNT(DISTINCT sd.id) FROM stream_defect sd 
                     JOIN checker_properties cp ON sd.checker_properties_id = cp.id
@@ -689,7 +807,35 @@ class CoverityMetrics:
                 'total_files': ("SELECT COUNT(DISTINCT id) FROM stream_file", None),
                 'total_functions': ("SELECT COUNT(*) FROM stream_function", None),
                 'total_loc': ("SELECT SUM(COALESCE(current_code_line_count, 0)) FROM stream_file", None),
-                'total_users': ("SELECT COUNT(*) FROM users WHERE deleted = false", None),
+                # Deduplicated active users (triage, login, or commit activity, excluding system/reporter)
+                'total_users': ("""
+                    SELECT COUNT(DISTINCT user_id) FROM (
+                        -- Users who performed triage actions
+                        SELECT DISTINCT ts.user_created_id as user_id
+                        FROM triage_state ts
+                        JOIN users u ON ts.user_created_id = u.id
+                        WHERE ts.date_created >= CURRENT_DATE - INTERVAL '90 days'
+                            AND ts.user_created_id IS NOT NULL
+                            AND u.username NOT IN ('system', 'reporter')
+                        UNION
+                        -- Users who had login activity
+                        SELECT DISTINCT ul.user_id
+                        FROM user_login ul
+                        JOIN users u ON ul.user_id = u.id
+                        WHERE ul.session_start >= CURRENT_DATE - INTERVAL '90 days'
+                            AND ul.user_id IS NOT NULL
+                            AND u.username NOT IN ('system', 'reporter')
+                        UNION
+                        -- Users who committed snapshots
+                        SELECT DISTINCT sn.committer_user_id as user_id
+                        FROM snapshot sn
+                        JOIN users u ON sn.committer_user_id = u.id
+                        WHERE sn.date_created >= CURRENT_DATE - INTERVAL '90 days'
+                            AND sn.committer_user_id IS NOT NULL
+                            AND u.username NOT IN ('system', 'reporter')
+                            AND sn.deleted = false
+                    ) active_user_list
+                """, None),
                 'high_severity_defects': ("""
                     SELECT COUNT(*) FROM stream_defect sd 
                     JOIN checker_properties cp ON sd.checker_properties_id = cp.id 

@@ -269,7 +269,7 @@
                 <div class="label">
                     Active Users
                     <span class="info-icon">ℹ
-                        <span class="tooltip">Number of unique users who have logged into the Coverity system. This includes all users with access, regardless of their activity level or role.</span>
+                        <span class="tooltip">{% if current_project %}Number of unique users who have triage, comment, or snapshot commit activity on this project. Excludes 'system' and 'reporter' users.{% else %}Total number of user accounts in the Coverity system, excluding deleted and system users.{% endif %}</span>
                     </span>
                 </div>
                 <div class="value">{{ summary.total_users|default(0) }}</div>
@@ -1784,11 +1784,11 @@
                                                 <span style="font-size: 0.75rem; opacity: 0.6;">-</span>
                                             {% endif %}
                                         </td>
-                                        <td style="padding: 0.5rem; font-size: 0.8rem; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ defect.file }}">
-                                            {{ defect.file }}
+                                        <td style="padding: 0.5rem; font-size: 0.8rem; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ defect.file|e }}">
+                                            {{ defect.file|e }}
                                         </td>
-                                        <td style="padding: 0.5rem; font-size: 0.8rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ defect.function }}">
-                                            {{ defect.function }}
+                                        <td style="padding: 0.5rem; font-size: 0.8rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ defect.function|e }}">
+                                            {{ defect.function|e }}
                                         </td>
                                     </tr>
                                     {% endfor %}
@@ -1989,11 +1989,11 @@
                                                         <span style="font-size: 0.75rem; opacity: 0.6;">-</span>
                                                     {% endif %}
                                                 </td>
-                                                <td style="padding: 0.5rem; font-size: 0.8rem; max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ defect.file }}">
-                                                    {{ defect.file }}
+                                                <td style="padding: 0.5rem; font-size: 0.8rem; max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ defect.file|e }}">
+                                                    {{ defect.file|e }}
                                                 </td>
-                                                <td style="padding: 0.5rem; font-size: 0.8rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ defect.function }}">
-                                                    {{ defect.function }}
+                                                <td style="padding: 0.5rem; font-size: 0.8rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ defect.function|e }}">
+                                                    {{ defect.function|e }}
                                                 </td>
                                             </tr>
                                             {% endfor %}
