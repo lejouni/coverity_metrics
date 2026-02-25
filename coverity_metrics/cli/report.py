@@ -182,9 +182,21 @@ def generate_full_report():
 
 def main():
     """Main entry point"""
+    import argparse
+    parser = argparse.ArgumentParser(description="Coverity Metrics Tool")
+    parser.add_argument('--version', action='store_true', help='Print version and exit')
+    args, unknown = parser.parse_known_args()
+
+    if args.version:
+        try:
+            from coverity_metrics.__version__ import __version__
+            print(f"coverity-metrics version: {__version__}")
+        except Exception:
+            print("coverity-metrics version: unknown")
+        return
+
     print("\nCoverity Metrics Tool")
     print("=" * 80)
-    
     # Generate full report (connection test happens in generate_full_report)
     generate_full_report()
 

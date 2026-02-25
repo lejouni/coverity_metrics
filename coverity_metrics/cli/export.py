@@ -12,6 +12,7 @@ from decimal import Decimal
 from coverity_metrics.metrics import CoverityMetrics
 import pandas as pd
 from tqdm import tqdm
+import argparse
 
 
 def json_serializer(obj):
@@ -461,15 +462,23 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json'):
 
 def main():
     """Main function"""
-    import argparse
     
     parser = argparse.ArgumentParser(description='Export Coverity metrics to JSON and ZIP (separate file per instance)')
     parser.add_argument('--output', '-o', default='exports', help='Output directory (default: exports)')
     parser.add_argument('--days', '-d', type=int, default=365, help='Number of days for trend analysis (default: 365)')
     parser.add_argument('--config', '-c', default='config.json', help='Path to configuration file (default: config.json)')
-    
+    parser.add_argument('--version', action='store_true', help='Print version and exit')
+
     args = parser.parse_args()
-    
+
+    if args.version:
+        try:
+            from coverity_metrics.__version__ import __version__
+            print(f"coverity-metrics export version: {__version__}")
+        except Exception:
+            print("coverity-metrics export version: unknown")
+        return 0
+
     try:
         zip_files = export_to_json(output_dir=args.output, days=args.days, config_file=args.config)
         # Note: export_to_json now returns a list of ZIP files (one per instance)
