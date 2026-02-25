@@ -141,7 +141,7 @@ function Get-ProjectVersion {
 
 function Set-ProjectVersion {
   param([string]$PyProjectPath, [string]$Version)
-  $content = Get-Content -Raw -LiteralPath $PyProjectPath
+  $content = Get-Content -Raw -LiteralPath $PyProjectPath -Encoding UTF8
   # Use -replace and escape quotes for PowerShell with backticks
   $new = $content -replace 'version\s*=\s*"\d+\.\d+\.\d+"', "version = `"$Version`""
   if ($DryRun) {
@@ -155,7 +155,7 @@ function Set-ProjectVersion {
   # Also update __version__ in coverity_metrics/__version__.py
   $versionPath = Join-Path (Split-Path $PyProjectPath) 'coverity_metrics/__version__.py'
   if (Test-Path $versionPath) {
-    $versionContent = Get-Content -Raw -LiteralPath $versionPath
+    $versionContent = Get-Content -Raw -LiteralPath $versionPath -Encoding UTF8
     $versionNew = $versionContent -replace '__version__\s*=\s*"\d+\.\d+\.\d+"', "__version__ = `"$Version`""
     if ($DryRun) {
       Write-Host "[DRY-RUN] Would set __version__ to $Version in $versionPath (UTF-8 no BOM)" -ForegroundColor Yellow
@@ -188,7 +188,7 @@ function Update-ReleaseDates {
   # Update CHANGELOG.md
   $changelogPath = Join-Path $RootPath 'CHANGELOG.md'
   if (Test-Path $changelogPath) {
-    $changelogContent = Get-Content -Raw -LiteralPath $changelogPath
+    $changelogContent = Get-Content -Raw -LiteralPath $changelogPath -Encoding UTF8
     
     # Check if version entry already exists
     if ($changelogContent -match "## \[$Version\]") {
@@ -230,7 +230,7 @@ function Update-ReleaseDates {
   # Update RELEASE_NOTES.md
   $releaseNotesPath = Join-Path $RootPath 'RELEASE_NOTES.md'
   if (Test-Path $releaseNotesPath) {
-    $releaseNotesContent = Get-Content -Raw -LiteralPath $releaseNotesPath
+    $releaseNotesContent = Get-Content -Raw -LiteralPath $releaseNotesPath -Encoding UTF8
     
     # Check if version entry already exists
     if ($releaseNotesContent -match "### Version $Version") {
@@ -404,7 +404,7 @@ try {
     $tag = "$TagPrefix$nextVersion"
     $relBody = $null
     if ($ReleaseNotesPath -and (Test-Path $ReleaseNotesPath)) {
-      $relBody = Get-Content -Raw -LiteralPath $ReleaseNotesPath
+      $relBody = Get-Content -Raw -LiteralPath $ReleaseNotesPath -Encoding UTF8
     } else {
       $relBody = "Release $tag`n`nPublished to $Repository as coverity-metrics $nextVersion."
     }

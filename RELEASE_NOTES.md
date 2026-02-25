@@ -20,7 +20,7 @@
 
 #### Bug Fixes
 
-##### ðŸ”§ Fixed Project-Level Dashboard Data Filtering from ZIP Files
+##### 🛠️ Fixed Project-Level Dashboard Data Filtering from ZIP Files
 - **Issue**: Project-level dashboards generated from ZIP files were showing instance-level aggregate data instead of project-specific data
   - Example: Project dashboard showed 90 defects (instance total) instead of 5 defects (project actual)
 - **Root Cause**: 
@@ -43,10 +43,10 @@
     - All metric getter methods now use this smart lookup
 - **Impact**: Project dashboards from ZIP files now correctly show filtered data matching database mode behavior
 
-##### ðŸ“Š Fixed Triage Progress Aggregation Discrepancy
+##### 📊 Fixed Triage Progress Aggregation Discrepancy
 - **Issue**: Aggregated triage progress showed different numbers between database and ZIP sources
-  - Database: 36 Classified, 234 Unclassified, 13.3% Completion âœ…
-  - ZIP (before): 57 Classified, 213 Unclassified, 21.1% Completion âŒ
+  - Database: 36 Classified, 234 Unclassified, 13.3% Completion ✅
+  - ZIP (before): 57 Classified, 213 Unclassified, 21.1% Completion ❌
 - **Root Cause**: Aggregation code incorrectly summed individual triage state counts (bug_count + false_positive_count + intentional_count + action_assigned_count = 57) instead of using the `classified_count` field
   - Problem: `action_assigned_count` includes defects with actions assigned but still marked as "Unclassified"
   - The `classified_count` field correctly counts only defects with actual classifications
@@ -68,25 +68,25 @@
 
 #### Major Enhancements
 
-##### Ã°Å¸â€â€™ Complete OWASP Top 10 2025 Security Coverage
+##### 🛡️ Complete OWASP Top 10 2025 Security Coverage
 - **All 10 Categories Always Visible**: Dashboard now shows all OWASP Top 10 categories regardless of defects
 - **PASS/FAILED Status Badges**:
-  - Ã°Å¸Å¸Â¢ **PASS** (green): No defects for this category - safe!
-  - Ã°Å¸â€Â´ **FAILED** (red): Has defects requiring attention
+  - 🟢 **PASS** (green): No defects for this category - safe!
+  - 🔴 **FAILED** (red): Has defects requiring attention
 - **Interactive Defect Exploration**:
   - Click FAILED rows to expand and see ALL defects (no limits)
   - PASS rows are non-clickable and visually faded
 - **Complete Security Posture**: Instantly see which OWASP categories are clean vs problematic
 - **Summary Metrics**: "X/10 Failed" counts for quick assessment
 
-##### Ã°Å¸â€ºÂ¡Ã¯Â¸Â Complete CWE Top 25 2025 Weakness Coverage
+##### 🏆 Complete CWE Top 25 2025 Weakness Coverage
 - **All 25 CWEs Always Visible**: Shows complete MITRE CWE Top 25 list
 - **Status Column**: Each CWE entry has PASS/FAILED badge
 - **Ranked by Danger**: Industry-standard rankings (1-25) from MITRE
 - **Same Interactive Experience**: Click FAILED entries to see all defect details
 - **Summary Metrics**: "X/25 Failed" counts
 
-##### Ã°Å¸â€œÅ  Enhanced Defect Detail Tables
+##### 📝 Enhanced Defect Detail Tables
 - **Comprehensive Information**:
   - **CID**: Actual Coverity ID (now correctly using merged_defect_id)
   - **Type**: Checker name describing defect type
@@ -212,7 +212,7 @@
 - **CWE Top 25 2025 Update**
   - Updated from CWE Top 25 2024 to 2025 version (MITRE)
   - All 25 CWE rankings updated with new scores
-  - Major ranking changes: CWE-306 (#20ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢#8), CWE-416 (#4ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢#18), CWE-787 (#5ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢#21)
+  - Major ranking changes: CWE-306 (#20→#8), CWE-416 (#4→#18), CWE-787 (#5→#21)
   - New entries: CWE-120 (Classic Buffer Overflow #19), CWE-327 (Broken Crypto #23)
   - Removed entries: CWE-94 (Code Injection), CWE-276 (Incorrect Permissions)
   - Dashboard tab updated to show "CWE Top 25 2025"
