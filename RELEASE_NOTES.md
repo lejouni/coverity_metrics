@@ -2,6 +2,18 @@
 
 ## Version History
 
+### Version 1.0.7 - 2026-02-25
+
+**New Features & Fixes**
+
+#### Features
+- **Script Execution Time**: Script now prints total execution time after dashboard generation, helping users measure performance for large datasets.
+
+#### Bug Fixes & Improvements
+- **Accurate Active Users**: Instance-level "Active Users" now deduplicates by activity (triage, comment, commit) and matches project-level logic for consistency.
+- **Dashboard Bug Fix**: Dashboard now displays the correct "Active Users" count at all levels (instance, project, aggregated).
+- **HTML Escaping**: Defect file/function fields are now HTML-escaped in dashboards to prevent invalid HTML/JS errors from untrusted content.
+
 ### Version 1.0.6 - 2026-02-24
 
 **ZIP Export Critical Bug Fixes**

@@ -1879,4 +1879,10 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
+    import time
+    start_time = time.time()
     main()
+    end_time = time.time()
+    elapsed = end_time - start_time
+    mins, secs = divmod(int(elapsed), 60)
+    print(f"\nTotal execution time: {mins} min {secs} sec ({elapsed:.2f} seconds)")

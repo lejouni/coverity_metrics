@@ -38,7 +38,14 @@ coverity-dashboard
 
 ## Features
 
-**🆕 Latest Enhancements (2025-2026):**
+
+**🆕 Latest Enhancements (v1.0.7, 2026-02-25):**
+- **🧑‍💻 Accurate Active Users**: Instance-level "Active Users" now deduplicates by activity (triage, comment, commit) and matches project-level logic
+- **🐞 Dashboard Bug Fix**: "Active Users" now displays correct count at all levels
+- **🛡️ HTML Escaping**: Defect file/function fields are now HTML-escaped to prevent invalid HTML/JS errors
+- **⏱️ Script Timing**: Script prints total execution time after dashboard generation
+
+**Recent Enhancements:**
 - **🔒 Complete Security Coverage (v1.0.5)**: OWASP Top 10 and CWE Top 25 reports now show ALL categories with PASS/FAILED status badges, not just defect-affected ones
 - **📊 Enhanced Defect Details (v1.0.5)**: Click FAILED security entries to see ALL defects with CID, Type, Severity, File, and Function
 - **⏱️ Progress Tracking**: Real-time progress bars for multi-instance dashboard generation with ETA and completion percentage

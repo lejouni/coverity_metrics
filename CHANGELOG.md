@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-02-25
+
+### Added
+- **Script Execution Time**
+  - Script now prints total execution time after dashboard generation
+
+### Fixed
+- **Instance-Level Active Users Deduplication**
+  - Instance-level "Active Users" now deduplicates by activity (triage, comment, commit) and matches project-level logic
+- **Dashboard Bug: Active Users Count**
+  - Dashboard now displays correct "Active Users" count at all levels
+- **HTML Escaping for Defect Fields**
+  - Defect file/function fields are now HTML-escaped to prevent invalid HTML/JS errors in dashboards
+
 ## [1.0.6] - 2026-02-24
 
 ### Fixed
