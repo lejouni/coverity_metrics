@@ -39,13 +39,17 @@ coverity-dashboard
 ## Features
 
 
-**🆕 Latest Enhancements (v1.0.7, 2026-02-25):**
-- **🧑‍💻 Accurate Active Users**: Instance-level "Active Users" now deduplicates by activity (triage, comment, commit) and matches project-level logic
-- **🐞 Dashboard Bug Fix**: "Active Users" now displays correct count at all levels
-- **🛡️ HTML Escaping**: Defect file/function fields are now HTML-escaped to prevent invalid HTML/JS errors
-- **⏱️ Script Timing**: Script prints total execution time after dashboard generation
+**🆕 Latest Enhancements (v1.0.8, 2026-03-02):**
+- **🔒 OWASP Top 10 Count Fix**: "Total Defects" in the category header, the defect table row count, and the CWE count now always match — fixed a last-writer-wins bug where CWEs shared across multiple OWASP categories were silently dropped from all but the last category
+- **🔢 Consistent Defect Deduplication**: OWASP summary now uses `merged_defect_id` (same as the detail table) so summary and table counts are always identical
 
 **Recent Enhancements:**
+- **🧑‍💻 Accurate Active Users (v1.0.7)**: Instance-level "Active Users" now deduplicates by activity (triage, comment, commit) and matches project-level logic
+- **🐞 Dashboard Bug Fix (v1.0.7)**: "Active Users" now displays correct count at all levels
+- **🛡️ HTML Escaping (v1.0.7)**: Defect file/function fields are now HTML-escaped to prevent invalid HTML/JS errors
+- **⏱️ Script Timing (v1.0.7)**: Script prints total execution time after dashboard generation
+
+**Earlier Enhancements:**
 - **🔒 Complete Security Coverage (v1.0.5)**: OWASP Top 10 and CWE Top 25 reports now show ALL categories with PASS/FAILED status badges, not just defect-affected ones
 - **📊 Enhanced Defect Details (v1.0.5)**: Click FAILED security entries to see ALL defects with CID, Type, Severity, File, and Function
 - **⏱️ Progress Tracking**: Real-time progress bars for multi-instance dashboard generation with ETA and completion percentage

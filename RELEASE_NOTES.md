@@ -2,6 +2,30 @@
 
 ## Version History
 
+### Version 1.0.8 - 2026-03-02
+
+**OWASP Top 10 Count Consistency Fix**
+
+#### Bug Fixes
+
+##### 🛠️ Fixed OWASP Top 10 Summary / Detail Count Inconsistency
+- **Issue**: OWASP Top 10 category sections showed contradictory numbers in the same panel
+  - Example (A09: Security Logging and Monitoring Failures): "Total Defects: 5" in the header, "Defects (6 total)" in the table heading, and "1 CWE mapped" when the table listed 2 different CWEs
+- **Root Cause 1 — Last-Writer-Wins CWE Mapping**:
+  - 31 CWEs appear in more than one OWASP category in the mapping table
+  - The aggregation code built a flat `cwe_to_owasp` dict: each duplicate key silently overwrote the previous entry
+  - CWE-918 (SSRF) is in both A09 and A10; A10 is iterated last, so `cwe_to_owasp[918]` pointed only to A10
+  - Defects with CWE-918 were excluded from A09's summary count but the detail query (which used `cp.cwe IN (all A09 CWEs)`) correctly included them — producing the mismatch
+- **Root Cause 2 — Different Deduplication in Summary vs Detail**:
+  - Summary counted `COUNT(DISTINCT sd.id)` — physical stream-defect rows, which can be duplicated for merged defects
+  - Detail table used `SELECT DISTINCT ON (sd.merged_defect_id)` — one row per logical defect
+  - For projects with merged defects the two counts diverge
+- **Fix**:
+  - Changed `cwe_to_owasp` to a **multi-value mapping** (`CWE → [list of all matching categories]`)
+  - Aggregation loop now iterates over every matching category for each CWE, so shared CWEs contribute to all of their categories
+  - Changed summary SQL to `COUNT(DISTINCT sd.merged_defect_id)` with `AND sd.merged_defect_id IS NOT NULL` to mirror the detail table's deduplication
+- **Impact**: "Total Defects" in the OWASP category header, the defect table row count, and the CWE count now always match
+
 ### Version 1.0.7 - 2026-02-25
 
 **New Features & Fixes**

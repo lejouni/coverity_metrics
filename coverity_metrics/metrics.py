@@ -2686,20 +2686,22 @@ class CoverityMetrics:
                 'status': 'PASS'  # Default to PASS
             }
         
-        # Build CWE to OWASP category mapping
+        # Build CWE to OWASP category mapping (multi-value: a CWE can appear in multiple categories)
+        # Using a list per CWE avoids the "last writer wins" bug where a CWE shared across
+        # categories (e.g. CWE-918 in A09 and A10, CWE-117 in A03 and A09) would only be
+        # attributed to the last category encountered during dict construction.
         cwe_to_owasp = {}
         for category_id, data in OWASP_TOP_10_2025.items():
             for cwe_id in data['cwe_ids']:
-                cwe_to_owasp[cwe_id] = {
-                    'category_id': category_id,
-                    'description': data['description']
-                }
+                if cwe_id not in cwe_to_owasp:
+                    cwe_to_owasp[cwe_id] = []
+                cwe_to_owasp[cwe_id].append(category_id)
         
         query = """
             SELECT 
                 cp.cwe,
                 de.name as severity,
-                COUNT(DISTINCT sd.id) as defect_count,
+                COUNT(DISTINCT sd.merged_defect_id) as defect_count,
                 dt.current_action_id,
                 act.name as action
             FROM stream_defect sd
@@ -2714,36 +2716,38 @@ class CoverityMetrics:
             WHERE p.name = %s
                 AND cp.cwe IS NOT NULL
                 AND sd.fixed_snapshot_element_id IS NULL  -- Only outstanding defects
+                AND sd.merged_defect_id IS NOT NULL
             GROUP BY cp.cwe, de.name, dt.current_action_id, act.name
             ORDER BY cp.cwe, de.name
         """
         
         results = self.db.execute_query_dict(query, (self.project_name,))
         
-        # Aggregate by OWASP category
+        # Aggregate by OWASP category.
+        # A CWE in multiple categories contributes to each of them, so that
+        # "Total Defects" in the summary always matches the defect table below it.
         for row in results:
             cwe_id = row['cwe']
             if cwe_id not in cwe_to_owasp:
-                continue  # CWE not in OWASP Top 10 2025
-            
-            category_id = cwe_to_owasp[cwe_id]['category_id']
+                continue  # CWE not mapped to any OWASP Top 10 2025 category
             
             severity = row.get('severity', 'Unspecified') or 'Unspecified'
             count = row['defect_count']
             
-            owasp_data[category_id]['total_defects'] += count
-            owasp_data[category_id]['cwe_codes'].add(cwe_id)
-            owasp_data[category_id]['status'] = 'FAILED'  # Mark as FAILED if defects found
-            
-            # Coverity severity mapping: Major=High, Moderate=Medium, Minor=Low
-            if severity == 'Major':
-                owasp_data[category_id]['high'] += count
-            elif severity == 'Moderate':
-                owasp_data[category_id]['medium'] += count
-            elif severity == 'Minor':
-                owasp_data[category_id]['low'] += count
-            else:
-                owasp_data[category_id]['unspecified'] += count
+            for category_id in cwe_to_owasp[cwe_id]:
+                owasp_data[category_id]['total_defects'] += count
+                owasp_data[category_id]['cwe_codes'].add(cwe_id)
+                owasp_data[category_id]['status'] = 'FAILED'  # Mark as FAILED if defects found
+                
+                # Coverity severity mapping: Major=High, Moderate=Medium, Minor=Low
+                if severity == 'Major':
+                    owasp_data[category_id]['high'] += count
+                elif severity == 'Moderate':
+                    owasp_data[category_id]['medium'] += count
+                elif severity == 'Minor':
+                    owasp_data[category_id]['low'] += count
+                else:
+                    owasp_data[category_id]['unspecified'] += count
         
         # Convert to DataFrame - include all categories
         df_data = []

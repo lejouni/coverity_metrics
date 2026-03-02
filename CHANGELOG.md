@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-03-02
+
+### Fixed
+- **OWASP Top 10 Summary / Detail Count Inconsistency**
+  - Fixed bug where "Total Defects" in the OWASP category summary did not match the defect table row count and CWE count shown below it
+  - Example: A09 showed "Total Defects: 5", "Defects (6 total)", and "1 CWE mapped" when the table actually listed 6 defects across 2 different CWEs
+  - Root cause 1: `cwe_to_owasp` was a flat dict — CWEs listed in multiple OWASP categories were silently dropped for all but the last category encountered (last-writer-wins). CWE-918 appears in both A09 and A10; because A10 is iterated last it stole the defects from A09's summary while A09's detail query still correctly included them.
+  - Root cause 2: Summary used `COUNT(DISTINCT sd.id)` (physical stream-defect rows) while the detail table used `DISTINCT ON (sd.merged_defect_id)` (logical merged defects), so counts diverged for merged duplicates.
+  - Fix: Changed `cwe_to_owasp` to a multi-value mapping (`CWE → [list of categories]`) so every shared CWE contributes to all matching categories
+  - Fix: Changed summary SQL to `COUNT(DISTINCT sd.merged_defect_id)` with `AND sd.merged_defect_id IS NOT NULL` to match detail-table deduplication logic
+
 ## [1.0.7] - 2026-02-25
 
 ### Added
