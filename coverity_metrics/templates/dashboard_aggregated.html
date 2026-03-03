@@ -438,11 +438,11 @@
             
             <div class="grid-2col" style="margin-top: 1.5rem;">
                 <div class="summary-card">
-                    <div class="label">Total New (90d)</div>
+                    <div class="label">Total New ({{ trend_period_text }})</div>
                     <div class="value">{{ trend_summary.total_new }}</div>
                 </div>
                 <div class="summary-card">
-                    <div class="label">Total Fixed (90d)</div>
+                    <div class="label">Total Fixed ({{ trend_period_text }})</div>
                     <div class="value">{{ trend_summary.total_fixed }}</div>
                 </div>
             </div>
@@ -496,8 +496,8 @@
                         <th>Instance</th>
                         <th>Triage %</th>
                         <th>Classified</th>
-                        <th>New Defects (90d)</th>
-                        <th>Fixed (90d)</th>
+                        <th>New Defects ({{ trend_period_text }})</th>
+                        <th>Fixed ({{ trend_period_text }})</th>
                         <th>Net Change</th>
                         <th>Trend</th>
                     </tr>
@@ -607,8 +607,8 @@
         <!-- User Activity & License Statistics -->
         {% if user_statistics %}
         <div class="section">
-            <h2 class="section-title">👥 Aggregated User Activity & License Statistics (Last 90 Days)
-                <span class="info-icon">ℹ<span class="tooltip tooltip-right">Shows license utilization and user engagement across all instances. Active users are those who have logged in or interacted with Coverity in the last 90 days.</span></span>
+            <h2 class="section-title">👥 Aggregated User Activity & License Statistics ({{ trend_period_text }})
+                <span class="info-icon">ℹ<span class="tooltip tooltip-right">Shows license utilization and user engagement across all instances. Active users are those who have logged in or interacted with Coverity in the {{ trend_period_text|lower }}.</span></span>
             </h2>
             <div class="summary-grid" style="margin-bottom: 2rem;">
                 <div class="summary-card info">
@@ -629,7 +629,7 @@
                 </div>
                 <div class="summary-card {% if user_statistics.active_user_percentage < 50 %}warning{% else %}success{% endif %}">
                     <div class="label">Active Users
-                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Users who have actively used Coverity within the last 90 days. Indicates license utilization.</span></span>
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Users who have actively used Coverity within the {{ trend_period_text|lower }}. Indicates license utilization.</span></span>
                     </div>
                     <div class="value">{{ user_statistics.active_users }}</div>
                     <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">
@@ -638,7 +638,7 @@
                 </div>
                 <div class="summary-card">
                     <div class="label">Inactive Licenses
-                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Number of licenses allocated to users who have not been active in the last 90 days. These licenses may be reassignable.</span></span>
+                        <span class="info-icon">ℹ<span class="tooltip tooltip-top">Number of licenses allocated to users who have not been active in the {{ trend_period_text|lower }}. These licenses may be reassignable.</span></span>
                     </div>
                     <div class="value">{{ user_statistics.total_licensed_users - user_statistics.active_users }}</div>
                     <div style="margin-top: 0.5rem; font-size: 0.85rem; opacity: 0.8;">

@@ -1608,6 +1608,7 @@ def main():
     # Initialize progress tracker if enabled
     progress_tracker = None
     session_id = None
+    completed_names = set()
     if args.track_progress or args.resume:
         progress_tracker = ProgressTracker(cache_dir=args.cache_dir)
         
@@ -1619,8 +1620,10 @@ def main():
                 tqdm.write(f"[ERROR] Session not found: {args.resume}")
                 sys.exit(1)
             session_id = args.resume
-            tqdm.write(f"  Completed: {progress_data['completed_tasks']}/{progress_data['total_tasks']}")
+            completed_names = {item['name'] for item in progress_data.get('completed_items', [])}
+            tqdm.write(f"  Completed: {len(completed_names)}/{progress_data['total_tasks']}")
             tqdm.write(f"  Failed: {progress_data['failed_tasks']}")
+            tqdm.write(f"  Skipping {len(completed_names)} already-completed dashboard(s)")
     
     try:
         # ========================================================================
@@ -1652,8 +1655,20 @@ def main():
                     instance_folder = f"{args.output}/{args.instance.replace(' ', '_')}"
                     os.makedirs(instance_folder, exist_ok=True)
                     output_file = f"{instance_folder}/dashboard_{args.project.replace(' ', '_')}.html"
-                    dashboard_path = generate_html_dashboard(output_file, args.project, args.instance, metrics, cache, use_cache, args.days)
-                    generated_files.append((f"{args.instance} - {args.project}", dashboard_path))
+                    _label = f"{args.instance} - {args.project}"
+                    if progress_tracker and not session_id:
+                        session_id = progress_tracker.create_session(1)
+                        tqdm.write(f"  [Progress] Session ID: {session_id}  (use --resume {session_id} to resume if interrupted)")
+                    if _label not in completed_names:
+                        dashboard_path = generate_html_dashboard(output_file, args.project, args.instance, metrics, cache, use_cache, args.days)
+                        generated_files.append((_label, dashboard_path))
+                        if progress_tracker and session_id:
+                            progress_tracker.update_progress(session_id, _label)
+                    else:
+                        tqdm.write(f"  [SKIP] {_label}")
+                        generated_files.append((_label, output_file))
+                    if progress_tracker and session_id:
+                        progress_tracker.complete_session(session_id)
                 else:
                     # Specific instance + all projects (AUTO)
                     tqdm.write(f"  Generating all projects (auto-mode)")
@@ -1664,14 +1679,24 @@ def main():
                     total_dashboards = 1 + (len(projects) if not projects.empty else 0)  # 1 instance + N projects
                     tqdm.write(f"  Total dashboards to generate: {total_dashboards} (1 instance + {len(projects) if not projects.empty else 0} projects)")
                     
+                    if progress_tracker and not session_id:
+                        session_id = progress_tracker.create_session(total_dashboards)
+                        tqdm.write(f"  [Progress] Session ID: {session_id}  (use --resume {session_id} to resume if interrupted)")
                     with tqdm(total=total_dashboards, desc=f"{args.instance}", unit="dashboard") as pbar:
                         # Generate instance-level dashboard (all projects)
                         instance_folder = f"{args.output}/{args.instance.replace(' ', '_')}"
                         os.makedirs(instance_folder, exist_ok=True)
                         pbar.set_description(f"{args.instance} - Overview")
                         output_file = f"{instance_folder}/dashboard.html"
-                        dashboard_path = generate_html_dashboard(output_file, None, args.instance, metrics, cache, use_cache, args.days)
-                        generated_files.append((f"{args.instance} - All Projects", dashboard_path))
+                        _inst_label = f"{args.instance} - All Projects"
+                        if _inst_label not in completed_names:
+                            dashboard_path = generate_html_dashboard(output_file, None, args.instance, metrics, cache, use_cache, args.days)
+                            generated_files.append((_inst_label, dashboard_path))
+                            if progress_tracker and session_id:
+                                progress_tracker.update_progress(session_id, _inst_label)
+                        else:
+                            tqdm.write(f"  [SKIP] {_inst_label}")
+                            generated_files.append((_inst_label, output_file))
                         pbar.update(1)
                         
                         # Generate project-level dashboards
@@ -1679,11 +1704,20 @@ def main():
                             for idx, project in enumerate(projects['project_name'], 1):
                                 pbar.set_description(f"{args.instance} - {project}")
                                 pbar.set_postfix_str(f"{idx}/{len(projects)}")
-                                metrics_proj = multi_metrics.get_metrics_for_instance(args.instance, project)
+                                _proj_label = f"{args.instance} - {project}"
                                 output_file = f"{instance_folder}/dashboard_{project.replace(' ', '_')}.html"
-                                dashboard_path = generate_html_dashboard(output_file, project, args.instance, metrics_proj, cache, use_cache, args.days)
-                                generated_files.append((f"{args.instance} - {project}", dashboard_path))
+                                if _proj_label not in completed_names:
+                                    metrics_proj = multi_metrics.get_metrics_for_instance(args.instance, project)
+                                    dashboard_path = generate_html_dashboard(output_file, project, args.instance, metrics_proj, cache, use_cache, args.days)
+                                    generated_files.append((_proj_label, dashboard_path))
+                                    if progress_tracker and session_id:
+                                        progress_tracker.update_progress(session_id, _proj_label)
+                                else:
+                                    tqdm.write(f"  [SKIP] {_proj_label}")
+                                    generated_files.append((_proj_label, output_file))
                                 pbar.update(1)
+                    if progress_tracker and session_id:
+                        progress_tracker.complete_session(session_id)
                     
             else:
                 # ALL INSTANCES MODE (AUTO-AGGREGATED)
@@ -1692,16 +1726,28 @@ def main():
                     tqdm.write(f"\nGenerating dashboards for all instances, project: {args.project}")
                     tqdm.write(f"  Total instances: {len(instance_names)}")
                     
+                    if progress_tracker and not session_id:
+                        session_id = progress_tracker.create_session(len(instance_names))
+                        tqdm.write(f"  [Progress] Session ID: {session_id}  (use --resume {session_id} to resume if interrupted)")
                     with tqdm(total=len(instance_names), desc="Instances", unit="instance") as pbar:
                         for idx, instance_name in enumerate(instance_names, 1):
                             pbar.set_description(f"Instance {idx}/{len(instance_names)}: {instance_name}")
-                            metrics = multi_metrics.get_metrics_for_instance(instance_name, args.project)
+                            _label = f"{instance_name} - {args.project}"
                             instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
                             os.makedirs(instance_folder, exist_ok=True)
                             output_file = f"{instance_folder}/dashboard_{args.project.replace(' ', '_')}.html"
-                            dashboard_path = generate_html_dashboard(output_file, args.project, instance_name, metrics, cache, use_cache, args.days)
-                            generated_files.append((f"{instance_name} - {args.project}", dashboard_path))
+                            if _label not in completed_names:
+                                metrics = multi_metrics.get_metrics_for_instance(instance_name, args.project)
+                                dashboard_path = generate_html_dashboard(output_file, args.project, instance_name, metrics, cache, use_cache, args.days)
+                                generated_files.append((_label, dashboard_path))
+                                if progress_tracker and session_id:
+                                    progress_tracker.update_progress(session_id, _label)
+                            else:
+                                tqdm.write(f"  [SKIP] {_label}")
+                                generated_files.append((_label, output_file))
                             pbar.update(1)
+                    if progress_tracker and session_id:
+                        progress_tracker.complete_session(session_id)
                 else:
                     # All instances + all projects (FULL AUTO MODE)
                     # Calculate total work for progress tracking
@@ -1723,26 +1769,44 @@ def main():
                     tqdm.write(f"  - {len(instance_names)} instance dashboards")
                     tqdm.write(f"  - {sum(instance_project_counts.values())} project dashboards")
                     
+                    if progress_tracker and not session_id:
+                        session_id = progress_tracker.create_session(total_work_items)
+                        tqdm.write(f"  [Progress] Session ID: {session_id}  (use --resume {session_id} to resume if interrupted)")
+                    
                     # Create overall progress bar
                     with tqdm(total=total_work_items, desc="Overall Progress", unit="dashboard", position=0) as pbar_overall:
                         # Generate aggregated dashboard
                         tqdm.write("\nGenerating aggregated dashboard across all instances...")
                         os.makedirs(args.output, exist_ok=True)
                         output_file = f"{args.output}/dashboard_aggregated.html"
-                        dashboard_path = generate_aggregated_dashboard(multi_metrics, output_file, args.days)
-                        generated_files.append(("Aggregated View", dashboard_path))
+                        _agg_label = "Aggregated View"
+                        if _agg_label not in completed_names:
+                            dashboard_path = generate_aggregated_dashboard(multi_metrics, output_file, args.days)
+                            generated_files.append((_agg_label, dashboard_path))
+                            if progress_tracker and session_id:
+                                progress_tracker.update_progress(session_id, _agg_label)
+                        else:
+                            tqdm.write(f"  [SKIP] {_agg_label}")
+                            generated_files.append((_agg_label, output_file))
                         pbar_overall.update(1)
                         
                         # Also generate instance-level dashboards for navigation
                         tqdm.write("\nGenerating instance-level dashboards for navigation...")
                         for idx, instance_name in enumerate(instance_names, 1):
                             pbar_overall.set_description(f"Instance {idx}/{len(instance_names)}: {instance_name}")
-                            metrics = multi_metrics.get_metrics_for_instance(instance_name)
+                            _inst_label = instance_name
                             instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
                             os.makedirs(instance_folder, exist_ok=True)
                             output_file = f"{instance_folder}/dashboard.html"
-                            dashboard_path = generate_html_dashboard(output_file, None, instance_name, metrics, cache, use_cache, args.days)
-                            generated_files.append((instance_name, dashboard_path))
+                            if _inst_label not in completed_names:
+                                metrics = multi_metrics.get_metrics_for_instance(instance_name)
+                                dashboard_path = generate_html_dashboard(output_file, None, instance_name, metrics, cache, use_cache, args.days)
+                                generated_files.append((_inst_label, dashboard_path))
+                                if progress_tracker and session_id:
+                                    progress_tracker.update_progress(session_id, _inst_label)
+                            else:
+                                tqdm.write(f"  [SKIP] {_inst_label}")
+                                generated_files.append((_inst_label, output_file))
                             pbar_overall.update(1)
                         
                         tqdm.write(f"\n[OK] Generated aggregated view + {len(instance_names)} instance dashboards")
@@ -1758,18 +1822,27 @@ def main():
                                 pbar_overall.set_description(f"Instance {idx}/{len(instance_names)}: {instance_name} projects")
                                 for proj_idx, project in enumerate(projects['project_name'], 1):
                                     pbar_overall.set_postfix_str(f"{project} ({proj_idx}/{len(projects)})")
-                                    metrics_proj = multi_metrics.get_metrics_for_instance(instance_name, project)
+                                    _proj_label = f"{instance_name} - {project}"
                                     instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
                                     os.makedirs(instance_folder, exist_ok=True)
                                     output_file = f"{instance_folder}/dashboard_{project.replace(' ', '_')}.html"
-                                    dashboard_path = generate_html_dashboard(output_file, project, instance_name, metrics_proj, cache, use_cache, args.days)
-                                    generated_files.append((f"{instance_name} - {project}", dashboard_path))
+                                    if _proj_label not in completed_names:
+                                        metrics_proj = multi_metrics.get_metrics_for_instance(instance_name, project)
+                                        dashboard_path = generate_html_dashboard(output_file, project, instance_name, metrics_proj, cache, use_cache, args.days)
+                                        generated_files.append((_proj_label, dashboard_path))
+                                        if progress_tracker and session_id:
+                                            progress_tracker.update_progress(session_id, _proj_label)
+                                    else:
+                                        tqdm.write(f"  [SKIP] {_proj_label}")
+                                        generated_files.append((_proj_label, output_file))
                                     total_projects += 1
                                     pbar_overall.update(1)
                         
                         pbar_overall.set_description("Complete")
                         pbar_overall.set_postfix_str("")
                     
+                    if progress_tracker and session_id:
+                        progress_tracker.complete_session(session_id)
                     tqdm.write(f"\n[OK] Generated {total_projects} project-level dashboards across {len(instance_names)} instances")
                 
             # Summary and completion
@@ -1827,8 +1900,20 @@ def main():
             instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
             os.makedirs(instance_folder, exist_ok=True)
             output_file = f"{instance_folder}/dashboard_{args.project.replace(' ', '_')}.html"
-            dashboard_path = generate_html_dashboard(output_file, args.project, instance_name, metrics, cache, use_cache, args.days)
-            generated_files.append((f"{instance_name} - {args.project}", dashboard_path))
+            _label = f"{instance_name} - {args.project}"
+            if progress_tracker and not session_id:
+                session_id = progress_tracker.create_session(1)
+                tqdm.write(f"  [Progress] Session ID: {session_id}")
+            if _label not in completed_names:
+                dashboard_path = generate_html_dashboard(output_file, args.project, instance_name, metrics, cache, use_cache, args.days)
+                generated_files.append((_label, dashboard_path))
+                if progress_tracker and session_id:
+                    progress_tracker.update_progress(session_id, _label)
+            else:
+                tqdm.write(f"  [SKIP] {_label}")
+                generated_files.append((_label, output_file))
+            if progress_tracker and session_id:
+                progress_tracker.complete_session(session_id)
         else:
             # All projects (AUTO MODE) - same as multi-instance
             tqdm.write(f"\nGenerating all dashboards for instance: {instance_name}")
@@ -1838,14 +1923,25 @@ def main():
             total_dashboards = 1 + 1 + (len(projects) if not projects.empty else 0)  # 1 aggregated + 1 instance + N projects
             tqdm.write(f"  Total dashboards to generate: {total_dashboards} (1 aggregated + 1 instance + {len(projects) if not projects.empty else 0} projects)")
             
+            if progress_tracker and not session_id:
+                session_id = progress_tracker.create_session(total_dashboards)
+                tqdm.write(f"  [Progress] Session ID: {session_id}  (use --resume {session_id} to resume if interrupted)")
+            
             with tqdm(total=total_dashboards, desc=f"{instance_name}", unit="dashboard") as pbar:
                 # Generate aggregated dashboard (even for single instance, for consistency)
                 pbar.set_description("Aggregated View")
                 multi_metrics = MultiInstanceMetrics(args.config)
                 os.makedirs(args.output, exist_ok=True)
                 output_file = f"{args.output}/dashboard_aggregated.html"
-                dashboard_path = generate_aggregated_dashboard(multi_metrics, output_file, args.days)
-                generated_files.append(("Aggregated View", dashboard_path))
+                _agg_label = "Aggregated View"
+                if _agg_label not in completed_names:
+                    dashboard_path = generate_aggregated_dashboard(multi_metrics, output_file, args.days)
+                    generated_files.append((_agg_label, dashboard_path))
+                    if progress_tracker and session_id:
+                        progress_tracker.update_progress(session_id, _agg_label)
+                else:
+                    tqdm.write(f"  [SKIP] {_agg_label}")
+                    generated_files.append((_agg_label, output_file))
                 pbar.update(1)
                 
                 # Generate instance-level dashboard (all projects)
@@ -1853,8 +1949,15 @@ def main():
                 os.makedirs(instance_folder, exist_ok=True)
                 pbar.set_description(f"{instance_name} - Overview")
                 output_file = f"{instance_folder}/dashboard.html"
-                dashboard_path = generate_html_dashboard(output_file, None, instance_name, metrics, cache, use_cache, args.days)
-                generated_files.append((f"{instance_name} - All Projects", dashboard_path))
+                _inst_label = f"{instance_name} - All Projects"
+                if _inst_label not in completed_names:
+                    dashboard_path = generate_html_dashboard(output_file, None, instance_name, metrics, cache, use_cache, args.days)
+                    generated_files.append((_inst_label, dashboard_path))
+                    if progress_tracker and session_id:
+                        progress_tracker.update_progress(session_id, _inst_label)
+                else:
+                    tqdm.write(f"  [SKIP] {_inst_label}")
+                    generated_files.append((_inst_label, output_file))
                 pbar.update(1)
                 
                 # Generate project-level dashboards
@@ -1862,12 +1965,21 @@ def main():
                     for idx, project in enumerate(projects['project_name'], 1):
                         pbar.set_description(f"{instance_name} - {project}")
                         pbar.set_postfix_str(f"{idx}/{len(projects)}")
-                        # Create a new metrics instance with project filter
-                        metrics_proj = CoverityMetrics(connection_params=connection_params, project_name=project)
+                        _proj_label = f"{instance_name} - {project}"
                         output_file = f"{instance_folder}/dashboard_{project.replace(' ', '_')}.html"
-                        dashboard_path = generate_html_dashboard(output_file, project, instance_name, metrics_proj, cache, use_cache, args.days)
-                        generated_files.append((f"{instance_name} - {project}", dashboard_path))
+                        if _proj_label not in completed_names:
+                            # Create a new metrics instance with project filter
+                            metrics_proj = CoverityMetrics(connection_params=connection_params, project_name=project)
+                            dashboard_path = generate_html_dashboard(output_file, project, instance_name, metrics_proj, cache, use_cache, args.days)
+                            generated_files.append((_proj_label, dashboard_path))
+                            if progress_tracker and session_id:
+                                progress_tracker.update_progress(session_id, _proj_label)
+                        else:
+                            tqdm.write(f"  [SKIP] {_proj_label}")
+                            generated_files.append((_proj_label, output_file))
                         pbar.update(1)
+            if progress_tracker and session_id:
+                progress_tracker.complete_session(session_id)
         
         # Summary and completion
         tqdm.write("\n" + "=" * 80)
