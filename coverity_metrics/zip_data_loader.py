@@ -246,7 +246,15 @@ class ZipDataLoader:
     def get_triage_trends(self, days=90, granularity='auto'):
         """Get triage trends"""
         return self._read_metric_json('triage_trends', as_dataframe=True)
-    
+
+    def get_checker_classification_breakdown(self, limit=15):
+        """Get checker classification breakdown"""
+        return self._read_metric_json('checker_classification_breakdown', as_dataframe=True)
+
+    def get_top_projects_by_classification(self, limit=10):
+        """Get top projects/streams by intentional classification count"""
+        return self._read_metric_json('top_projects_by_classification', as_dataframe=True)
+
     def get_fix_rate_metrics(self, days=90):
         """Get fix rate metrics"""
         return self._read_metric_json('fix_rate_metrics')

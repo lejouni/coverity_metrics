@@ -159,6 +159,8 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             projects_list = metrics_data.get('all_projects', [])
             defect_trends = metrics_data.get('defect_trends', [])
             triage_trends = metrics_data.get('triage_trends', [])
+            checker_classification = metrics_data.get('checker_classification', [])
+            top_projects_classification = metrics_data.get('top_projects_classification', [])
             fix_rate_metrics = metrics_data.get('fix_rate_metrics', {})
             defect_aging = metrics_data.get('defect_aging', [])
             triage_summary = metrics_data.get('triage_summary', {})
@@ -200,6 +202,8 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             projects_list = metrics_data['all_projects']
             defect_trends = metrics_data.get('defect_trends', [])
             triage_trends = metrics_data.get('triage_trends', [])
+            checker_classification = metrics_data.get('checker_classification', [])
+            top_projects_classification = metrics_data.get('top_projects_classification', [])
             fix_rate_metrics = metrics_data.get('fix_rate_metrics', {})
             defect_aging = metrics_data.get('defect_aging', [])
             triage_summary = metrics_data.get('triage_summary', {})
@@ -254,6 +258,8 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         granularity = 'day' if project_name else 'week'
         defect_trends = metrics.get_defect_trends(days=days, granularity=granularity).to_dict('records')
         triage_trends = metrics.get_triage_trends(days=days, granularity=granularity).to_dict('records')
+        checker_classification = metrics.get_checker_classification_breakdown(limit=15).to_dict('records')
+        top_projects_classification = metrics.get_top_projects_by_classification(limit=10).to_dict('records')
         fix_rate_metrics = metrics.get_fix_rate_metrics(days=days)
         defect_aging = metrics.get_defect_aging_distribution().to_dict('records')
         triage_summary = metrics.get_triage_progress_summary()
@@ -352,6 +358,8 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         # Trend analysis
         defect_trends=defect_trends,
         triage_trends=triage_trends,
+        checker_classification=checker_classification,
+        top_projects_classification=top_projects_classification,
         fix_rate_metrics=fix_rate_metrics,
         defect_aging=defect_aging,
         triage_summary=triage_summary,
@@ -428,6 +436,8 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
     granularity = 'day' if project_name else 'week'
     defect_trends = metrics.get_defect_trends(days=days, granularity=granularity).to_dict('records')
     triage_trends = metrics.get_triage_trends(days=days, granularity=granularity).to_dict('records')
+    checker_classification = metrics.get_checker_classification_breakdown(limit=15).to_dict('records')
+    top_projects_classification = metrics.get_top_projects_by_classification(limit=10).to_dict('records')
     fix_rate_metrics = metrics.get_fix_rate_metrics(days=days)
     defect_aging = metrics.get_defect_aging_distribution().to_dict('records')
     triage_summary = metrics.get_triage_progress_summary()
@@ -497,6 +507,8 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
         'all_projects': projects_list,
         'defect_trends': defect_trends,
         'triage_trends': triage_trends,
+        'checker_classification': checker_classification,
+        'top_projects_classification': top_projects_classification,
         'fix_rate_metrics': fix_rate_metrics,
         'defect_aging': defect_aging,
         'triage_summary': triage_summary,

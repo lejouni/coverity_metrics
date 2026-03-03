@@ -1020,37 +1020,53 @@
         </div>
         {% endif %}
 
-        <!-- Triage Trends Over Time -->
-        {% if triage_trends|length > 0 %}
+        <!-- Triage Classification by Stream (project level only) -->
+        {% if triage_trends|length > 0 and current_project %}
         <div class="section">
             <h2 class="section-title">
-                Triage Activity Trends ({{ trend_period_text }})
+                Triage Classification by Stream
                 <span class="info-icon">ℹ
-                        <span class="tooltip">Number of defects triaged over time. Tracks team's progress in classifying and responding to defects. Calculated by counting daily triage actions (classifications, assignments, status changes).</span>
+                        <span class="tooltip">All currently outstanding defects broken down by stream and their current triage classification. Streams with the most Unclassified defects appear first — these are where triage attention is most urgently needed. Green = resolved (False Positive / Intentional), Red = confirmed Bug, Grey = not yet triaged.</span>
                 </span>
             </h2>
             <div class="chart-container" id="triage-trends-chart"></div>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Period</th>
-                        <th>Classification</th>
-                        <th>Count</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in triage_trends[:50] %}
-                    <tr>
-                        <td>{{ row.period }}</td>
-                        <td>
-                            <span class="severity-badge {% if row.classification == 'Bug' %}severity-high{% elif row.classification == 'False Positive' %}severity-low{% else %}severity-medium{% endif %}">
-                                {{ row.classification }}
-                            </span>
-                        </td>
-                        <td class="metric-number">{{ row.count }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
+            <table class="data-table" id="triage-pivot-table">
+                <thead><tr><th>Stream</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Checker Classification Breakdown -->
+        {% if checker_classification|length > 0 %}
+        <div class="section">
+            <h2 class="section-title">
+                Checker Classification Breakdown
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Top checker rules ranked by the number of False Positive + Intentional classifications. Only explicitly classified defects are included. A checker with many False Positives is a tuning candidate (too noisy); high Intentional counts signal accepted technical debt patterns that may warrant a policy review.</span>
+                </span>
+            </h2>
+            <div class="chart-container" id="checker-classification-chart"></div>
+            <table class="data-table" id="checker-pivot-table">
+                <thead><tr><th>Checker</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Top Projects / Streams by Triage Classification -->
+        {% if top_projects_classification|length > 0 %}
+        <div class="section">
+            <h2 class="section-title">
+                {% if current_project %}Top Streams by Triage Classification{% else %}Top Projects by Triage Classification{% endif %}
+                <span class="info-icon">ℹ
+                        <span class="tooltip">{% if current_project %}Streams within this project{% else %}Projects{% endif %} ranked by Intentional classification count. A high Intentional ratio — especially relative to total defect count — may indicate defects are being marked Intentional to pass a security quality gate rather than being genuinely addressed. Sorted by most Intentional first.</span>
+                </span>
+            </h2>
+            <div class="chart-container" id="projects-classification-chart"></div>
+            <table class="data-table" id="proj-pivot-table">
+                <thead><tr><th>{% if current_project %}Stream{% else %}Project{% endif %}</th></tr></thead>
+                <tbody></tbody>
             </table>
         </div>
         {% endif %}
@@ -2300,72 +2316,275 @@
         Plotly.newPlot('aging-chart', agingData, agingLayout, {responsive: true, displaylogo: false});
         {% endif %}
 
-        {% if triage_trends|length > 0 %}
-        // Triage Trends Chart - Group by classification over time
-        var triageByDate = {};
+        {% if triage_trends|length > 0 and current_project %}
+        // Triage Classification by Stream
+        var triageByStream = {};
+        var streamOrder = [];
         {% for row in triage_trends %}
-        if (!triageByDate['{{ row.period }}']) {
-            triageByDate['{{ row.period }}'] = {};
+        if (!triageByStream['{{ row.stream }}']) {
+            triageByStream['{{ row.stream }}'] = {};
+            streamOrder.push('{{ row.stream }}');
         }
-        triageByDate['{{ row.period }}']['{{ row.classification }}'] = {{ row.count }};
+        triageByStream['{{ row.stream }}']['{{ row.classification }}'] = {{ row.count }};
         {% endfor %}
 
-        var triageDates = Object.keys(triageByDate).sort();
+        // Preserve server-side order (sorted by unclassified desc)
+        var triageStreams = streamOrder.filter((v, i, a) => a.indexOf(v) === i);
         var bugCounts = [];
         var fpCounts = [];
+        var intentionalCounts = [];
         var unclassifiedCounts = [];
         var otherCounts = [];
 
-        triageDates.forEach(date => {
-            bugCounts.push(triageByDate[date]['Bug'] || 0);
-            fpCounts.push(triageByDate[date]['False Positive'] || 0);
-            unclassifiedCounts.push(triageByDate[date]['Unclassified'] || 0);
-            otherCounts.push((triageByDate[date]['Intentional'] || 0) + (triageByDate[date]['Ignore'] || 0));
+        var knownClassifications = new Set(['Bug', 'False Positive', 'Unclassified', 'Intentional', 'Ignore']);
+
+        triageStreams.forEach(function(stream) {
+            bugCounts.push(triageByStream[stream]['Bug'] || 0);
+            fpCounts.push(triageByStream[stream]['False Positive'] || 0);
+            intentionalCounts.push(triageByStream[stream]['Intentional'] || 0);
+            unclassifiedCounts.push(triageByStream[stream]['Unclassified'] || 0);
+            var other = (triageByStream[stream]['Ignore'] || 0);
+            Object.keys(triageByStream[stream]).forEach(function(cls) {
+                if (!knownClassifications.has(cls)) { other += triageByStream[stream][cls]; }
+            });
+            otherCounts.push(other);
         });
 
         var triageTrendsData = [{
-            x: triageDates,
-            y: bugCounts,
-            name: 'Bugs',
-            type: 'scatter',
-            mode: 'lines+markers',
-            stackgroup: 'one',
-            marker: {color: '#e74c3c'}
-        }, {
-            x: triageDates,
-            y: fpCounts,
-            name: 'False Positives',
-            type: 'scatter',
-            mode: 'lines+markers',
-            stackgroup: 'one',
-            marker: {color: '#27ae60'}
-        }, {
-            x: triageDates,
+            x: triageStreams,
             y: unclassifiedCounts,
             name: 'Unclassified',
-            type: 'scatter',
-            mode: 'lines+markers',
-            stackgroup: 'one',
+            type: 'bar',
             marker: {color: '#95a5a6'}
         }, {
-            x: triageDates,
+            x: triageStreams,
+            y: bugCounts,
+            name: 'Bug',
+            type: 'bar',
+            marker: {color: '#e74c3c'}
+        }, {
+            x: triageStreams,
+            y: fpCounts,
+            name: 'False Positive',
+            type: 'bar',
+            marker: {color: '#27ae60'}
+        }, {
+            x: triageStreams,
+            y: intentionalCounts,
+            name: 'Intentional',
+            type: 'bar',
+            marker: {color: '#2ecc71'}
+        }, {
+            x: triageStreams,
             y: otherCounts,
             name: 'Other',
-            type: 'scatter',
-            mode: 'lines+markers',
-            stackgroup: 'one',
+            type: 'bar',
             marker: {color: '#3498db'}
         }];
 
         var triageTrendsLayout = {
-            title: 'Triage Activity Over Time',
-            height: 400,
-            xaxis: {title: 'Period'},
+            title: 'Triage Classification by Stream (Sorted by Unclassified)',
+            height: 450,
+            barmode: 'stack',
+            xaxis: {title: 'Stream', tickangle: -35},
             yaxis: {title: 'Defect Count'},
-            showlegend: true
+            showlegend: true,
+            legend: {x: 1.01, y: 1}
         };
 
         Plotly.newPlot('triage-trends-chart', triageTrendsData, triageTrendsLayout, {responsive: true, displaylogo: false});
+
+        // Build pivot table for Triage Classification by Stream
+        (function() {
+            var t = document.getElementById('triage-pivot-table');
+            if (!t) return;
+            var colorMap = {'Bug': '#e74c3c', 'False Positive': '#27ae60', 'Intentional': '#2ecc71', 'Unclassified': '#95a5a6'};
+            var clsOrder = ['Bug', 'False Positive', 'Intentional', 'Pending', 'Unclassified', 'Ignore'];
+            var clsSet = {};
+            triageStreams.forEach(function(s) { Object.keys(triageByStream[s]).forEach(function(c) { clsSet[c] = 1; }); });
+            var cols = clsOrder.filter(function(c) { return clsSet[c]; });
+            Object.keys(clsSet).forEach(function(c) { if (cols.indexOf(c) === -1) cols.push(c); });
+            var hrow = t.querySelector('thead tr');
+            cols.forEach(function(c) {
+                var th = document.createElement('th');
+                var color = colorMap[c] || '#3498db';
+                th.innerHTML = '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + color + ';margin-right:5px;vertical-align:middle"></span>' + c;
+                hrow.appendChild(th);
+            });
+            var thTot = document.createElement('th'); thTot.textContent = 'Total'; thTot.style.fontWeight = 'bold'; hrow.appendChild(thTot);
+            var tbody = t.querySelector('tbody');
+            triageStreams.forEach(function(s) {
+                var tr = document.createElement('tr');
+                var td0 = document.createElement('td'); td0.textContent = s; tr.appendChild(td0);
+                var total = 0;
+                cols.forEach(function(c) {
+                    var v = (triageByStream[s] && triageByStream[s][c]) || 0;
+                    total += v;
+                    var td = document.createElement('td'); td.className = 'metric-number';
+                    if (v > 0) { td.textContent = v; td.style.color = colorMap[c] || '#3498db'; td.style.fontWeight = '600'; }
+                    tr.appendChild(td);
+                });
+                var tdTot = document.createElement('td'); tdTot.className = 'metric-number'; tdTot.style.fontWeight = 'bold'; tdTot.textContent = total; tr.appendChild(tdTot);
+                tbody.appendChild(tr);
+            });
+        })();
+        {% endif %}
+
+        {% if checker_classification|length > 0 %}
+        // Checker Classification Breakdown (horizontal stacked bar)
+        var checkerByClass = {};
+        var checkerOrder = [];
+        {% for row in checker_classification %}{% if row.classification != 'Unclassified' %}
+        if (!checkerByClass['{{ row.checker_name }}']) {
+            checkerByClass['{{ row.checker_name }}'] = {};
+            checkerOrder.push('{{ row.checker_name }}');
+        }
+        checkerByClass['{{ row.checker_name }}']['{{ row.classification }}'] = {{ row.count }};
+        {% endif %}{% endfor %}
+
+        // Reverse so highest-ranked checker appears at top of horizontal chart
+        var checkerNames = checkerOrder.filter(function(v, i, a) { return a.indexOf(v) === i; }).reverse();
+
+        // Dynamically collect all unique classifications present in the data
+        var checkerClsSet = {};
+        checkerNames.forEach(function(c) { Object.keys(checkerByClass[c]).forEach(function(k) { checkerClsSet[k] = 1; }); });
+        var checkerCls = Object.keys(checkerClsSet);
+
+        // Color palette: known classifications get fixed colors, extras get fallback palette
+        var clsColorMap = {'Bug': '#e74c3c', 'False Positive': '#3498db', 'Intentional': '#e67e22',
+                           'Pending': '#9b59b6', 'Ignore': '#95a5a6', 'Unknown': '#bdc3c7'};
+        var fallbackColors = ['#9b59b6','#f39c12','#1abc9c','#e67e22','#34495e','#16a085','#d35400'];
+        var fallbackIdx = 0;
+
+        var checkerChartData = checkerCls.map(function(cls) {
+            var counts = checkerNames.map(function(c) { return (checkerByClass[c] && checkerByClass[c][cls]) || 0; });
+            var color = clsColorMap[cls] || fallbackColors[(fallbackIdx++) % fallbackColors.length];
+            return {y: checkerNames, x: counts, name: cls, type: 'bar', orientation: 'h', marker: {color: color}};
+        });
+
+        var checkerChartLayout = {
+            title: 'Classification Breakdown per Checker (Top Checkers, Ranked by FP + Intentional)',
+            height: Math.max(350, checkerNames.length * 38 + 120),
+            barmode: 'stack',
+            margin: {l: 220, r: 160, t: 60, b: 60},
+            xaxis: {title: 'Classified Defect Count'},
+            yaxis: {title: '', automargin: true},
+            showlegend: true,
+            legend: {x: 1.01, y: 1}
+        };
+
+        Plotly.newPlot('checker-classification-chart', checkerChartData, checkerChartLayout, {responsive: true, displaylogo: false});
+
+        // Build pivot table for Checker Classification Breakdown
+        (function() {
+            var t = document.getElementById('checker-pivot-table');
+            if (!t) return;
+            var colorMap = {'Bug': '#e74c3c', 'False Positive': '#3498db', 'Intentional': '#e67e22', 'Pending': '#9b59b6', 'Ignore': '#95a5a6'};
+            var clsOrder = ['Bug', 'False Positive', 'Intentional', 'Pending', 'Ignore'];
+            var cols = clsOrder.filter(function(c) { return checkerCls.indexOf(c) !== -1; });
+            checkerCls.forEach(function(c) { if (cols.indexOf(c) === -1) cols.push(c); });
+            var hrow = t.querySelector('thead tr');
+            cols.forEach(function(c) {
+                var th = document.createElement('th');
+                var color = colorMap[c] || '#7f8c8d';
+                th.innerHTML = '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + color + ';margin-right:5px;vertical-align:middle"></span>' + c;
+                hrow.appendChild(th);
+            });
+            var thTot = document.createElement('th'); thTot.textContent = 'Total'; thTot.style.fontWeight = 'bold'; hrow.appendChild(thTot);
+            var tbody = t.querySelector('tbody');
+            // checkerNames is already reversed for the chart; reverse back to show highest-ranked first
+            checkerNames.slice().reverse().forEach(function(checker) {
+                var tr = document.createElement('tr');
+                var td0 = document.createElement('td'); td0.innerHTML = '<code>' + checker + '</code>'; tr.appendChild(td0);
+                var total = 0;
+                cols.forEach(function(c) {
+                    var v = (checkerByClass[checker] && checkerByClass[checker][c]) || 0;
+                    total += v;
+                    var td = document.createElement('td'); td.className = 'metric-number';
+                    if (v > 0) { td.textContent = v; td.style.color = colorMap[c] || '#7f8c8d'; td.style.fontWeight = '600'; }
+                    tr.appendChild(td);
+                });
+                var tdTot = document.createElement('td'); tdTot.className = 'metric-number'; tdTot.style.fontWeight = 'bold'; tdTot.textContent = total; tr.appendChild(tdTot);
+                tbody.appendChild(tr);
+            });
+        })();
+        {% endif %}
+
+        {% if top_projects_classification|length > 0 %}
+        // Top Projects / Streams by Triage Classification (stacked bar, sorted by Intentional)
+        var projByClass = {};
+        var projOrder = [];
+        {% for row in top_projects_classification %}{% if row.classification != 'Unclassified' %}
+        if (!projByClass['{{ row.name }}']) {
+            projByClass['{{ row.name }}'] = {};
+            projOrder.push('{{ row.name }}');
+        }
+        projByClass['{{ row.name }}']['{{ row.classification }}'] = {{ row.count }};
+        {% endif %}{% endfor %}
+
+        var projNames = projOrder.filter(function(v, i, a) { return a.indexOf(v) === i; });
+
+        // Dynamically collect all unique classifications present in the data
+        var projClsSet = {};
+        projNames.forEach(function(p) { Object.keys(projByClass[p]).forEach(function(k) { projClsSet[k] = 1; }); });
+        var projCls = Object.keys(projClsSet);
+
+        var pClsColorMap = {'Bug': '#e74c3c', 'False Positive': '#3498db', 'Intentional': '#e67e22',
+                            'Pending': '#9b59b6', 'Ignore': '#95a5a6', 'Unknown': '#bdc3c7'};
+        var pFallbackColors = ['#9b59b6','#f39c12','#1abc9c','#e67e22','#34495e','#16a085','#d35400'];
+        var pFallbackIdx = 0;
+
+        var projClassTitle = '{% if current_project %}Top Streams{% else %}Top Projects{% endif %} by Triage Classification (Sorted by Intentional)';
+        var projClassData = projCls.map(function(cls) {
+            var counts = projNames.map(function(p) { return (projByClass[p] && projByClass[p][cls]) || 0; });
+            var color = pClsColorMap[cls] || pFallbackColors[(pFallbackIdx++) % pFallbackColors.length];
+            return {x: projNames, y: counts, name: cls, type: 'bar', marker: {color: color}};
+        });
+
+        var projClassLayout = {
+            title: projClassTitle,
+            height: 450,
+            barmode: 'stack',
+            xaxis: {title: '{% if current_project %}Stream{% else %}Project{% endif %}', tickangle: -35},
+            yaxis: {title: 'Defect Count'},
+            showlegend: true,
+            legend: {x: 1.01, y: 1}
+        };
+
+        Plotly.newPlot('projects-classification-chart', projClassData, projClassLayout, {responsive: true, displaylogo: false});
+
+        // Build pivot table for Top Projects / Streams by Triage Classification
+        (function() {
+            var t = document.getElementById('proj-pivot-table');
+            if (!t) return;
+            var colorMap = {'Bug': '#e74c3c', 'False Positive': '#3498db', 'Intentional': '#e67e22', 'Pending': '#9b59b6', 'Ignore': '#95a5a6'};
+            var clsOrder = ['Bug', 'False Positive', 'Intentional', 'Pending', 'Ignore'];
+            var cols = clsOrder.filter(function(c) { return projCls.indexOf(c) !== -1; });
+            projCls.forEach(function(c) { if (cols.indexOf(c) === -1) cols.push(c); });
+            var hrow = t.querySelector('thead tr');
+            cols.forEach(function(c) {
+                var th = document.createElement('th');
+                var color = colorMap[c] || '#7f8c8d';
+                th.innerHTML = '<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:' + color + ';margin-right:5px;vertical-align:middle"></span>' + c;
+                hrow.appendChild(th);
+            });
+            var thTot = document.createElement('th'); thTot.textContent = 'Total'; thTot.style.fontWeight = 'bold'; hrow.appendChild(thTot);
+            var tbody = t.querySelector('tbody');
+            projNames.forEach(function(p) {
+                var tr = document.createElement('tr');
+                var td0 = document.createElement('td'); td0.textContent = p; tr.appendChild(td0);
+                var total = 0;
+                cols.forEach(function(c) {
+                    var v = (projByClass[p] && projByClass[p][c]) || 0;
+                    total += v;
+                    var td = document.createElement('td'); td.className = 'metric-number';
+                    if (v > 0) { td.textContent = v; td.style.color = colorMap[c] || '#7f8c8d'; td.style.fontWeight = '600'; }
+                    tr.appendChild(td);
+                });
+                var tdTot = document.createElement('td'); tdTot.className = 'metric-number'; tdTot.style.fontWeight = 'bold'; tdTot.textContent = total; tr.appendChild(tdTot);
+                tbody.appendChild(tr);
+            });
+        })();
         {% endif %}
 
         // Toggle CWE Top 25 details

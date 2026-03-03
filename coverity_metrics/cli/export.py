@@ -129,6 +129,10 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
         
         # User Activity
         'user_license_statistics': {'method': 'get_user_license_statistics', 'kwargs': {'days': days}},
+
+        # Classification Breakdown
+        'checker_classification_breakdown': {'method': 'get_checker_classification_breakdown', 'kwargs': {'limit': 15}},
+        'top_projects_by_classification': {'method': 'get_top_projects_by_classification', 'kwargs': {'limit': 10}},
     }
     
     # Export each metric as JSON
@@ -209,6 +213,8 @@ def export_project_specific_metrics(instance_name, connection_params, project_di
         'fix_rate_metrics': {'method': 'get_fix_rate_metrics', 'kwargs': {'days': days}},
         'defect_aging_distribution': {'method': 'get_defect_aging_distribution'},
         'technical_debt_summary': {'method': 'get_technical_debt_summary'},
+        'checker_classification_breakdown': {'method': 'get_checker_classification_breakdown', 'kwargs': {'limit': 15}},
+        'top_projects_by_classification': {'method': 'get_top_projects_by_classification', 'kwargs': {'limit': 10}},
     }
     
     # Export each project metric

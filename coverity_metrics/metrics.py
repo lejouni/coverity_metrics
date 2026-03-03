@@ -1557,43 +1557,39 @@ class CoverityMetrics:
         return pd.DataFrame(results)
     
     def get_triage_trends(self, days=90, granularity='week'):
-        """Get defect triage/classification trends over time
+        """Get triage classification distribution of outstanding defects, grouped by stream.
         
-        Shows when defects were triaged (classified) over the specified time period.
-        Groups by time period to show triage activity trends.
+        Shows ALL currently outstanding defects, broken down by stream and their CURRENT
+        classification. Streams are ordered so those with the most unclassified defects
+        appear first, highlighting where triage attention is most needed.
+        Unclassified defects (defect_triage_id IS NULL or classification not set) are
+        included explicitly under the 'Unclassified' bucket.
         
         Args:
-            days: Number of days to analyze
-            granularity: 'day', 'week', or 'month'
+            days: Not used (kept for API compatibility).
+            granularity: Not used (kept for API compatibility).
             
         Returns:
-            pandas.DataFrame: Triage activity trends over time with classification counts
+            pandas.DataFrame: Outstanding defect counts per stream and classification
         """
-        # Map granularity to SQL date truncation
-        trunc_map = {
-            'day': 'DATE(ts.date_created)',
-            'week': 'DATE_TRUNC(\'week\', ts.date_created)::date',
-            'month': 'DATE_TRUNC(\'month\', ts.date_created)::date'
-        }
-        date_trunc = trunc_map.get(granularity, trunc_map['week'])
-        
-        query = f"""
+        query = """
             SELECT 
-                {date_trunc} as period,
-                de.name as classification,
+                s.name as stream,
+                COALESCE(de.name, 'Unclassified') as classification,
                 COUNT(DISTINCT sd.id) as count
             FROM stream_defect sd
-            JOIN defect_triage dt ON sd.defect_triage_id = dt.id
-            JOIN triage_state ts ON dt.current_triage_state_id = ts.id
-            JOIN dynamic_enum de ON dt.current_classification_id = de.id
             JOIN stream_element se ON sd.stream_element_id = se.id
             JOIN stream s ON se.stream_id = s.id
-            {{project_filter_join}}
-            WHERE de.dtype = 'Cls'
-                AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
-                {{project_filter}}
-            GROUP BY {date_trunc}, de.name
-            ORDER BY {date_trunc} ASC, de.name
+            LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+            LEFT JOIN dynamic_enum de ON dt.current_classification_id = de.id AND de.dtype = 'Cls'
+            {project_filter_join}
+            WHERE sd.fixed_snapshot_element_id IS NULL
+                {project_filter}
+            GROUP BY s.name, COALESCE(de.name, 'Unclassified')
+            ORDER BY
+                COUNT(DISTINCT CASE WHEN de.name IS NULL OR de.name = 'Unclassified' THEN sd.id END) DESC,
+                s.name,
+                COALESCE(de.name, 'Unclassified')
         """
         
         if self.project_name:
@@ -1604,13 +1600,147 @@ class CoverityMetrics:
                 """,
                 project_filter="AND p.name = %s"
             )
-            results = self.db.execute_query_dict(query, (days, self.project_name))
+            results = self.db.execute_query_dict(query, (self.project_name,))
         else:
             query = query.format(project_filter_join="", project_filter="")
-            results = self.db.execute_query_dict(query, (days,))
+            results = self.db.execute_query_dict(query)
         
         return pd.DataFrame(results)
-    
+
+    def get_checker_classification_breakdown(self, limit=15):
+        """Get triage classification breakdown for the top checkers with classified defects.
+
+        Identifies which checker rules accumulate the most explicit triage classifications
+        (False Positive, Intentional, Bug).  Only defects that have been explicitly
+        classified are included — Unclassified defects are intentionally excluded so the
+        result focuses on deliberate decisions.  Checkers are ranked by the sum of
+        False Positive + Intentional counts (noise / accepted-debt signal), helping teams
+        spot overly noisy rules or rules whose findings are routinely dismissed.
+
+        Args:
+            limit: Maximum number of distinct checkers to include (top N by FP + Intentional).
+
+        Returns:
+            pandas.DataFrame: Rows with checker_name, classification, count columns.
+        """
+        query = f"""
+            WITH classified AS (
+                SELECT
+                    ct.name AS checker_name,
+                    de.name AS classification,
+                    COUNT(DISTINCT sd.id) AS count
+                FROM stream_defect sd
+                JOIN checker_properties cp ON sd.checker_properties_id = cp.id
+                JOIN checker_type ct ON cp.checker_type_id = ct.id
+                JOIN stream_element se ON sd.stream_element_id = se.id
+                JOIN stream s ON se.stream_id = s.id
+                JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                JOIN dynamic_enum de ON dt.current_classification_id = de.id AND de.dtype = 'Cls'
+                {{project_filter_join}}
+                WHERE sd.fixed_snapshot_element_id IS NULL
+                    AND de.name != 'Unclassified'
+                    {{project_filter}}
+                GROUP BY ct.name, de.name
+            ),
+            top_checkers AS (
+                SELECT checker_name,
+                       SUM(CASE WHEN classification IN ('False Positive', 'Intentional') THEN count ELSE 0 END) AS fp_int_count
+                FROM classified
+                GROUP BY checker_name
+                ORDER BY fp_int_count DESC
+                LIMIT {limit}
+            )
+            SELECT c.checker_name, c.classification, c.count
+            FROM classified c
+            JOIN top_checkers tc ON c.checker_name = tc.checker_name
+            ORDER BY tc.fp_int_count DESC, c.checker_name, c.classification
+        """
+
+        if self.project_name:
+            query = query.format(
+                project_filter_join="""
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
+                project_filter="AND p.name = %s"
+            )
+            results = self.db.execute_query_dict(query, (self.project_name,))
+        else:
+            query = query.format(project_filter_join="", project_filter="")
+            results = self.db.execute_query_dict(query)
+
+        return pd.DataFrame(results)
+
+    def get_top_projects_by_classification(self, limit=10):
+        """Get the top projects (or streams at project level) ranked by Intentional count.
+
+        At the instance level shows top *projects*; at the project level shows top
+        *streams* within that project.  All classification buckets are returned
+        (including Unclassified) so the bar chart can show the full triage picture
+        alongside the Intentional highlight.
+
+        The primary sort key is Intentional count descending — highlighting teams
+        that may be marking defects Intentional to pass a security quality gate
+        without addressing the underlying findings.
+
+        Args:
+            limit: Maximum number of projects/streams to return.
+
+        Returns:
+            pandas.DataFrame: Rows with name (project or stream), classification, count.
+        """
+        if self.project_name:
+            name_col = "s.name"
+            extra_join = """
+                JOIN project_stream ps ON s.id = ps.stream_id
+                JOIN project p ON ps.project_id = p.id
+            """
+            where_filter = "AND p.name = %s"
+        else:
+            name_col = "p.name"
+            extra_join = """
+                JOIN project_stream ps ON s.id = ps.stream_id
+                JOIN project p ON ps.project_id = p.id
+            """
+            where_filter = "AND p.deleted = false"
+
+        query = f"""
+            WITH classified AS (
+                SELECT
+                    {name_col} AS name,
+                    COALESCE(de.name, 'Unclassified') AS classification,
+                    COUNT(DISTINCT sd.id) AS count
+                FROM stream_defect sd
+                JOIN stream_element se ON sd.stream_element_id = se.id
+                JOIN stream s ON se.stream_id = s.id
+                {extra_join}
+                LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                LEFT JOIN dynamic_enum de ON dt.current_classification_id = de.id AND de.dtype = 'Cls'
+                WHERE sd.fixed_snapshot_element_id IS NULL
+                    {where_filter}
+                GROUP BY {name_col}, COALESCE(de.name, 'Unclassified')
+            ),
+            top_names AS (
+                SELECT name,
+                       SUM(CASE WHEN classification = 'Intentional' THEN count ELSE 0 END) AS intentional_count
+                FROM classified
+                GROUP BY name
+                ORDER BY intentional_count DESC
+                LIMIT {limit}
+            )
+            SELECT c.name, c.classification, c.count
+            FROM classified c
+            JOIN top_names tn ON c.name = tn.name
+            ORDER BY tn.intentional_count DESC, c.name, c.classification
+        """
+
+        if self.project_name:
+            results = self.db.execute_query_dict(query, (self.project_name,))
+        else:
+            results = self.db.execute_query_dict(query)
+
+        return pd.DataFrame(results)
+
     def get_fix_rate_metrics(self, days=90):
         """Get defect fix rate and velocity metrics using snapshot data
         
