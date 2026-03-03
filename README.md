@@ -1024,39 +1024,44 @@ All methods return pandas DataFrames for easy manipulation:
 ## Project Structure
 
 ```
-coverity_metrics/
-├── config.json                # Database configuration (create from config.json.example)
+coverity_metrics/              (project root)
 ├── config.json.example        # Configuration template
-├── __init__.py                # Package initialization
-├── __version__.py             # Version information
-├── db_connection.py           # Database connection handling
-├── metrics.py                 # Core metrics calculation logic
-├── metrics_cache.py           # Caching implementation for performance
-├── multi_instance_metrics.py  # Multi-instance support
-├── owasp_mapping.py           # NEW! OWASP Top 10 2025 CWE mappings (494 CWEs)
-├── cwe_top25_mapping.py       # NEW! CWE Top 25 2025 rankings and scores
-├── cli/
-│   ├── dashboard.py           # Dashboard generator (main CLI)
-│   ├── report.py              # CLI metrics report
-│   └── export.py              # JSON export utility
-├── templates/                 # HTML dashboard templates
-│   └── dashboard.html         # Main dashboard template with all tabs
-├── static/                    # CSS/JS assets for dashboards
-│   ├── css/
-│   └── js/
-├── cache/                     # Cache directory (auto-created)
-├── output/                    # Generated dashboards (auto-created)
-├── exports/                   # JSON/ZIP exports (auto-created)
+├── coverity_metrics/          # Python package
+│   ├── __init__.py            # Package initialization
+│   ├── __version__.py         # Version information
+│   ├── db_connection.py       # Database connection handling
+│   ├── metrics.py             # Core metrics calculation logic
+│   ├── metrics_cache.py       # Caching and progress tracking
+│   ├── multi_instance_metrics.py  # Multi-instance aggregation
+│   ├── owasp_mapping.py       # OWASP Top 10 2025 CWE mappings (494 CWEs)
+│   ├── cwe_top25_mapping.py   # CWE Top 25 2025 rankings and scores
+│   ├── zip_data_loader.py     # ZIP-based offline data loader
+│   ├── cli/
+│   │   ├── dashboard.py       # Dashboard generator (main CLI)
+│   │   ├── export.py          # JSON/ZIP export utility
+│   │   └── report.py          # CLI metrics report
+│   ├── templates/             # Jinja2 HTML templates
+│   │   ├── dashboard.html     # Per-instance/project dashboard
+│   │   └── dashboard_aggregated.html  # Multi-instance aggregated view
+│   └── static/                # CSS/JS assets for dashboards
+│       ├── css/
+│       └── js/
 ├── requirements.txt           # Python dependencies
 ├── setup.py                   # Package setup
 ├── pyproject.toml             # Modern Python packaging
+├── install.ps1                # Windows install / clean-reinstall helper
+├── release.ps1                # Build, version-bump and publish script
 ├── README.md                  # This file
+├── CHANGELOG.md               # Detailed version changelog
+├── RELEASE_NOTES.md           # Release notes and version history
+├── RELEASE_PROCESS.md         # How to cut a release
 ├── INSTALL.md                 # Detailed installation guide
 ├── USAGE_GUIDE.md             # Comprehensive usage examples
 ├── MULTI_INSTANCE_GUIDE.md    # Multi-instance setup and usage
-├── MULTI_ZIP_GUIDE.md         # NEW! Multi-ZIP aggregation guide
+├── MULTI_ZIP_GUIDE.md         # Multi-ZIP aggregation guide
 ├── CACHING_GUIDE.md           # Performance optimization guide
-└── RELEASE_NOTES.md           # Version history and changelog
+├── PRESENTATION_GUIDE.md      # Dashboard presentation guide
+└── LICENSE                    # Project license
 ```
 
 ## Extending the Tool
