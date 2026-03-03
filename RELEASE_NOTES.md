@@ -2,6 +2,39 @@
 
 ## Version History
 
+### Version 1.0.9 - 2026-03-03
+
+**ZIP Export, Progress Tracking & Aggregated Dashboard Fixes**
+
+#### Bug Fixes
+
+##### 📦 Fixed Missing Classification Charts in ZIP-based Dashboards
+- **Issue**: Dashboards generated from ZIP files (offline/export mode) were missing the "Checker Classification Breakdown" and "Top Projects/Streams by Triage Classification" sections
+- **Root Cause**: The two metrics (`checker_classification_breakdown`, `top_projects_by_classification`) were never added to the export metric configs in `export.py` when the feature was created — `ZipDataLoader` had the reader methods, the templates had the chart sections, but the JSON files were never written into the ZIP
+- **Fix**: Added both metrics to `export_instance_to_json()` and `export_project_specific_metrics()` in `export.py`
+- **Impact**: Re-export with `coverity-export` to get ZIPs with the new JSON files; ZIP-based dashboards will then show the missing chart sections
+
+##### ▶️ Implemented `--track-progress` and `--resume`
+- **Issue**: `--track-progress` and `--resume` CLI flags were accepted but did nothing — `ProgressTracker` was instantiated but never used in any generation loop
+- **Fix**: Fully wired progress tracking into all 7 generation paths in `dashboard.py`
+  - `--track-progress`: prints a session ID at the start of generation; records each completed dashboard; call `complete_session()` at the end
+  - `--resume SESSION_ID`: loads the previously completed dashboard set from `cache/progress/progress_{SESSION_ID}.json`; skips already-finished items with a `[SKIP]` message; continues from the interruption point
+- **Label scheme**:
+  - Aggregated view: `"Aggregated View"`
+  - Instance overview: `"{instance_name}"` (multi-instance) or `"{instance_name} - All Projects"` (single-instance)
+  - Per-project: `"{instance_name} - {project_name}"`
+- **Impact**: Large multi-instance / multi-project runs that are interrupted (network drop, timeout, etc.) can now be resumed without regenerating already-finished dashboards
+
+##### 📅 Fixed Hardcoded "Last 90 Days" in Aggregated Dashboard
+- **Issue**: The aggregated dashboard always showed "Last 90 Days" in the User Activity section title, card labels, table headers, and tooltips, regardless of the `--days` argument passed
+- **Root Cause**: `dashboard_aggregated.html` was written with `90` hardcoded in 5 places; the `trend_period_text` Jinja2 variable was available but the template was never updated to use it
+- **Fix**: Replaced all 5 hardcoded occurrences with `{{ trend_period_text }}` / `{{ trend_period_text|lower }}`
+  - Section title: `Last 90 Days` → dynamic
+  - Card labels: `Total New (90d)` / `Total Fixed (90d)` → dynamic
+  - Table headers: `New Defects (90d)` / `Fixed (90d)` → dynamic
+  - Active Users and Inactive Licenses tooltips: `last 90 days` → dynamic
+- **Impact**: The aggregated dashboard now correctly reflects `--days 365` (or any other value) throughout
+
 ### Version 1.0.8 - 2026-03-02
 
 **OWASP Top 10 Count Consistency Fix**

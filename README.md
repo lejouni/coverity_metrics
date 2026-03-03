@@ -39,11 +39,14 @@ coverity-dashboard
 ## Features
 
 
-**🆕 Latest Enhancements (v1.0.8, 2026-03-02):**
-- **🔒 OWASP Top 10 Count Fix**: "Total Defects" in the category header, the defect table row count, and the CWE count now always match — fixed a last-writer-wins bug where CWEs shared across multiple OWASP categories were silently dropped from all but the last category
-- **🔢 Consistent Defect Deduplication**: OWASP summary now uses `merged_defect_id` (same as the detail table) so summary and table counts are always identical
+**🆕 Latest Enhancements (v1.0.9, 2026-03-03):**
+- **📦 Missing Chart Data in ZIP Dashboards Fixed**: `checker_classification_breakdown` and `top_projects_by_classification` were not exported to ZIP files — both sections now appear correctly in dashboards generated from ZIP/offline exports
+- **▶️ Resume & Progress Tracking Implemented**: `--track-progress` and `--resume` CLI flags are now fully functional across all generation paths — interrupted runs can be resumed by passing the session ID
+- **📅 Dynamic Days Label in Aggregated Dashboard**: The aggregated dashboard no longer hardcodes "Last 90 Days" — the title, card labels, table headers, and tooltips now reflect the actual `--days` value
 
 **Recent Enhancements:**
+- **🔒 OWASP Top 10 Count Fix (v1.0.8)**: "Total Defects" in the category header, the defect table row count, and the CWE count now always match — fixed a last-writer-wins bug where CWEs shared across multiple OWASP categories were silently dropped from all but the last category
+- **🔢 Consistent Defect Deduplication (v1.0.8)**: OWASP summary now uses `merged_defect_id` (same as the detail table) so summary and table counts are always identical
 - **🧑‍💻 Accurate Active Users (v1.0.7)**: Instance-level "Active Users" now deduplicates by activity (triage, comment, commit) and matches project-level logic
 - **🐞 Dashboard Bug Fix (v1.0.7)**: "Active Users" now displays correct count at all levels
 - **🛡️ HTML Escaping (v1.0.7)**: Defect file/function fields are now HTML-escaped to prevent invalid HTML/JS errors

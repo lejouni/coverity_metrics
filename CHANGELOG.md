@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-03-03
+
+### Fixed
+- **Missing Classification Charts in ZIP-based Dashboards**
+  - `checker_classification_breakdown` and `top_projects_by_classification` were never written to ZIP export files
+  - Both metrics are now exported at instance level and project level in `export.py`
+  - `ZipDataLoader` getter methods already existed and read from the correct JSON paths — only the export side was missing
+  - Dashboards generated with `--zip-file` now include the "Checker Classification Breakdown" and "Top Projects/Streams by Triage Classification" sections
+
+- **`--track-progress` and `--resume` Were No-ops**
+  - `ProgressTracker` class in `metrics_cache.py` was fully implemented but never wired into dashboard generation
+  - `--track-progress` now creates a progress session before generation, prints the session ID, and records each completed dashboard
+  - `--resume SESSION_ID` now loads the completed set from the session file and skips already-generated dashboards, printing `[SKIP]` for each
+  - All 7 generation paths in `dashboard.py` are covered: single/multi-instance × specific/all projects × aggregated
+  - Label scheme: `"Aggregated View"` / `"{instance}"` / `"{instance} - {project}"`
+
+- **Hardcoded "Last 90 Days" in Aggregated Dashboard**
+  - Section title, card labels (`Total New (90d)` / `Total Fixed (90d)`), Trends by Instance table headers, and tooltip texts all showed a hardcoded 90 regardless of the `--days` argument
+  - All 5 occurrences in `dashboard_aggregated.html` replaced with `{{ trend_period_text }}` / `{{ trend_period_text|lower }}`
+  - `generate_aggregated_dashboard()` already passed `trend_period_text=f"Last {days} Days"` — only the template was stale
+
 ## [1.0.8] - 2026-03-02
 
 ### Fixed
