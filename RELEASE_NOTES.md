@@ -2,6 +2,37 @@
 
 ## Version History
 
+### Version 1.0.10 - 2026-03-04
+
+**Documentation & Project Structure Improvements**
+
+#### Changes
+
+##### � Upgraded Python Dependencies to Latest Versions
+All minimum version pins in `requirements.txt` have been bumped to the latest available releases:
+
+| Package | Previous | Updated |
+|---|---|---|
+| `psycopg2-binary` | `>=2.9.0` | `>=2.9.11` |
+| `pandas` | `>=2.0.0` | `>=3.0.1` |
+| `matplotlib` | `>=3.7.0` | `>=3.10.8` |
+| `seaborn` | `>=0.12.0` | `>=0.13.2` |
+| `python-dateutil` | `>=2.8.0` | `>=2.9.0.post0` |
+| `openpyxl` | `>=3.1.0` | `>=3.1.5` |
+| `jinja2` | `>=3.1.0` | `>=3.1.6` |
+| `plotly` | `>=5.18.0` | `>=6.6.0` |
+| `tqdm` | `>=4.66.0` | `>=4.67.3` |
+
+##### �📁 Refactored Project Structure Documentation
+- Updated README with new file paths and project layout to accurately reflect the current source tree
+- Improved organization and clarity of repository structure descriptions
+
+##### 📊 Updated Presentation Guide
+- Added Python script option for generating presentations from the command line
+- Revised slide structure details for improved accuracy and usability
+
+---
+
 ### Version 1.0.9 - 2026-03-03
 
 **ZIP Export, Progress Tracking & Aggregated Dashboard Fixes**

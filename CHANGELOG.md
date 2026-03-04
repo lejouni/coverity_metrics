@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.10] - 2026-03-04
+
+### Changed
+- **Dependency Upgrades**
+  - `psycopg2-binary` `>=2.9.0` → `>=2.9.11`
+  - `pandas` `>=2.0.0` → `>=3.0.1`
+  - `matplotlib` `>=3.7.0` → `>=3.10.8`
+  - `seaborn` `>=0.12.0` → `>=0.13.2`
+  - `python-dateutil` `>=2.8.0` → `>=2.9.0.post0`
+  - `openpyxl` `>=3.1.0` → `>=3.1.5`
+  - `jinja2` `>=3.1.0` → `>=3.1.6`
+  - `plotly` `>=5.18.0` → `>=6.6.0`
+  - `tqdm` `>=4.66.0` → `>=4.67.3`
+
+- **Project Structure Documentation**
+  - Refactored project structure for improved organization and clarity
+  - Updated README with new file paths and project layout reflecting the current structure
+
+- **Presentation Guide**
+  - Updated `PRESENTATION_GUIDE.md` with Python script option for generating presentations
+  - Revised slide structure details for improved clarity and usability
+
 ## [1.0.9] - 2026-03-03
 
 ### Fixed

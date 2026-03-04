@@ -39,12 +39,17 @@ coverity-dashboard
 ## Features
 
 
-**🆕 Latest Enhancements (v1.0.9, 2026-03-03):**
+**🆕 Latest Enhancements (v1.0.10, 2026-03-04):**
+- **� Dependency Upgrades**: All Python dependencies bumped to latest versions — `pandas` 3.0.1, `plotly` 6.6.0, `matplotlib` 3.10.8, `jinja2` 3.1.6, and more
+- **�📁 Project Structure Documentation**: Refactored README to reflect the current project layout with updated file paths and improved clarity
+- **📊 Presentation Guide Updated**: `PRESENTATION_GUIDE.md` now includes a Python script option for generating presentations and revised slide structure details
+
+**Recent Enhancements (v1.0.9):**
 - **📦 Missing Chart Data in ZIP Dashboards Fixed**: `checker_classification_breakdown` and `top_projects_by_classification` were not exported to ZIP files — both sections now appear correctly in dashboards generated from ZIP/offline exports
 - **▶️ Resume & Progress Tracking Implemented**: `--track-progress` and `--resume` CLI flags are now fully functional across all generation paths — interrupted runs can be resumed by passing the session ID
 - **📅 Dynamic Days Label in Aggregated Dashboard**: The aggregated dashboard no longer hardcodes "Last 90 Days" — the title, card labels, table headers, and tooltips now reflect the actual `--days` value
 
-**Recent Enhancements:**
+**Earlier Enhancements (v1.0.8 & v1.0.7):**
 - **🔒 OWASP Top 10 Count Fix (v1.0.8)**: "Total Defects" in the category header, the defect table row count, and the CWE count now always match — fixed a last-writer-wins bug where CWEs shared across multiple OWASP categories were silently dropped from all but the last category
 - **🔢 Consistent Defect Deduplication (v1.0.8)**: OWASP summary now uses `merged_defect_id` (same as the detail table) so summary and table counts are always identical
 - **🧑‍💻 Accurate Active Users (v1.0.7)**: Instance-level "Active Users" now deduplicates by activity (triage, comment, commit) and matches project-level logic
@@ -52,7 +57,7 @@ coverity-dashboard
 - **🛡️ HTML Escaping (v1.0.7)**: Defect file/function fields are now HTML-escaped to prevent invalid HTML/JS errors
 - **⏱️ Script Timing (v1.0.7)**: Script prints total execution time after dashboard generation
 
-**Earlier Enhancements:**
+**Earlier Enhancements (v1.0.5 and before):**
 - **🔒 Complete Security Coverage (v1.0.5)**: OWASP Top 10 and CWE Top 25 reports now show ALL categories with PASS/FAILED status badges, not just defect-affected ones
 - **📊 Enhanced Defect Details (v1.0.5)**: Click FAILED security entries to see ALL defects with CID, Type, Severity, File, and Function
 - **⏱️ Progress Tracking**: Real-time progress bars for multi-instance dashboard generation with ETA and completion percentage
