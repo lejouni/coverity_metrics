@@ -40,8 +40,8 @@ coverity-dashboard
 
 
 **🆕 Latest Enhancements (v1.0.10, 2026-03-04):**
-- **� Dependency Upgrades**: All Python dependencies bumped to latest versions — `pandas` 3.0.1, `plotly` 6.6.0, `matplotlib` 3.10.8, `jinja2` 3.1.6, and more
-- **�📁 Project Structure Documentation**: Refactored README to reflect the current project layout with updated file paths and improved clarity
+- **📦 Dependency Upgrades**: All Python dependencies bumped to latest versions — `pandas` 3.0.1, `plotly` 6.6.0, `matplotlib` 3.10.8, `jinja2` 3.1.6, and more
+- **📁 Project Structure Documentation**: Refactored README to reflect the current project layout with updated file paths and improved clarity
 - **📊 Presentation Guide Updated**: `PRESENTATION_GUIDE.md` now includes a Python script option for generating presentations and revised slide structure details
 
 **Recent Enhancements (v1.0.9):**
