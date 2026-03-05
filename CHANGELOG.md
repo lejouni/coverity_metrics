@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.12] - 2026-03-05
+
+### Fixed
+- **Stale `~overity_metrics` dist-info Artefact**
+  - An interrupted install left a `~overity_metrics-1.0.8.dist-info` directory in site-packages, causing pip to emit `WARNING: Ignoring invalid distribution ~overity-metrics` on every invocation
+  - Removed the corrupted directory; no source code changes
+
 ## [1.0.11] - 2026-03-05
 
 ### Fixed

@@ -39,7 +39,10 @@ coverity-dashboard
 ## Features
 
 
-**🆕 Latest Enhancements (v1.0.11, 2026-03-05):**
+**🆕 Latest Enhancements (v1.0.12, 2026-03-05):**
+- **🧹 Packaging Cleanup**: Removed stale `~overity_metrics` dist-info artefact left by an interrupted install that caused pip to emit `WARNING: Ignoring invalid distribution` on every invocation
+
+**Recent Enhancements (v1.0.11, 2026-03-05):**
 - **🐛 PostgreSQL `ROUND` Compatibility Fix**: Fixed `function round(double precision, integer) does not exist` error in `get_top_projects_by_fix_rate` — `EXTRACT(EPOCH FROM ...)` now explicitly cast to `::numeric` so `ROUND(x, 2)` resolves correctly on all PostgreSQL versions
 
 **Recent Enhancements (v1.0.10, 2026-03-04):**

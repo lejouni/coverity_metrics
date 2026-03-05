@@ -2,6 +2,19 @@
 
 ## Version History
 
+### Version 1.0.12 - 2026-03-05
+
+**Packaging Maintenance**
+
+#### Changes
+
+##### 🧹 Removed Stale `~overity_metrics` dist-info Artefact
+- **Issue**: pip printed `WARNING: Ignoring invalid distribution ~overity-metrics` on every invocation due to a corrupted `~overity_metrics-1.0.8.dist-info` directory left behind by a previously interrupted install
+- **Fix**: Removed the stale directory from site-packages; no source code changes
+- **Impact**: pip no longer emits the spurious warning
+
+---
+
 ### Version 1.0.11 - 2026-03-05
 
 **Bug Fix: PostgreSQL ROUND Compatibility**
