@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.11] - 2026-03-05
+
+### Fixed
+- **PostgreSQL `ROUND` Compatibility in `get_top_projects_by_fix_rate`**
+  - `EXTRACT(EPOCH FROM ...)` returns `double precision`; dividing `numeric` by it produces `double precision`, for which `ROUND(x, integer)` is undefined in PostgreSQL
+  - Added `::numeric` cast to the `EXTRACT` expression in `metrics.py` so `ROUND(defects_fixed::numeric / EXTRACT(...)::numeric * 86400, 2)` resolves correctly
+  - Resolves `psycopg2.errors.UndefinedFunction: function round(double precision, integer) does not exist` crash on dashboard generation
+
 ## [1.0.10] - 2026-03-04
 
 ### Changed

@@ -39,7 +39,10 @@ coverity-dashboard
 ## Features
 
 
-**🆕 Latest Enhancements (v1.0.10, 2026-03-04):**
+**🆕 Latest Enhancements (v1.0.11, 2026-03-05):**
+- **🐛 PostgreSQL `ROUND` Compatibility Fix**: Fixed `function round(double precision, integer) does not exist` error in `get_top_projects_by_fix_rate` — `EXTRACT(EPOCH FROM ...)` now explicitly cast to `::numeric` so `ROUND(x, 2)` resolves correctly on all PostgreSQL versions
+
+**Recent Enhancements (v1.0.10, 2026-03-04):**
 - **📦 Dependency Upgrades**: All Python dependencies bumped to latest versions — `pandas` 3.0.1, `plotly` 6.6.0, `matplotlib` 3.10.8, `jinja2` 3.1.6, and more
 - **📁 Project Structure Documentation**: Refactored README to reflect the current project layout with updated file paths and improved clarity
 - **📊 Presentation Guide Updated**: `PRESENTATION_GUIDE.md` now includes a Python script option for generating presentations and revised slide structure details

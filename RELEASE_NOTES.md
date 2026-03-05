@@ -2,6 +2,20 @@
 
 ## Version History
 
+### Version 1.0.11 - 2026-03-05
+
+**Bug Fix: PostgreSQL ROUND Compatibility**
+
+#### Bug Fixes
+
+##### 🐛 Fixed `ROUND(double precision, integer)` Error in Top Projects by Fix Rate
+- **Issue**: `coverity-dashboard` crashed with `psycopg2.errors.UndefinedFunction: function round(double precision, integer) does not exist` when generating the dashboard
+- **Root Cause**: In `metrics.py` `get_top_projects_by_fix_rate`, `EXTRACT(EPOCH FROM ...)` returns `double precision` in PostgreSQL. Dividing a `numeric` value by `double precision` yields `double precision`, and PostgreSQL only defines `ROUND(numeric, integer)` — not `ROUND(double precision, integer)`
+- **Fix**: Added `::numeric` cast to the `EXTRACT(EPOCH FROM (last_snapshot - first_snapshot))` expression so the result is `numeric` throughout and `ROUND(x, 2)` resolves correctly
+- **Impact**: Dashboard generation now completes successfully on all PostgreSQL versions
+
+---
+
 ### Version 1.0.10 - 2026-03-04
 
 **Documentation & Project Structure Improvements**

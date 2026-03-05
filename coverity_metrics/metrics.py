@@ -2395,7 +2395,7 @@ class CoverityMetrics:
                 defects_fixed as eliminated_defects,
                 snapshot_count,
                 avg_fixes_per_snapshot,
-                ROUND(defects_fixed::numeric / EXTRACT(EPOCH FROM (last_snapshot - first_snapshot)) * 86400, 2) as avg_fixes_per_day
+                ROUND(defects_fixed::numeric / EXTRACT(EPOCH FROM (last_snapshot - first_snapshot))::numeric * 86400, 2) as avg_fixes_per_day
             FROM project_fixes
             ORDER BY defects_fixed DESC, avg_fixes_per_snapshot DESC
             LIMIT %s
