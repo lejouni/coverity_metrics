@@ -126,7 +126,7 @@ class ZipDataLoader:
         Returns:
             dict, list, or DataFrame depending on content and as_dataframe flag
         """
-        # If project_name is set, try project-specific file first
+        # If project_name is set, use project-specific file only
         if self.project_name:
             project_file = self._get_project_metric_file(metric_name)
             if project_file:
@@ -138,8 +138,11 @@ class ZipDataLoader:
                             return self._read_json_from_zip(project_file, as_dataframe=as_dataframe)
                 except Exception:
                     pass
+            # Project-specific file not found (stream has no snapshots / no data exported).
+            # Return empty data instead of falling back to instance-level metrics.
+            return pd.DataFrame() if as_dataframe else {}
         
-        # Fall back to instance-level file
+        # No project filter - use instance-level file
         instance_file = self._get_metric_file(metric_name)
         return self._read_json_from_zip(instance_file, as_dataframe=as_dataframe)
     
