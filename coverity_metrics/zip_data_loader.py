@@ -339,7 +339,7 @@ class ZipDataLoader:
         """Get OWASP category details"""
         if not self.project_name:
             return []
-        filename = f"{self.instance_name}_{self.project_name}_owasp_{category_id}_details.json"
+        filename = f"{self.instance_name}/{self.project_name}/owasp_{category_id}_details.json"
         data = self._read_json_from_zip(filename)
         if isinstance(data, list):
             return data
@@ -356,7 +356,7 @@ class ZipDataLoader:
         """Get CWE Top 25 details"""
         if not self.project_name:
             return []
-        filename = f"{self.instance_name}_{self.project_name}_cwe_{cwe_id}_details.json"
+        filename = f"{self.instance_name}/{self.project_name}/cwe_{cwe_id}_details.json"
         data = self._read_json_from_zip(filename)
         if isinstance(data, list):
             return data
