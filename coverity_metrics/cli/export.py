@@ -121,9 +121,9 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
         
         # Leaderboard Metrics
         'top_projects_by_fix_rate': {'method': 'get_top_projects_by_fix_rate', 'kwargs': {'days': 30, 'limit': 100}},
-        'most_improved_projects': {'method': 'get_most_improved_projects', 'kwargs': {'days': 90, 'limit': 100}},
+
         'top_projects_by_triage_activity': {'method': 'get_top_projects_by_triage_activity', 'kwargs': {'days': 30, 'limit': 100}},
-        'top_users_by_fixes': {'method': 'get_top_users_by_fixes', 'kwargs': {'days': 30, 'limit': 100}},
+        'top_users_by_fixes': {'method': 'get_top_users_by_fixes', 'kwargs': {'days': days, 'limit': 100}},
         'top_triagers': {'method': 'get_top_triagers', 'kwargs': {'days': 30, 'limit': 100}},
         'most_collaborative_users': {'method': 'get_most_collaborative_users', 'kwargs': {'days': 30, 'limit': 100}},
         
@@ -201,6 +201,7 @@ def export_project_specific_metrics(instance_name, connection_params, project_di
     project_metrics_config = {
         'overall_summary': {'method': 'get_overall_summary'},
         'defects_by_severity': {'method': 'get_defects_by_severity'},
+        'total_defects_by_project': {'method': 'get_total_defects_by_project'},
         'defects_by_checker_category': {'method': 'get_defects_by_checker_category', 'kwargs': {'fetch_all': True}},
         'defects_by_checker_name': {'method': 'get_defects_by_checker_name', 'kwargs': {'fetch_all': True}},
         'file_hotspots': {'method': 'get_file_hotspots', 'kwargs': {'fetch_all': True}},
@@ -272,13 +273,14 @@ def export_project_specific_metrics(instance_name, connection_params, project_di
             
             # Export OWASP details for each category
             for _, row in owasp_metrics.iterrows():
-                if row.get('defect_count', 0) > 0:
-                    category_id = row['category_id']
+                if row.get('total_defects', 0) > 0:
+                    category_id = row['category']
                     details = metrics.get_owasp_category_details(category_id)
                     if details:
-                        detail_filename = f"owasp_{category_id}_details.json"
+                        safe_category_id = category_id.replace(':', '_')
+                        detail_filename = f"owasp_{safe_category_id}_details.json"
                         detail_filepath = os.path.join(project_dir, detail_filename)
-                        with open(detail_filepath, 'w') as f:
+                        with open(detail_filepath, 'w', encoding='utf-8') as f:
                             json.dump(details, f, indent=2, default=json_serializer)
     except Exception as e:
         tqdm.write(f"    [WARNING] OWASP metrics failed for {project_name}: {str(e)}")
@@ -300,7 +302,7 @@ def export_project_specific_metrics(instance_name, connection_params, project_di
             
             # Export CWE details for each weakness
             for _, row in cwe_metrics.iterrows():
-                if row.get('defect_count', 0) > 0:
+                if row.get('total_defects', 0) > 0:
                     cwe_id = row['cwe_id']
                     details = metrics.get_cwe_top25_details(cwe_id)
                     if details:

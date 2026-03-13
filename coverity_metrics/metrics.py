@@ -27,44 +27,67 @@ class CoverityMetrics:
     # ========== DEFECT METRICS ==========
     
     def get_total_defects_by_project(self):
-        """Get total defect count grouped by project
+        """Get total defect count grouped by project, or by stream when filtered to a project
         Includes both code-based fixes and triaged defects (False Positive/Intentional)
         
         Returns:
-            pandas.DataFrame: Project name and defect count
-        """
-        query = """
-            SELECT 
-                p.name as project_name,
-                COUNT(DISTINCT sd.id) as defect_count,
-                COUNT(DISTINCT CASE 
-                    WHEN sd.fixed_snapshot_element_id IS NULL 
-                        AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
-                    THEN sd.id 
-                END) as active_defects,
-                COUNT(DISTINCT CASE 
-                    WHEN sd.fixed_snapshot_element_id IS NOT NULL 
-                        OR de_cls.name IN ('False Positive', 'Intentional')
-                    THEN sd.id 
-                END) as fixed_defects
-            FROM project p
-            JOIN project_stream ps ON p.id = ps.project_id
-            JOIN stream s ON ps.stream_id = s.id
-            JOIN stream_element se ON s.id = se.stream_id
-            LEFT JOIN stream_defect sd ON se.id = sd.stream_element_id
-            LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
-            LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
-            WHERE p.deleted = false AND s.deleted = false
-                AND p.name != 'Developer Streams'
-                {project_filter}
-            GROUP BY p.name
-            ORDER BY defect_count DESC
+            pandas.DataFrame: Project/stream name and defect count
         """
         if self.project_name:
-            query = query.format(project_filter="AND p.name = %s")
+            query = """
+                SELECT 
+                    s.name as project_name,
+                    COUNT(DISTINCT sd.id) as defect_count,
+                    COUNT(DISTINCT CASE 
+                        WHEN sd.fixed_snapshot_element_id IS NULL 
+                            AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
+                        THEN sd.id 
+                    END) as active_defects,
+                    COUNT(DISTINCT CASE 
+                        WHEN sd.fixed_snapshot_element_id IS NOT NULL 
+                            OR de_cls.name IN ('False Positive', 'Intentional')
+                        THEN sd.id 
+                    END) as fixed_defects
+                FROM project p
+                JOIN project_stream ps ON p.id = ps.project_id
+                JOIN stream s ON ps.stream_id = s.id
+                JOIN stream_element se ON s.id = se.stream_id
+                LEFT JOIN stream_defect sd ON se.id = sd.stream_element_id
+                LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
+                WHERE p.deleted = false AND s.deleted = false
+                    AND p.name = %s
+                GROUP BY s.name
+                ORDER BY defect_count DESC
+            """
             results = self.db.execute_query_dict(query, (self.project_name,))
         else:
-            query = query.format(project_filter="")
+            query = """
+                SELECT 
+                    p.name as project_name,
+                    COUNT(DISTINCT sd.id) as defect_count,
+                    COUNT(DISTINCT CASE 
+                        WHEN sd.fixed_snapshot_element_id IS NULL 
+                            AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
+                        THEN sd.id 
+                    END) as active_defects,
+                    COUNT(DISTINCT CASE 
+                        WHEN sd.fixed_snapshot_element_id IS NOT NULL 
+                            OR de_cls.name IN ('False Positive', 'Intentional')
+                        THEN sd.id 
+                    END) as fixed_defects
+                FROM project p
+                JOIN project_stream ps ON p.id = ps.project_id
+                JOIN stream s ON ps.stream_id = s.id
+                JOIN stream_element se ON s.id = se.stream_id
+                LEFT JOIN stream_defect sd ON se.id = sd.stream_element_id
+                LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
+                WHERE p.deleted = false AND s.deleted = false
+                    AND p.name != 'Developer Streams'
+                GROUP BY p.name
+                ORDER BY defect_count DESC
+            """
             results = self.db.execute_query_dict(query)
         return pd.DataFrame(results)
     
@@ -2405,51 +2428,121 @@ class CoverityMetrics:
         return pd.DataFrame(results)
     
     def get_most_improved_projects(self, days=90, limit=10):
-        """Get projects with biggest improvement in defect count
-        
+        """Get projects ranked by improvement within the analysis period.
+
+        For projects with 2+ snapshots the improvement is the percentage
+        reduction between the first and last snapshot in the period.  When a
+        project has only one snapshot (or all snapshots show no reduction) the
+        improvement is measured by the fraction of defects that have been
+        triaged as ``False Positive`` or ``Intentional``, since those count as
+        handled/resolved in Coverity's workflow.
+
+        The list always returns up to ``limit`` projects — even at 0 % — so
+        the leaderboard is never empty when there are active projects.
+
         Args:
-            days: Number of days to analyze
-            limit: Number of projects to return
-            
+            days: Number of days to look back for snapshots.
+            limit: Number of projects to return.
+
         Returns:
-            pandas.DataFrame: Projects ranked by improvement
+            pandas.DataFrame: Projects ranked by improvement percentage.
         """
         query = """
-            WITH project_trends AS (
-                SELECT 
-                    p.name as project_name,
-                    MIN(sn.total_defect_count) FILTER (WHERE sn.date_created >= CURRENT_DATE - INTERVAL '7 days') as recent_defects,
-                    AVG(sn.total_defect_count) FILTER (WHERE sn.date_created >= CURRENT_DATE - INTERVAL '%s days' 
-                        AND sn.date_created < CURRENT_DATE - INTERVAL '%s days') as past_avg_defects,
-                    SUM(sn.eliminated_defect_count) as total_fixes,
-                    COUNT(DISTINCT sn.id) as snapshot_count
+            WITH snapshot_data AS (
+                SELECT
+                    p.name                                                                AS project_name,
+                    sn.total_defect_count,
+                    ROW_NUMBER() OVER (PARTITION BY p.name ORDER BY sn.date_created ASC)  AS rn_first,
+                    ROW_NUMBER() OVER (PARTITION BY p.name ORDER BY sn.date_created DESC) AS rn_last,
+                    COUNT(sn.id)           OVER (PARTITION BY p.name)                    AS total_snapshots
                 FROM project p
-                JOIN project_stream ps ON p.id = ps.project_id
-                JOIN stream s ON ps.stream_id = s.id
-                JOIN snapshot sn ON s.id = sn.stream_id
-                WHERE p.deleted = false
-                    AND sn.deleted = false
-                    AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                JOIN project_stream ps ON p.id  = ps.project_id
+                JOIN stream s          ON ps.stream_id = s.id
+                JOIN snapshot sn       ON s.id  = sn.stream_id
+                WHERE p.deleted  = false
+                  AND sn.deleted = false
+                  AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+            ),
+            snapshot_comparison AS (
+                SELECT
+                    project_name,
+                    MAX(CASE WHEN rn_first = 1 THEN total_defect_count END) AS first_defects,
+                    MAX(CASE WHEN rn_last  = 1 THEN total_defect_count END) AS last_defects,
+                    MAX(total_snapshots)                                     AS snapshot_count
+                FROM snapshot_data
+                GROUP BY project_name
+            ),
+            triage_counts AS (
+                SELECT
+                    p.name AS project_name,
+                    COUNT(DISTINCT sd.id) AS total_defects,
+                    COUNT(DISTINCT CASE
+                        WHEN de.name IN ('False Positive', 'Intentional') THEN sd.id
+                    END) AS dismissed_defects
+                FROM project p
+                JOIN project_stream ps ON p.id  = ps.project_id
+                JOIN stream s          ON ps.stream_id = s.id
+                JOIN stream_element se ON s.id  = se.stream_id
+                JOIN stream_defect sd  ON se.id = sd.stream_element_id
+                LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                LEFT JOIN dynamic_enum de  ON dt.current_classification_id = de.id
+                                          AND de.dtype = 'Cls'
+                WHERE p.deleted = false AND s.deleted = false
                 GROUP BY p.name
-                HAVING AVG(sn.total_defect_count) FILTER (WHERE sn.date_created >= CURRENT_DATE - INTERVAL '%s days' 
-                    AND sn.date_created < CURRENT_DATE - INTERVAL '%s days') > 0
+            ),
+            combined AS (
+                SELECT
+                    sc.project_name,
+                    sc.first_defects,
+                    sc.last_defects,
+                    sc.snapshot_count,
+                    COALESCE(tc.dismissed_defects, 0) AS dismissed_defects,
+                    COALESCE(tc.total_defects,    0) AS total_defects,
+                    -- Snapshot improvement: pct reduction first to last (NULL when <2 snapshots)
+                    CASE
+                        WHEN sc.snapshot_count >= 2 AND COALESCE(sc.first_defects, 0) > 0
+                        THEN GREATEST(0.0,
+                             ROUND(((sc.first_defects - sc.last_defects)::numeric
+                                    / sc.first_defects * 100), 1))
+                        ELSE NULL
+                    END AS snap_pct,
+                    -- Triage improvement: fraction of all defects dismissed as FP/Intentional
+                    CASE
+                        WHEN COALESCE(tc.total_defects, 0) > 0
+                        THEN ROUND((COALESCE(tc.dismissed_defects, 0)::numeric
+                                    / tc.total_defects * 100), 1)
+                        ELSE 0.0
+                    END AS triage_pct
+                FROM snapshot_comparison sc
+                LEFT JOIN triage_counts tc ON sc.project_name = tc.project_name
             )
-            SELECT 
+            SELECT
                 project_name,
-                COALESCE(recent_defects, 0) as current_defects,
-                ROUND(past_avg_defects, 1) as previous_avg_defects,
-                total_fixes,
-                ROUND(((past_avg_defects - COALESCE(recent_defects, 0))::numeric / 
-                       NULLIF(past_avg_defects, 0) * 100), 1) as improvement_percentage,
-                ROUND(past_avg_defects - COALESCE(recent_defects, 0), 1) as defects_reduced
-            FROM project_trends
-            WHERE past_avg_defects > COALESCE(recent_defects, 0)
+                COALESCE(last_defects,  total_defects) AS current_defects,
+                COALESCE(first_defects, total_defects) AS previous_avg_defects,
+                snapshot_count,
+                -- Best available signal: snapshot reduction first, triage as fallback
+                CASE
+                    WHEN snap_pct IS NOT NULL AND snap_pct > 0 THEN snap_pct
+                    ELSE COALESCE(triage_pct, 0)
+                END AS improvement_percentage,
+                -- Defects "handled": either snapshot reduction or triage dismissals
+                CASE
+                    WHEN snap_pct IS NOT NULL AND snap_pct > 0
+                        THEN GREATEST(0, first_defects - last_defects)
+                    ELSE dismissed_defects
+                END AS defects_reduced,
+                -- Which method was used (for display transparency)
+                CASE
+                    WHEN snap_pct IS NOT NULL AND snap_pct > 0 THEN 'snapshot'
+                    ELSE 'triage'
+                END AS improvement_source
+            FROM combined
             ORDER BY improvement_percentage DESC, defects_reduced DESC
             LIMIT %s
         """
-        
-        half_period = days // 2
-        results = self.db.execute_query_dict(query, (days, half_period, days, days, half_period, limit))
+
+        results = self.db.execute_query_dict(query, (days, limit))
         return pd.DataFrame(results)
     
     def get_top_projects_by_triage_activity(self, days=30, limit=10):
@@ -2544,9 +2637,8 @@ class CoverityMetrics:
                     FROM fixed_defects fd
                     JOIN triage_state ts ON fd.defect_triage_id = ts.defect_triage_id
                     JOIN users u ON ts.user_created_id = u.id
-                    WHERE u.username != 'System User'  -- Exclude system-generated actions
-                        AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
-                        AND ts.date_created > '0001-01-01'::timestamp  -- Exclude default timestamps
+                    WHERE u.username NOT IN ('system', 'System User')  -- Exclude system-generated actions
+                        AND ts.date_created >= '1971-01-01'::timestamp  -- Exclude sentinel/default timestamps
                     ORDER BY fd.defect_triage_id, ts.date_created DESC
                 ),
                 user_fixes AS (
@@ -2572,7 +2664,7 @@ class CoverityMetrics:
                 ORDER BY defects_fixed DESC, active_days DESC
                 LIMIT %s
             """
-            results = self.db.execute_query_dict(query, (self.project_name, days, limit))
+            results = self.db.execute_query_dict(query, (self.project_name, limit))
         else:
             query = """
                 WITH fixed_defects AS (
@@ -2592,9 +2684,8 @@ class CoverityMetrics:
                     FROM fixed_defects fd
                     JOIN triage_state ts ON fd.defect_triage_id = ts.defect_triage_id
                     JOIN users u ON ts.user_created_id = u.id
-                    WHERE u.username != 'System User'  -- Exclude system-generated actions
-                        AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
-                        AND ts.date_created > '0001-01-01'::timestamp  -- Exclude default timestamps
+                    WHERE u.username NOT IN ('system', 'System User')  -- Exclude system-generated actions
+                        AND ts.date_created >= '1971-01-01'::timestamp  -- Exclude sentinel/default timestamps
                     ORDER BY fd.defect_triage_id, ts.date_created DESC
                 ),
                 user_fixes AS (
@@ -2620,7 +2711,7 @@ class CoverityMetrics:
                 ORDER BY defects_fixed DESC, active_days DESC
                 LIMIT %s
             """
-            results = self.db.execute_query_dict(query, (days, limit))
+            results = self.db.execute_query_dict(query, (limit,))
         return pd.DataFrame(results)
     
     def get_top_triagers(self, days=30, limit=10):

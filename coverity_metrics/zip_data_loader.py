@@ -161,8 +161,8 @@ class ZipDataLoader:
         return self._read_metric_json('defects_by_severity', as_dataframe=True)
     
     def get_total_defects_by_project(self):
-        """Get total defects by project"""
-        return self._read_json_from_zip(self._get_metric_file('total_defects_by_project'), as_dataframe=True)
+        """Get total defects by project (instance level) or by stream (project level)"""
+        return self._read_metric_json('total_defects_by_project', as_dataframe=True)
     
     def get_defects_by_checker_category(self, limit=20, fetch_all=False):
         """Get defects by checker category"""
@@ -338,12 +338,13 @@ class ZipDataLoader:
     def get_owasp_category_details(self, category_id):
         """Get OWASP category details"""
         if not self.project_name:
-            return []
-        filename = f"{self.instance_name}/{self.project_name}/owasp_{category_id}_details.json"
+            return {}
+        safe_category_id = category_id.replace(':', '_')
+        filename = f"{self.instance_name}/{self.project_name}/owasp_{safe_category_id}_details.json"
         data = self._read_json_from_zip(filename)
-        if isinstance(data, list):
+        if isinstance(data, dict):
             return data
-        return []
+        return {}
     
     def get_cwe_top25_metrics(self):
         """Get CWE Top 25 metrics (project-specific)"""
@@ -355,12 +356,12 @@ class ZipDataLoader:
     def get_cwe_top25_details(self, cwe_id):
         """Get CWE Top 25 details"""
         if not self.project_name:
-            return []
+            return {}
         filename = f"{self.instance_name}/{self.project_name}/cwe_{cwe_id}_details.json"
         data = self._read_json_from_zip(filename)
-        if isinstance(data, list):
+        if isinstance(data, dict):
             return data
-        return []
+        return {}
     
     def get_metadata(self):
         """Get export metadata

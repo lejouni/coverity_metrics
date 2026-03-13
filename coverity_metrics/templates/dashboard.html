@@ -379,19 +379,19 @@
             </table>
         </div>
 
-        <!-- Defects by Project -->
+        <!-- Defects by Project / Stream -->
         <div class="section">
             <h2 class="section-title">
-                Defects by Project
+                {% if current_project %}Defects by Stream{% else %}Defects by Project{% endif %}
                 <span class="info-icon">ℹ
-                        <span class="tooltip">Total defect count per project, showing both active defects and fixed defects. Calculated by counting all defects (including triaged ones) grouped by project name.</span>
+                        <span class="tooltip">{% if current_project %}Total defect count per stream within this project, showing both active defects and fixed defects.{% else %}Total defect count per project, showing both active defects and fixed defects. Calculated by counting all defects (including triaged ones) grouped by project name.{% endif %}</span>
                 </span>
             </h2>
             <div class="chart-container" id="project-chart"></div>
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>Project Name</th>
+                        <th>{% if current_project %}Stream Name{% else %}Project Name{% endif %}</th>
                         <th>Total Defects</th>
                         <th>Active</th>
                         <th>Fixed</th>
@@ -1361,7 +1361,7 @@
         <div id="leaderboards-tab" class="tab-content">
 
         <!-- Team Leaderboards -->
-        {% if top_projects_by_fix_rate or most_improved_projects or top_projects_by_triage or top_users_by_fixes or top_triagers or most_collaborative_users %}
+        {% if top_projects_by_fix_rate or top_projects_by_triage or top_users_by_fixes or top_triagers or most_collaborative_users %}
         <div class="section">
             {% if current_project %}
             <h2 class="section-title">
@@ -1399,7 +1399,7 @@
                     {% if top_projects_by_fix_rate and top_projects_by_fix_rate|length > 0 %}
                     <div class="leaderboard-card">
                         <h4>🚀 Fastest Fix Velocity</h4>
-                        <p class="leaderboard-subtitle">Projects with highest defect elimination rate (Last 30 Days)</p>
+                        <p class="leaderboard-subtitle">Projects that eliminated the most defects from code within the analysis period — ranked by total defects removed, with average fixes per day calculated across active snapshot dates ({{ trend_period_text }})</p>
                         <table class="leaderboard-table">
                             <thead>
                                 <tr>
@@ -1433,49 +1433,7 @@
                     </div>
                     {% endif %}
                     
-                    <!-- Most Improved Projects -->
-                    {% if most_improved_projects and most_improved_projects|length > 0 %}
-                    <div class="leaderboard-card">
-                        <h4>📈 Most Improved</h4>
-                        <p class="leaderboard-subtitle">Projects with best improvement percentage (Last 90 Days)</p>
-                        <table class="leaderboard-table">
-                            <thead>
-                                <tr>
-                                    <th style="width: 60px;">Rank</th>
-                                    <th>Project</th>
-                                    <th style="text-align: center;">Improvement</th>
-                                    <th style="text-align: center;">Net Change</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for row in most_improved_projects %}
-                                <tr>
-                                    <td style="text-align: center;">
-                                        {% if loop.index == 1 %}
-                                        <span class="rank-badge rank-badge-1">🏆</span>
-                                        {% elif loop.index == 2 %}
-                                        <span class="rank-badge rank-badge-2">🥈</span>
-                                        {% elif loop.index == 3 %}
-                                        <span class="rank-badge rank-badge-3">🥉</span>
-                                        {% else %}
-                                        <span class="rank-badge">{{ loop.index }}</span>
-                                        {% endif %}
-                                    </td>
-                                    <td style="font-weight: 500;">{{ row.project_name }}</td>
-                                    <td style="text-align: center;">
-                                        <span class="improvement-badge {% if row.improvement_percentage > 0 %}improvement-positive{% else %}improvement-negative{% endif %}">
-                                            {{ row.improvement_percentage|round(1) }}%
-                                        </span>
-                                    </td>
-                                    <td style="text-align: center; font-weight: 600; color: {% if row.net_change < 0 %}var(--success-color){% else %}var(--danger-color){% endif %};">
-                                        {{ row.net_change|int }}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                    {% endif %}
+
                     
                     <!-- Top Projects by Triage Activity -->
                     {% if top_projects_by_triage and top_projects_by_triage|length > 0 %}
@@ -1661,7 +1619,6 @@
                 <strong>📊 Leaderboard Metrics Explained:</strong>
                 <ul style="margin: 0.5rem 0 0 1.5rem; line-height: 1.8;">
                     <li><strong>Fix Velocity:</strong> Defects with "Fix Submitted" or "Fix Released" action</li>
-                    <li><strong>Improvement:</strong> (Eliminated - New) / Starting Outstanding × 100%</li>
                     <li><strong>Triage Completion:</strong> Percentage of defects with classification assigned</li>
                     <li><strong>Collaboration:</strong> Comments added to defects for team communication</li>
                 </ul>
@@ -2095,10 +2052,10 @@
         }];
 
         var projectLayout = {
-            title: 'Defects by Project',
+            title: '{% if current_project %}Defects by Stream{% else %}Defects by Project{% endif %}',
             barmode: 'stack',
             height: 350,
-            xaxis: {title: 'Project'},
+            xaxis: {title: '{% if current_project %}Stream{% else %}Project{% endif %}'},
             yaxis: {title: 'Defect Count'}
         };
 
