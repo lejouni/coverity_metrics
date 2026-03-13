@@ -39,7 +39,10 @@ coverity-dashboard
 ## Features
 
 
-**🆕 Latest Enhancements (v1.0.12, 2026-03-05):**
+**🆕 Latest Enhancements (v1.0.13, 2026-03-13):**
+- **🗑️ Removed "Most Improved" Leaderboard**: The "Most Improved" card has been removed from the Team Leaderboards section — improvement percentage was unreliable for instances with sparse snapshot data (projects with only one snapshot had no meaningful baseline), and the metric did not add actionable value
+
+**Recent Enhancements (v1.0.12, 2026-03-05):**
 - **🧹 Packaging Cleanup**: Removed stale `~overity_metrics` dist-info artefact left by an interrupted install that caused pip to emit `WARNING: Ignoring invalid distribution` on every invocation
 
 **Recent Enhancements (v1.0.11, 2026-03-05):**

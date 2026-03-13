@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.13] - 2026-03-13
+
+### Changed
+- **Removed "Most Improved" Leaderboard Card**
+  - The "Most Improved" leaderboard card has been removed from the Team Leaderboards section
+  - Improvement percentage was unreliable for sparse snapshot data (projects with only one snapshot had no meaningful baseline to compare against)
+  - Removed the corresponding `get_most_improved_projects` call from all dashboard generation paths (`dashboard.py`) and from the ZIP export config (`export.py`)
+  - Removed the "Improvement" entry from the Leaderboard Metrics Explained legend in the dashboard template
+  - The leaderboard section visibility condition (`{% if ... %}`) updated accordingly
+
+### Fixed
+- **`most_improved_projects` No Longer Exported to ZIP**
+  - Removed from `export.py` metric config so ZIP archives are no longer populated with data that was not being displayed
+
 ## [1.0.12] - 2026-03-05
 
 ### Fixed
