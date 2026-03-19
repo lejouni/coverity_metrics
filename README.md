@@ -39,7 +39,11 @@ coverity-dashboard
 ## Features
 
 
-**🆕 Latest Enhancements (v1.0.13, 2026-03-13):**
+**🆕 Latest Bug Fixes (Unreleased):**
+- **📊 Project-Level ZIP Dashboard Fix**: Fixed "Top Analysis Versions Used" and 7 other metrics showing instance-wide data instead of project-specific data on project-level dashboards generated from ZIP exports — project reports now correctly display project-scoped analysis versions, snapshot performance, commit statistics, and trends
+- **⏰ Database Uptime Fix**: Fixed negative database uptime display (e.g., "-1d 23h 24m") caused by timezone conversion issues — uptime now calculates correctly using UTC timestamps regardless of database or system timezone settings
+
+**Recent Enhancements (v1.0.13, 2026-03-13):**
 - **🗑️ Removed "Most Improved" Leaderboard**: The "Most Improved" card has been removed from the Team Leaderboards section — improvement percentage was unreliable for instances with sparse snapshot data (projects with only one snapshot had no meaningful baseline), and the metric did not add actionable value
 
 **Recent Enhancements (v1.0.12, 2026-03-05):**

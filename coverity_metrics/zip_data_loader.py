@@ -195,7 +195,7 @@ class ZipDataLoader:
     
     def get_function_complexity_distribution(self):
         """Get function complexity distribution"""
-        return self._read_json_from_zip(self._get_metric_file('function_complexity_distribution'), as_dataframe=True)
+        return self._read_metric_json('function_complexity_distribution', as_dataframe=True)
     
     def get_database_statistics(self):
         """Get database statistics"""
@@ -207,7 +207,7 @@ class ZipDataLoader:
     
     def get_analysis_versions(self, limit=10, days=365):
         """Get analysis versions"""
-        data = self._read_json_from_zip(self._get_metric_file('analysis_versions'))
+        data = self._read_metric_json('analysis_versions')
         if isinstance(data, list) and len(data) > limit:
             return data[:limit]
         return data
@@ -221,22 +221,22 @@ class ZipDataLoader:
     
     def get_snapshot_performance(self, limit=15):
         """Get snapshot performance metrics"""
-        df = self._read_json_from_zip(self._get_metric_file('snapshot_performance'), as_dataframe=True)
+        df = self._read_metric_json('snapshot_performance', as_dataframe=True)
         if not df.empty:
             return df.head(limit)
         return df
     
     def get_commit_time_statistics(self):
         """Get commit time statistics"""
-        return self._read_json_from_zip(self._get_metric_file('commit_time_statistics'))
+        return self._read_metric_json('commit_time_statistics')
     
     def get_commit_activity_patterns(self):
         """Get commit activity patterns"""
-        return self._read_json_from_zip(self._get_metric_file('commit_activity_patterns'))
+        return self._read_metric_json('commit_activity_patterns')
     
     def get_defect_discovery_rate(self, days=30):
         """Get defect discovery rate"""
-        return self._read_json_from_zip(self._get_metric_file('defect_discovery_rate'), as_dataframe=True)
+        return self._read_metric_json('defect_discovery_rate', as_dataframe=True)
     
     def get_user_license_statistics(self, days=30):
         """Get user license statistics"""
@@ -272,11 +272,11 @@ class ZipDataLoader:
     
     def get_defect_velocity_trend(self, days=90):
         """Get defect velocity trend"""
-        return self._read_json_from_zip(self._get_metric_file('defect_velocity_trend'), as_dataframe=True)
+        return self._read_metric_json('defect_velocity_trend', as_dataframe=True)
     
     def get_cumulative_defect_trend(self, days=90):
         """Get cumulative defect trend"""
-        return self._read_json_from_zip(self._get_metric_file('cumulative_defect_trend'), as_dataframe=True)
+        return self._read_metric_json('cumulative_defect_trend', as_dataframe=True)
     
     def get_defect_trend_summary(self, days=90):
         """Get defect trend summary"""

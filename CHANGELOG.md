@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Project-Level Metrics in ZIP Dashboards**
+  - Fixed "Top Analysis Versions Used" and other metrics showing instance-level data on project-level reports generated from ZIP files
+  - Updated 8 `ZipDataLoader` methods to properly check for project-specific data files: `get_analysis_versions`, `get_function_complexity_distribution`, `get_snapshot_performance`, `get_commit_time_statistics`, `get_commit_activity_patterns`, `get_defect_discovery_rate`, `get_defect_velocity_trend`, `get_cumulative_defect_trend`
+  - Added missing project-level metrics to export configuration so they are included in ZIP exports
+  - Project dashboards now correctly display project-specific analysis versions, snapshot performance, and commit activity instead of instance-wide aggregates
+- **Negative Database Uptime**
+  - Fixed database uptime showing negative values (e.g., "-1d 23h 24m") due to timezone handling issues
+  - Updated `get_instance_info` to use UTC consistently for both current time and PostgreSQL start time
+  - Added timezone-aware conversion using `.astimezone(timezone.utc)` to handle timezone offsets correctly
+  - Added guard against negative uptimes with "Invalid (negative)" display for edge cases
+  - Database uptime now calculates correctly regardless of database timezone or system local timezone
+
 ## [1.0.13] - 2026-03-13
 
 ### Changed

@@ -2,6 +2,46 @@
 
 ## Version History
 
+### Version 1.0.14 - YYYY-MM-DD
+
+**Bug Fix Release**
+
+#### Bug Fixes
+
+##### 📊 Fixed Project-Level Metrics in ZIP Dashboards
+- **Issue**: Project-level dashboards generated from ZIP exports showed instance-wide aggregate data instead of project-specific data for "Top Analysis Versions Used" and 7 other metrics
+- **Example**: A project dashboard would show all analysis versions used across the entire instance rather than just the versions used for that specific project
+- **Root Cause**: 
+  - 8 methods in `ZipDataLoader` were hardcoded to always read from instance-level files (`self._get_metric_file()`) instead of checking for project-specific files first
+  - Project-level metrics were not being exported to ZIP files in the first place
+- **Fix**:
+  - Updated 8 `ZipDataLoader` methods to use `_read_metric_json()` which properly checks for project-specific data: `get_analysis_versions`, `get_function_complexity_distribution`, `get_snapshot_performance`, `get_commit_time_statistics`, `get_commit_activity_patterns`, `get_defect_discovery_rate`, `get_defect_velocity_trend`, `get_cumulative_defect_trend`
+  - Added these metrics to `project_metrics_config` in `export.py` so they are now exported at the project level
+- **Impact**: After re-exporting with `coverity-export`, project-level dashboards generated from ZIP files will correctly display project-scoped data instead of instance aggregates
+
+##### ⏰ Fixed Negative Database Uptime Display
+- **Issue**: Database uptime showed negative values like "-1d 23h 24m" along with the start time showing as future date
+- **Root Cause**: `get_instance_info()` in `metrics.py` was stripping timezone information from PostgreSQL's `pg_postmaster_start_time()` (which returns a timezone-aware datetime) and comparing it with naive local time from `datetime.now()`, causing timezone offset mismatches where the database start time appeared to be in the future
+- **Fix**:
+  - Updated calculation to use UTC consistently: `datetime.now(timezone.utc)` for current time
+  - Convert database start time to UTC using `.astimezone(timezone.utc)` to handle timezone offsets correctly
+  - Added guard to detect and display "Invalid (negative)" if negative uptime occurs (edge case protection)
+- **Impact**: Database uptime now calculates correctly regardless of database timezone configuration or system local timezone
+
+---
+
+### Version 1.0.13 - 2026-03-13
+
+**Release Update**
+
+#### Features
+- Added `fetch_all` parameter to metrics methods for complete data retrieval
+- Enhanced documentation with CLI parameter reference tables
+
+#### Improvements
+- Updated README with comprehensive parameter documentation
+- Improved Python library usage examples
+
 ### Version 1.0.12 - 2026-03-05
 
 **Packaging Maintenance**

@@ -206,6 +206,7 @@ def export_project_specific_metrics(instance_name, connection_params, project_di
         'defects_by_checker_name': {'method': 'get_defects_by_checker_name', 'kwargs': {'fetch_all': True}},
         'file_hotspots': {'method': 'get_file_hotspots', 'kwargs': {'fetch_all': True}},
         'code_metrics_by_stream': {'method': 'get_code_metrics_by_stream'},
+        'function_complexity_distribution': {'method': 'get_function_complexity_distribution'},
         'defect_density_by_project': {'method': 'get_defect_density_by_project'},
         'defect_trends': {'method': 'get_defect_trends', 'kwargs': {'days': days, 'granularity': 'auto'}},
         'triage_trends': {'method': 'get_triage_trends', 'kwargs': {'days': days, 'granularity': 'auto'}},
@@ -216,6 +217,15 @@ def export_project_specific_metrics(instance_name, connection_params, project_di
         'technical_debt_summary': {'method': 'get_technical_debt_summary'},
         'checker_classification_breakdown': {'method': 'get_checker_classification_breakdown', 'kwargs': {'limit': 15}},
         'top_projects_by_classification': {'method': 'get_top_projects_by_classification', 'kwargs': {'limit': 10}},
+        
+        # Snapshot and performance metrics (project-specific)
+        'analysis_versions': {'method': 'get_analysis_versions', 'kwargs': {'limit': 100, 'days': days}},
+        'snapshot_performance': {'method': 'get_snapshot_performance', 'kwargs': {'limit': 100}},
+        'commit_time_statistics': {'method': 'get_commit_time_statistics'},
+        'commit_activity_patterns': {'method': 'get_commit_activity_patterns'},
+        'defect_discovery_rate': {'method': 'get_defect_discovery_rate', 'kwargs': {'days': days}},
+        'defect_velocity_trend': {'method': 'get_defect_velocity_trend', 'kwargs': {'days': days}},
+        'cumulative_defect_trend': {'method': 'get_cumulative_defect_trend', 'kwargs': {'days': days}},
     }
     
     # Export each project metric

@@ -1007,13 +1007,32 @@ class CoverityMetrics:
                 
                 # Calculate uptime
                 if start_time:
-                    from datetime import datetime
+                    from datetime import datetime, timezone
                     if isinstance(start_time, datetime):
-                        uptime = datetime.now() - start_time.replace(tzinfo=None)
-                        info['db_uptime_days'] = uptime.days
-                        info['db_uptime_hours'] = uptime.seconds // 3600
-                        info['db_uptime_minutes'] = (uptime.seconds % 3600) // 60
-                        info['db_uptime_formatted'] = f"{uptime.days}d {uptime.seconds // 3600}h {(uptime.seconds % 3600) // 60}m"
+                        # Get current time in UTC
+                        now_utc = datetime.now(timezone.utc)
+                        
+                        # Convert start_time to UTC if it's timezone-aware, otherwise assume it's UTC
+                        if start_time.tzinfo is not None:
+                            start_time_utc = start_time.astimezone(timezone.utc)
+                        else:
+                            # If naive, assume it's already UTC
+                            start_time_utc = start_time.replace(tzinfo=timezone.utc)
+                        
+                        # Calculate uptime
+                        uptime = now_utc - start_time_utc
+                        
+                        # Handle negative uptime (should not happen, but guard against it)
+                        if uptime.days < 0:
+                            info['db_uptime_formatted'] = "Invalid (negative)"
+                            info['db_uptime_days'] = 0
+                            info['db_uptime_hours'] = 0
+                            info['db_uptime_minutes'] = 0
+                        else:
+                            info['db_uptime_days'] = uptime.days
+                            info['db_uptime_hours'] = uptime.seconds // 3600
+                            info['db_uptime_minutes'] = (uptime.seconds % 3600) // 60
+                            info['db_uptime_formatted'] = f"{uptime.days}d {uptime.seconds // 3600}h {(uptime.seconds % 3600) // 60}m"
         except Exception as e:
             info['db_uptime_error'] = str(e)
         
