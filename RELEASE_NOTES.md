@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.0.14 - YYYY-MM-DD
+### Version 1.0.14 - 2026-03-19
 
 **Bug Fix Release**
 
