@@ -4,14 +4,22 @@
 
 ### 1. Generate Full Metrics Report
 ```bash
+# CLI entry point
 coverity-metrics
+
+# Or as a Python module
+python -m coverity_metrics report
 ```
 
 This generates a comprehensive console report with all metrics.
 
 ### 2. Generate HTML Dashboard
 ```bash
+# CLI entry point
 coverity-dashboard
+
+# Or as a Python module
+python -m coverity_metrics dashboard
 ```
 
 Creates an interactive HTML dashboard with:
@@ -42,9 +50,13 @@ coverity-dashboard --no-browser
 
 When multiple projects are specified, individual per-project dashboards are generated for each, plus an aggregated instance dashboard. Without `--project` filter, the tool automatically generates dashboards for all projects.
 
-### 3. Export Metrics to CSV
+### 3. Export Metrics to ZIP
 ```bash
+# CLI entry point
 coverity-export
+
+# Or as a Python module
+python -m coverity_metrics export
 ```
 
 Exports all metrics to CSV files in the `exports/` folder.

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.16] - 2026-05-05
+
+### Added
+- **`python -m coverity_metrics` Module Support**: The package can now be run as a Python module — `python -m coverity_metrics dashboard`, `python -m coverity_metrics export`, `python -m coverity_metrics report`. Added `__main__.py` which dispatches to the appropriate CLI entry point, stripping the subcommand from `sys.argv` so all existing arguments pass through unchanged
+
+### Documentation
+- **Multi-Project `--project` Parameter**: Documented that `--project` accepts comma-separated values for filtering multiple projects simultaneously (e.g. `--project "AppA,AppB,AppC"`); updated README parameter table, CLI examples, and USAGE_GUIDE
+- Updated README, USAGE_GUIDE with `python -m coverity_metrics` usage examples
+
 ## [1.0.15] - 2026-05-05
 
 ### Fixed
@@ -19,9 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added timezone-aware conversion using `.astimezone(timezone.utc)` to handle timezone offsets correctly
   - Added guard against negative uptimes with "Invalid (negative)" display for edge cases
   - Database uptime now calculates correctly regardless of database timezone or system local timezone
-
-### Documentation
-- **Multi-Project `--project` Parameter**: Documented that `--project` accepts comma-separated values for filtering multiple projects simultaneously (e.g. `--project "AppA,AppB,AppC"`); updated README parameter table, CLI examples, and USAGE_GUIDE
 
 ## [1.0.14] - 2026-03-19
 

@@ -15,8 +15,11 @@ pip install -e .
 cp config.json.example config.json
 # Edit config.json with your database credentials
 
-# Generate interactive dashboard
+# Generate interactive dashboard (CLI entry point)
 coverity-dashboard
+
+# Or run as a Python module
+python -m coverity_metrics dashboard
 
 # View technical debt and security metrics
 # Check the "Trends & Progress" tab for technical debt estimation
@@ -39,7 +42,11 @@ coverity-dashboard
 ## Features
 
 
-**🆕 Latest Bug Fixes (v1.0.15, 2026-05-05):**
+**🆕 Latest Enhancements (v1.0.16, 2026-05-05):**
+- **🐍 Python Module Support**: The package can now be run as a Python module — `python -m coverity_metrics dashboard`, `python -m coverity_metrics export`, `python -m coverity_metrics report` — all arguments pass through identically to the CLI entry points
+
+**Recent Enhancements (v1.0.15, 2026-05-05):**
+- **📋 Multi-Project Filter**: `--project` accepts comma-separated values (e.g. `--project "AppA,AppB,AppC"`) to generate per-project dashboards for multiple projects at once
 - **📊 Project-Level ZIP Dashboard Fix**: Fixed "Top Analysis Versions Used" and 7 other metrics showing instance-wide data instead of project-specific data on project-level dashboards generated from ZIP exports — project reports now correctly display project-scoped analysis versions, snapshot performance, commit statistics, and trends
 - **⏰ Database Uptime Fix**: Fixed negative database uptime display (e.g., "-1d 23h 24m") caused by timezone conversion issues — uptime now calculates correctly using UTC timestamps regardless of database or system timezone settings
 
@@ -181,7 +188,7 @@ cd coverity_metrics
 pip install -e .
 ```
 
-This installs the package in editable mode, making the CLI commands (`coverity-dashboard`, `coverity-metrics`, `coverity-export`) available system-wide.
+This installs the package in editable mode, making the CLI commands (`coverity-dashboard`, `coverity-metrics`, `coverity-export`) available system-wide, and enables running as a Python module (`python -m coverity_metrics`).
 
 ### From PyPI (Future)
 
@@ -264,13 +271,13 @@ After installation, you can use the package in two ways: **Command-Line Interfac
 
 ### Command-Line Interface (CLI)
 
-The package provides three CLI commands for different use cases:
+The package provides three CLI commands for different use cases, each also available as a `python -m coverity_metrics <subcommand>`:
 
-| Command | Purpose | Output | Data Source | Best For |
-|---------|---------|--------|-------------|----------|
-| **coverity-dashboard** | Visual HTML dashboard | Interactive HTML files with charts | Database **or** ZIP file | Presentations, visual analysis, sharing |
-| **coverity-metrics** | Console text report | Terminal output (stdout) | Database only | Quick checks, CI/CD, piping |
-| **coverity-export** | Data export | ZIP file with JSON | Database only | Offline dashboards, data delivery, archiving |
+| Command | Module equivalent | Purpose | Output | Data Source | Best For |
+|---------|------------------|---------|--------|-------------|----------|
+| **coverity-dashboard** | `python -m coverity_metrics dashboard` | Visual HTML dashboard | Interactive HTML files with charts | Database **or** ZIP file | Presentations, visual analysis, sharing |
+| **coverity-metrics** | `python -m coverity_metrics report` | Console text report | Terminal output (stdout) | Database only | Quick checks, CI/CD, piping |
+| **coverity-export** | `python -m coverity_metrics export` | Data export | ZIP file with JSON | Database only | Offline dashboards, data delivery, archiving |
 
 **Key Differences:**
 

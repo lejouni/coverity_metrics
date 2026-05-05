@@ -2,16 +2,37 @@
 
 ## Version History
 
-### Version 1.0.15 - 2026-05-05
+### Version 1.0.16 - 2026-05-05
 
-**Bug Fix & Documentation Release**
+**Module Support & Documentation Release**
 
-#### Documentation Fixes
+#### New Features
+
+##### 🐍 `python -m coverity_metrics` Module Support
+- The package can now be invoked as a Python module in addition to the existing CLI entry points
+- Usage:
+  ```bash
+  python -m coverity_metrics dashboard  # equivalent to coverity-dashboard
+  python -m coverity_metrics export     # equivalent to coverity-export
+  python -m coverity_metrics report     # equivalent to coverity-metrics
+  ```
+- All arguments are passed through unchanged — every flag documented for the CLI entry points works identically
+- Running without a subcommand prints a usage summary listing all available subcommands
+- Implemented via a new `coverity_metrics/__main__.py`
+
+#### Documentation
 
 ##### 📋 Multi-Project `--project` Parameter Now Documented
 - **Issue**: Documentation described `--project` as accepting only a single project name, even though the CLI has always supported comma-separated multiple projects
 - **Clarification**: Pass multiple projects as a comma-separated string — e.g. `--project "AppA,AppB,AppC"` — to generate individual per-project dashboards for each, plus an aggregated instance dashboard. Works in both database mode and ZIP file mode.
 - **Updated**: README parameter table, database/ZIP mode examples, auto-detection behavior notes, and USAGE_GUIDE quick-start section
+- Added `python -m coverity_metrics` usage examples to README and USAGE_GUIDE
+
+---
+
+### Version 1.0.15 - 2026-05-05
+
+**Bug Fix Release**
 
 #### Bug Fixes
 
