@@ -126,6 +126,10 @@ class ZipDataLoader:
         Returns:
             dict, list, or DataFrame depending on content and as_dataframe flag
         """
+        # If project_name is a list, aggregate data from each individual project
+        if isinstance(self.project_name, list):
+            return self._aggregate_projects_metric(self.project_name, metric_name, as_dataframe)
+
         # If project_name is set, use project-specific file only
         if self.project_name:
             project_file = self._get_project_metric_file(metric_name)
@@ -145,6 +149,67 @@ class ZipDataLoader:
         # No project filter - use instance-level file
         instance_file = self._get_metric_file(metric_name)
         return self._read_json_from_zip(instance_file, as_dataframe=as_dataframe)
+
+    def _aggregate_projects_metric(self, projects, metric_name, as_dataframe=False):
+        """Aggregate a metric across multiple projects by reading each project's file.
+
+        When project_name is a list (instance-level combined dashboard), try the
+        instance-level file first. It was exported with the combined project filter
+        so counts like total_users are already deduplicated via UNION DISTINCT.
+        Fall back to per-project aggregation only when the instance-level file is absent.
+
+        For list/DataFrame metrics: concatenates all rows.
+        For dict metrics: sums numeric values, last-wins for non-numeric.
+        """
+        # Prefer the instance-level file which uses UNION DISTINCT for unique counts
+        instance_file = self._get_metric_file(metric_name)
+        instance_data = self._read_json_from_zip(instance_file, as_dataframe=as_dataframe)
+        if as_dataframe:
+            if isinstance(instance_data, pd.DataFrame) and not instance_data.empty:
+                return instance_data
+        else:
+            if instance_data:
+                return instance_data
+
+        # Instance-level file absent — aggregate per-project as fallback
+        results = []
+        for proj in projects:
+            project_file = f"{self.instance_name}/{proj}/{metric_name}.json"
+            data = self._read_json_from_zip(project_file, as_dataframe=False)
+            if data or data == 0:
+                results.append(data)
+
+        if not results:
+            return pd.DataFrame() if as_dataframe else {}
+
+        if as_dataframe:
+            dfs = []
+            for r in results:
+                if isinstance(r, list):
+                    if r:
+                        dfs.append(pd.DataFrame(r))
+                elif isinstance(r, dict):
+                    dfs.append(pd.DataFrame([r]))
+            if dfs:
+                return pd.concat(dfs, ignore_index=True)
+            return pd.DataFrame()
+        else:
+            if all(isinstance(r, list) for r in results):
+                combined = []
+                for r in results:
+                    combined.extend(r)
+                return combined
+            elif all(isinstance(r, dict) for r in results):
+                merged = {}
+                for r in results:
+                    for k, v in r.items():
+                        if isinstance(v, (int, float)):
+                            merged[k] = merged.get(k, 0) + v
+                        else:
+                            merged[k] = v
+                return merged
+            else:
+                return results[0]
     
     # ========== METRIC METHODS (mirroring CoverityMetrics) ==========
     

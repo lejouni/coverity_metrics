@@ -101,7 +101,8 @@ def detect_multi_instance_config(config_file='config.json'):
         return False, 0, None
 
 def generate_html_dashboard(output_file="output/dashboard.html", project_name=None, 
-                           instance_name=None, metrics_instance=None, cache=None, use_cache=True, days=90):
+                           instance_name=None, metrics_instance=None, cache=None, use_cache=True, days=90,
+                           has_aggregated_dashboard=True, has_instance_dashboard=True):
     """Generate HTML dashboard with all metrics
     
     Args:
@@ -112,6 +113,8 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         cache: Optional MetricsCache instance for caching support
         use_cache: Whether to use cached data if available
         days: Number of days for trend analysis (default: 90)
+        has_aggregated_dashboard: Whether an aggregated dashboard was generated (controls Back button)
+        has_instance_dashboard: Whether an instance-level dashboard.html exists (controls Show All button)
     """
     tqdm.write("\nGenerating Coverity Metrics HTML Dashboard...")
     if instance_name:
@@ -379,7 +382,9 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         owasp_details=owasp_details,
         # CWE Top 25 2024 (project-level only)
         cwe_top25_metrics=cwe_top25_metrics,
-        cwe_top25_details=cwe_top25_details
+        cwe_top25_details=cwe_top25_details,
+        has_aggregated_dashboard=has_aggregated_dashboard,
+        has_instance_dashboard=has_instance_dashboard
     )
     
     # Ensure output directory exists
@@ -1213,6 +1218,7 @@ def main():
         epilog='Examples:\n'
                '  coverity-dashboard                          # Auto-detect and generate all (database)\n'
                '  coverity-dashboard --project MyApp          # Filter by project (database)\n'
+               '  coverity-dashboard --project AppA,AppB,AppC  # Multiple projects: per-project + aggregated instance dashboard\n'
                '  coverity-dashboard --instance Prod          # Specific instance only (database)\n'
                '  coverity-dashboard --zip-file export.zip    # Generate from ZIP export\n'
                '  coverity-dashboard --zip-file export1.zip export2.zip export3.zip  # Multi-ZIP aggregation\n'
@@ -1220,8 +1226,8 @@ def main():
                '  coverity-dashboard --days 365               # Change trend period\n',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument('--project', '-p', type=str, 
-                       help='Filter metrics by specific project name')
+    parser.add_argument('--project', '-p', type=str,
+                       help='Filter metrics by project name(s). Use comma-separated values for multiple projects (e.g. AppA,AppB,AppC). Multiple projects generate per-project dashboards plus an aggregated instance dashboard.')
     parser.add_argument('--output', '-o', type=str, default='output', 
                        help='Output folder path (default: output)')
     parser.add_argument('--no-browser', action='store_true',
@@ -1264,6 +1270,12 @@ def main():
                        help='Resume from interrupted session (provide session ID)')
     
     args = parser.parse_args()
+
+    # Normalize --project to a list (split comma-separated input)
+    if args.project:
+        args.project = [p.strip() for p in args.project.split(',') if p.strip()]
+        if not args.project:
+            args.project = None
     
     tqdm.write("\nCoverity Metrics HTML Dashboard Generator")
     tqdm.write("=" * 80)
@@ -1273,7 +1285,12 @@ def main():
     # ========================================================================
     if args.zip_file:
         zip_files = args.zip_file if isinstance(args.zip_file, list) else [args.zip_file]
-        
+
+        # Read aggregated_view setting from config (same flag used in database mode)
+        _, _, _zip_cfg = detect_multi_instance_config(args.config)
+        _zip_agg_cfg = (_zip_cfg or {}).get('aggregated_view', {})
+        zip_aggregated_view_enabled = _zip_agg_cfg.get('enabled', False)
+
         # Validate all ZIP files exist
         for zip_file in zip_files:
             if not os.path.exists(zip_file):
@@ -1322,8 +1339,8 @@ def main():
                 
                 generated_files = []
                 
-                # Generate aggregated dashboard (if no project filter)
-                if not args.project:
+                # Generate aggregated dashboard (if no project filter and enabled in config)
+                if not args.project and zip_aggregated_view_enabled:
                     tqdm.write("\n[1/3] Generating aggregated dashboard...")
                     aggregated_output = f"{args.output}/dashboard_aggregated.html"
                     
@@ -1364,23 +1381,48 @@ def main():
                     
                     # Filter by project if specified
                     if args.project:
-                        if args.project not in available_projects:
-                            tqdm.write(f"  [SKIP] Instance '{instance_name}': Project '{args.project}' not found")
+                        projects_filter = args.project  # list
+                        # Check which of the requested projects exist in this instance
+                        found = [p for p in projects_filter if p in available_projects]
+                        if not found:
+                            tqdm.write(f"  [SKIP] Instance '{instance_name}': None of the requested projects found")
                             continue
-                        
-                        tqdm.write(f"  Generating dashboard for {instance_name} - {args.project}")
-                        loader.project_name = args.project
-                        output_file = f"{output_folder}/dashboard_{args.project.replace(' ', '_')}.html"
-                        dashboard_path = generate_html_dashboard(
-                            output_file, 
-                            args.project, 
-                            instance_name, 
-                            loader, 
-                            cache=None, 
-                            use_cache=False, 
-                            days=days
-                        )
-                        generated_files.append((f"{instance_name} - {args.project}", dashboard_path))
+
+                        if len(found) > 1:
+                            # Aggregated instance dashboard for selected projects
+                            tqdm.write(f"  Generating instance dashboard for {instance_name} - {', '.join(found)}")
+                            loader.project_name = found
+                            output_file = f"{output_folder}/dashboard.html"
+                            dashboard_path = generate_html_dashboard(
+                                output_file, None, instance_name, loader,
+                                cache=None, use_cache=False, days=days,
+                                has_aggregated_dashboard=False
+                            )
+                            generated_files.append((f"{instance_name} - Selected Projects", dashboard_path))
+
+                            # Per-project dashboards
+                            for proj in found:
+                                tqdm.write(f"  Generating dashboard for {instance_name} - {proj}")
+                                loader.project_name = proj
+                                proj_output = f"{output_folder}/dashboard_{proj.replace(' ', '_')}.html"
+                                dashboard_path = generate_html_dashboard(
+                                    proj_output, proj, instance_name, loader,
+                                    cache=None, use_cache=False, days=days,
+                                    has_aggregated_dashboard=False
+                                )
+                                generated_files.append((f"{instance_name} - {proj}", dashboard_path))
+                        else:
+                            # Single project found: existing behavior
+                            proj = found[0]
+                            tqdm.write(f"  Generating dashboard for {instance_name} - {proj}")
+                            loader.project_name = proj
+                            output_file = f"{output_folder}/dashboard_{proj.replace(' ', '_')}.html"
+                            dashboard_path = generate_html_dashboard(
+                                output_file, proj, instance_name, loader,
+                                cache=None, use_cache=False, days=days,
+                                has_aggregated_dashboard=False
+                            )
+                            generated_files.append((f"{instance_name} - {proj}", dashboard_path))
                     else:
                         # Instance-level dashboard
                         tqdm.write(f"  Generating instance dashboard: {instance_name}")
@@ -1467,29 +1509,53 @@ def main():
                 generated_files = []
                 
                 if args.project:
-                    # Generate dashboard for specific project
-                    if args.project not in available_projects:
-                        tqdm.write(f"\n[ERROR] Project '{args.project}' not found in ZIP file")
-                        tqdm.write(f"Available projects: {', '.join(available_projects)}")
-                        sys.exit(1)
-                    
-                    tqdm.write(f"\nGenerating dashboard for project: {args.project}")
-                    zip_loader.project_name = args.project
-                    
+                    # Generate dashboards for specified project(s)
+                    projects_filter = args.project  # list
                     output_folder = f"{args.output}/{args.instance.replace(' ', '_')}" if args.instance else args.output
                     os.makedirs(output_folder, exist_ok=True)
-                    output_file = f"{output_folder}/dashboard_{args.project.replace(' ', '_')}.html"
-                    
-                    dashboard_path = generate_html_dashboard(
-                        output_file, 
-                        args.project, 
-                        args.instance, 
-                        zip_loader, 
-                        cache=None, 
-                        use_cache=False, 
-                        days=metadata.get('days', 365)
-                    )
-                    generated_files.append((f"{args.instance} - {args.project}", dashboard_path))
+
+                    # Validate all projects exist
+                    missing = [p for p in projects_filter if p not in available_projects]
+                    if missing:
+                        tqdm.write(f"\n[ERROR] Project(s) not found in ZIP file: {', '.join(missing)}")
+                        tqdm.write(f"Available projects: {', '.join(available_projects)}")
+                        sys.exit(1)
+
+                    if len(projects_filter) > 1:
+                        # Aggregated instance dashboard for selected projects
+                        tqdm.write(f"\nGenerating dashboards for {len(projects_filter)} projects: {', '.join(projects_filter)}")
+                        zip_loader.project_name = projects_filter
+                        inst_output = f"{output_folder}/dashboard.html"
+                        dashboard_path = generate_html_dashboard(
+                            inst_output, None, args.instance, zip_loader,
+                            cache=None, use_cache=False, days=metadata.get('days', 365),
+                            has_aggregated_dashboard=False
+                        )
+                        generated_files.append((f"{args.instance} - Selected Projects", dashboard_path))
+
+                        # Per-project dashboards
+                        for proj in projects_filter:
+                            tqdm.write(f"  Generating dashboard for project: {proj}")
+                            zip_loader.project_name = proj
+                            proj_output = f"{output_folder}/dashboard_{proj.replace(' ', '_')}.html"
+                            dashboard_path = generate_html_dashboard(
+                                proj_output, proj, args.instance, zip_loader,
+                                cache=None, use_cache=False, days=metadata.get('days', 365),
+                                has_aggregated_dashboard=False
+                            )
+                            generated_files.append((f"{args.instance} - {proj}", dashboard_path))
+                    else:
+                        # Single project: existing behavior
+                        project = projects_filter[0]
+                        tqdm.write(f"\nGenerating dashboard for project: {project}")
+                        zip_loader.project_name = project
+                        output_file = f"{output_folder}/dashboard_{project.replace(' ', '_')}.html"
+                        dashboard_path = generate_html_dashboard(
+                            output_file, project, args.instance, zip_loader,
+                            cache=None, use_cache=False, days=metadata.get('days', 365),
+                            has_aggregated_dashboard=False
+                        )
+                        generated_files.append((f"{args.instance} - {project}", dashboard_path))
                 else:
                     # Generate dashboards for all projects
                     tqdm.write(f"\nGenerating dashboards for all projects in {args.instance}...")
@@ -1497,24 +1563,25 @@ def main():
                     output_folder = f"{args.output}/{args.instance.replace(' ', '_')}" if args.instance else args.output
                     os.makedirs(output_folder, exist_ok=True)
                     
-                    # Generate aggregated dashboard first (even for single instance)
-                    tqdm.write(f"  Generating aggregated dashboard...")
-                    zip_loaders_dict = {args.instance: zip_loader}
-                    # Auto-assign color for single instance
-                    color_map = assign_instance_colors([args.instance])
-                    instance_configs = [{
-                        'name': args.instance,
-                        'description': f'{args.instance} Instance',
-                        'color': color_map[args.instance]
-                    }]
-                    aggregated_output = f"{args.output}/dashboard_aggregated.html"
-                    dashboard_path = generate_aggregated_dashboard_from_zips(
-                        zip_loaders_dict,
-                        instance_configs,
-                        aggregated_output,
-                        metadata.get('days', 365)
-                    )
-                    generated_files.append(("Aggregated View", dashboard_path))
+                    # Generate aggregated dashboard only if enabled in config
+                    if zip_aggregated_view_enabled:
+                        tqdm.write(f"  Generating aggregated dashboard...")
+                        zip_loaders_dict = {args.instance: zip_loader}
+                        # Auto-assign color for single instance
+                        color_map = assign_instance_colors([args.instance])
+                        instance_configs = [{
+                            'name': args.instance,
+                            'description': f'{args.instance} Instance',
+                            'color': color_map[args.instance]
+                        }]
+                        aggregated_output = f"{args.output}/dashboard_aggregated.html"
+                        dashboard_path = generate_aggregated_dashboard_from_zips(
+                            zip_loaders_dict,
+                            instance_configs,
+                            aggregated_output,
+                            metadata.get('days', 365)
+                        )
+                        generated_files.append(("Aggregated View", dashboard_path))
                     
                     # Instance-level dashboard (all projects)
                     tqdm.write(f"  Generating instance dashboard: {args.instance}")
@@ -1574,6 +1641,11 @@ def main():
     
     # Auto-detect multi-instance configuration
     is_multi_instance, instance_count, config_data = detect_multi_instance_config(args.config)
+
+    # Determine whether an aggregated dashboard will be generated.
+    # It is only shown when config explicitly has aggregated_view.enabled = true.
+    aggregated_view_cfg = (config_data or {}).get('aggregated_view', {})
+    aggregated_view_enabled = aggregated_view_cfg.get('enabled', False)
     
     # Override detection if single-instance mode forced
     if args.single_instance_mode:
@@ -1654,26 +1726,69 @@ def main():
                 tqdm.write(f"\nGenerating dashboards for instance: {args.instance}")
                 
                 if args.project:
-                    # Specific instance + specific project
-                    tqdm.write(f"  Project filter: {args.project}")
-                    metrics = multi_metrics.get_metrics_for_instance(args.instance, args.project)
+                    # Specific instance + project filter (one or more projects)
+                    projects_filter = args.project  # list
                     instance_folder = f"{args.output}/{args.instance.replace(' ', '_')}"
                     os.makedirs(instance_folder, exist_ok=True)
-                    output_file = f"{instance_folder}/dashboard_{args.project.replace(' ', '_')}.html"
-                    _label = f"{args.instance} - {args.project}"
-                    if progress_tracker and not session_id:
-                        session_id = progress_tracker.create_session(1)
-                        tqdm.write(f"  [Progress] Session ID: {session_id}  (use --resume {session_id} to resume if interrupted)")
-                    if _label not in completed_names:
-                        dashboard_path = generate_html_dashboard(output_file, args.project, args.instance, metrics, cache, use_cache, args.days)
-                        generated_files.append((_label, dashboard_path))
+
+                    if len(projects_filter) > 1:
+                        # Multiple projects: aggregated instance dashboard + per-project dashboards
+                        project_names_str = ', '.join(projects_filter)
+                        tqdm.write(f"  Project filter: {project_names_str}")
+                        total_work = 1 + len(projects_filter)
+                        if progress_tracker and not session_id:
+                            session_id = progress_tracker.create_session(total_work)
+                            tqdm.write(f"  [Progress] Session ID: {session_id}  (use --resume {session_id} to resume if interrupted)")
+
+                        # Aggregated instance dashboard for selected projects
+                        output_file = f"{instance_folder}/dashboard.html"
+                        _label = f"{args.instance} - Selected Projects"
+                        if _label not in completed_names:
+                            metrics = multi_metrics.get_metrics_for_instance(args.instance, projects_filter)
+                            dashboard_path = generate_html_dashboard(output_file, None, args.instance, metrics, cache, use_cache, args.days, has_aggregated_dashboard=aggregated_view_enabled)
+                            generated_files.append((_label, dashboard_path))
+                            if progress_tracker and session_id:
+                                progress_tracker.update_progress(session_id, _label)
+                        else:
+                            tqdm.write(f"  [SKIP] {_label}")
+                            generated_files.append((_label, output_file))
+
+                        # Per-project dashboards
+                        for proj in projects_filter:
+                            proj_output = f"{instance_folder}/dashboard_{proj.replace(' ', '_')}.html"
+                            _proj_label = f"{args.instance} - {proj}"
+                            if _proj_label not in completed_names:
+                                metrics_proj = multi_metrics.get_metrics_for_instance(args.instance, proj)
+                                dashboard_path = generate_html_dashboard(proj_output, proj, args.instance, metrics_proj, cache, use_cache, args.days)
+                                generated_files.append((_proj_label, dashboard_path))
+                                if progress_tracker and session_id:
+                                    progress_tracker.update_progress(session_id, _proj_label)
+                            else:
+                                tqdm.write(f"  [SKIP] {_proj_label}")
+                                generated_files.append((_proj_label, proj_output))
+
                         if progress_tracker and session_id:
-                            progress_tracker.update_progress(session_id, _label)
+                            progress_tracker.complete_session(session_id)
                     else:
-                        tqdm.write(f"  [SKIP] {_label}")
-                        generated_files.append((_label, output_file))
-                    if progress_tracker and session_id:
-                        progress_tracker.complete_session(session_id)
+                        # Single project: existing behavior
+                        project = projects_filter[0]
+                        tqdm.write(f"  Project filter: {project}")
+                        metrics = multi_metrics.get_metrics_for_instance(args.instance, project)
+                        output_file = f"{instance_folder}/dashboard_{project.replace(' ', '_')}.html"
+                        _label = f"{args.instance} - {project}"
+                        if progress_tracker and not session_id:
+                            session_id = progress_tracker.create_session(1)
+                            tqdm.write(f"  [Progress] Session ID: {session_id}  (use --resume {session_id} to resume if interrupted)")
+                        if _label not in completed_names:
+                            dashboard_path = generate_html_dashboard(output_file, project, args.instance, metrics, cache, use_cache, args.days, has_aggregated_dashboard=False, has_instance_dashboard=False)
+                            generated_files.append((_label, dashboard_path))
+                            if progress_tracker and session_id:
+                                progress_tracker.update_progress(session_id, _label)
+                        else:
+                            tqdm.write(f"  [SKIP] {_label}")
+                            generated_files.append((_label, output_file))
+                        if progress_tracker and session_id:
+                            progress_tracker.complete_session(session_id)
                 else:
                     # Specific instance + all projects (AUTO)
                     tqdm.write(f"  Generating all projects (auto-mode)")
@@ -1695,7 +1810,7 @@ def main():
                         output_file = f"{instance_folder}/dashboard.html"
                         _inst_label = f"{args.instance} - All Projects"
                         if _inst_label not in completed_names:
-                            dashboard_path = generate_html_dashboard(output_file, None, args.instance, metrics, cache, use_cache, args.days)
+                            dashboard_path = generate_html_dashboard(output_file, None, args.instance, metrics, cache, use_cache, args.days, has_aggregated_dashboard=aggregated_view_enabled)
                             generated_files.append((_inst_label, dashboard_path))
                             if progress_tracker and session_id:
                                 progress_tracker.update_progress(session_id, _inst_label)
@@ -1703,7 +1818,7 @@ def main():
                             tqdm.write(f"  [SKIP] {_inst_label}")
                             generated_files.append((_inst_label, output_file))
                         pbar.update(1)
-                        
+
                         # Generate project-level dashboards
                         if not projects.empty:
                             for idx, project in enumerate(projects['project_name'], 1):
@@ -1727,30 +1842,67 @@ def main():
             else:
                 # ALL INSTANCES MODE (AUTO-AGGREGATED)
                 if args.project:
-                    # All instances filtered by specific project
-                    tqdm.write(f"\nGenerating dashboards for all instances, project: {args.project}")
+                    # All instances filtered by project(s)
+                    projects_filter = args.project  # list
+                    project_names_str = ', '.join(projects_filter)
+                    tqdm.write(f"\nGenerating dashboards for all instances, project(s): {project_names_str}")
                     tqdm.write(f"  Total instances: {len(instance_names)}")
-                    
+
+                    # total work: per instance = 1 instance dashboard (if multi-project) + N project dashboards
+                    total_per_instance = (1 + len(projects_filter)) if len(projects_filter) > 1 else 1
                     if progress_tracker and not session_id:
-                        session_id = progress_tracker.create_session(len(instance_names))
+                        session_id = progress_tracker.create_session(len(instance_names) * total_per_instance)
                         tqdm.write(f"  [Progress] Session ID: {session_id}  (use --resume {session_id} to resume if interrupted)")
-                    with tqdm(total=len(instance_names), desc="Instances", unit="instance") as pbar:
+                    with tqdm(total=len(instance_names) * total_per_instance, desc="Instances", unit="dashboard") as pbar:
                         for idx, instance_name in enumerate(instance_names, 1):
                             pbar.set_description(f"Instance {idx}/{len(instance_names)}: {instance_name}")
-                            _label = f"{instance_name} - {args.project}"
                             instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
                             os.makedirs(instance_folder, exist_ok=True)
-                            output_file = f"{instance_folder}/dashboard_{args.project.replace(' ', '_')}.html"
-                            if _label not in completed_names:
-                                metrics = multi_metrics.get_metrics_for_instance(instance_name, args.project)
-                                dashboard_path = generate_html_dashboard(output_file, args.project, instance_name, metrics, cache, use_cache, args.days)
-                                generated_files.append((_label, dashboard_path))
-                                if progress_tracker and session_id:
-                                    progress_tracker.update_progress(session_id, _label)
+
+                            if len(projects_filter) > 1:
+                                # Aggregated instance dashboard for selected projects
+                                _inst_label = f"{instance_name} - Selected Projects"
+                                inst_output = f"{instance_folder}/dashboard.html"
+                                if _inst_label not in completed_names:
+                                    metrics = multi_metrics.get_metrics_for_instance(instance_name, projects_filter)
+                                    dashboard_path = generate_html_dashboard(inst_output, None, instance_name, metrics, cache, use_cache, args.days)
+                                    generated_files.append((_inst_label, dashboard_path))
+                                    if progress_tracker and session_id:
+                                        progress_tracker.update_progress(session_id, _inst_label)
+                                else:
+                                    tqdm.write(f"  [SKIP] {_inst_label}")
+                                    generated_files.append((_inst_label, inst_output))
+                                pbar.update(1)
+
+                                # Per-project dashboards
+                                for proj in projects_filter:
+                                    _proj_label = f"{instance_name} - {proj}"
+                                    proj_output = f"{instance_folder}/dashboard_{proj.replace(' ', '_')}.html"
+                                    if _proj_label not in completed_names:
+                                        metrics_proj = multi_metrics.get_metrics_for_instance(instance_name, proj)
+                                        dashboard_path = generate_html_dashboard(proj_output, proj, instance_name, metrics_proj, cache, use_cache, args.days)
+                                        generated_files.append((_proj_label, dashboard_path))
+                                        if progress_tracker and session_id:
+                                            progress_tracker.update_progress(session_id, _proj_label)
+                                    else:
+                                        tqdm.write(f"  [SKIP] {_proj_label}")
+                                        generated_files.append((_proj_label, proj_output))
+                                    pbar.update(1)
                             else:
-                                tqdm.write(f"  [SKIP] {_label}")
-                                generated_files.append((_label, output_file))
-                            pbar.update(1)
+                                # Single project: existing per-instance behavior
+                                project = projects_filter[0]
+                                _label = f"{instance_name} - {project}"
+                                output_file = f"{instance_folder}/dashboard_{project.replace(' ', '_')}.html"
+                                if _label not in completed_names:
+                                    metrics = multi_metrics.get_metrics_for_instance(instance_name, project)
+                                    dashboard_path = generate_html_dashboard(output_file, project, instance_name, metrics, cache, use_cache, args.days, has_aggregated_dashboard=False, has_instance_dashboard=False)
+                                    generated_files.append((_label, dashboard_path))
+                                    if progress_tracker and session_id:
+                                        progress_tracker.update_progress(session_id, _label)
+                                else:
+                                    tqdm.write(f"  [SKIP] {_label}")
+                                    generated_files.append((_label, output_file))
+                                pbar.update(1)
                     if progress_tracker and session_id:
                         progress_tracker.complete_session(session_id)
                 else:
@@ -1805,7 +1957,7 @@ def main():
                             output_file = f"{instance_folder}/dashboard.html"
                             if _inst_label not in completed_names:
                                 metrics = multi_metrics.get_metrics_for_instance(instance_name)
-                                dashboard_path = generate_html_dashboard(output_file, None, instance_name, metrics, cache, use_cache, args.days)
+                                dashboard_path = generate_html_dashboard(output_file, None, instance_name, metrics, cache, use_cache, args.days, has_aggregated_dashboard=aggregated_view_enabled)
                                 generated_files.append((_inst_label, dashboard_path))
                                 if progress_tracker and session_id:
                                     progress_tracker.update_progress(session_id, _inst_label)
@@ -1900,25 +2052,67 @@ def main():
         generated_files = []
         
         if args.project:
-            # Specific project only
-            tqdm.write(f"\nGenerating dashboard for project: {args.project}")
+            projects_filter = args.project  # list of project names
             instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
             os.makedirs(instance_folder, exist_ok=True)
-            output_file = f"{instance_folder}/dashboard_{args.project.replace(' ', '_')}.html"
-            _label = f"{instance_name} - {args.project}"
-            if progress_tracker and not session_id:
-                session_id = progress_tracker.create_session(1)
-                tqdm.write(f"  [Progress] Session ID: {session_id}")
-            if _label not in completed_names:
-                dashboard_path = generate_html_dashboard(output_file, args.project, instance_name, metrics, cache, use_cache, args.days)
-                generated_files.append((_label, dashboard_path))
+
+            if len(projects_filter) > 1:
+                # Multiple projects: generate aggregated instance dashboard + per-project dashboards
+                project_names_str = ', '.join(projects_filter)
+                tqdm.write(f"\nGenerating dashboards for {len(projects_filter)} projects: {project_names_str}")
+                total_work = 1 + len(projects_filter)
+                if progress_tracker and not session_id:
+                    session_id = progress_tracker.create_session(total_work)
+                    tqdm.write(f"  [Progress] Session ID: {session_id}")
+
+                # Aggregated instance dashboard filtered to selected projects
+                output_file = f"{instance_folder}/dashboard.html"
+                _label = f"{instance_name} - Selected Projects"
+                if _label not in completed_names:
+                    metrics.project_name = projects_filter
+                    dashboard_path = generate_html_dashboard(output_file, None, instance_name, metrics, cache, use_cache, args.days, has_aggregated_dashboard=aggregated_view_enabled)
+                    generated_files.append((_label, dashboard_path))
+                    if progress_tracker and session_id:
+                        progress_tracker.update_progress(session_id, _label)
+                else:
+                    tqdm.write(f"  [SKIP] {_label}")
+                    generated_files.append((_label, output_file))
+
+                # Per-project dashboards
+                for proj in projects_filter:
+                    proj_output = f"{instance_folder}/dashboard_{proj.replace(' ', '_')}.html"
+                    _proj_label = f"{instance_name} - {proj}"
+                    if _proj_label not in completed_names:
+                        metrics_proj = CoverityMetrics(connection_params=connection_params, project_name=proj)
+                        dashboard_path = generate_html_dashboard(proj_output, proj, instance_name, metrics_proj, cache, use_cache, args.days)
+                        generated_files.append((_proj_label, dashboard_path))
+                        if progress_tracker and session_id:
+                            progress_tracker.update_progress(session_id, _proj_label)
+                    else:
+                        tqdm.write(f"  [SKIP] {_proj_label}")
+                        generated_files.append((_proj_label, proj_output))
+
                 if progress_tracker and session_id:
-                    progress_tracker.update_progress(session_id, _label)
+                    progress_tracker.complete_session(session_id)
             else:
-                tqdm.write(f"  [SKIP] {_label}")
-                generated_files.append((_label, output_file))
-            if progress_tracker and session_id:
-                progress_tracker.complete_session(session_id)
+                # Single project: existing behavior
+                project = projects_filter[0]
+                tqdm.write(f"\nGenerating dashboard for project: {project}")
+                output_file = f"{instance_folder}/dashboard_{project.replace(' ', '_')}.html"
+                _label = f"{instance_name} - {project}"
+                if progress_tracker and not session_id:
+                    session_id = progress_tracker.create_session(1)
+                    tqdm.write(f"  [Progress] Session ID: {session_id}")
+                if _label not in completed_names:
+                    dashboard_path = generate_html_dashboard(output_file, project, instance_name, metrics, cache, use_cache, args.days, has_aggregated_dashboard=False, has_instance_dashboard=False)
+                    generated_files.append((_label, dashboard_path))
+                    if progress_tracker and session_id:
+                        progress_tracker.update_progress(session_id, _label)
+                else:
+                    tqdm.write(f"  [SKIP] {_label}")
+                    generated_files.append((_label, output_file))
+                if progress_tracker and session_id:
+                    progress_tracker.complete_session(session_id)
         else:
             # All projects (AUTO MODE) - same as multi-instance
             tqdm.write(f"\nGenerating all dashboards for instance: {instance_name}")
@@ -1956,7 +2150,7 @@ def main():
                 output_file = f"{instance_folder}/dashboard.html"
                 _inst_label = f"{instance_name} - All Projects"
                 if _inst_label not in completed_names:
-                    dashboard_path = generate_html_dashboard(output_file, None, instance_name, metrics, cache, use_cache, args.days)
+                    dashboard_path = generate_html_dashboard(output_file, None, instance_name, metrics, cache, use_cache, args.days, has_aggregated_dashboard=aggregated_view_enabled)
                     generated_files.append((_inst_label, dashboard_path))
                     if progress_tracker and session_id:
                         progress_tracker.update_progress(session_id, _inst_label)

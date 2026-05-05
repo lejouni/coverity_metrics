@@ -65,7 +65,7 @@ def load_config(config_file='config.json'):
         print(f"ERROR: Failed to load configuration: {str(e)}")
         sys.exit(1)
 
-def export_instance_to_json(instance_name, connection_params, instance_dir, days=365):
+def export_instance_to_json(instance_name, connection_params, instance_dir, days=365, projects_filter=None):
     """Export all metrics for a single instance to JSON files
     
     Args:
@@ -73,13 +73,16 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
         connection_params: Database connection parameters
         instance_dir: Instance-specific directory to save JSON files
         days: Number of days for trend analysis
+        projects_filter: Optional list of project names to filter metrics
         
     Returns:
         dict: Metadata about exported files
     """
     print(f"\n[{instance_name}] Exporting metrics...")
+    if projects_filter:
+        print(f"  Project filter: {', '.join(projects_filter)}")
     
-    metrics = CoverityMetrics(connection_params=connection_params)
+    metrics = CoverityMetrics(connection_params=connection_params, project_name=projects_filter if projects_filter else None)
     
     # Dictionary to store export metadata
     exported_files = {}
@@ -326,7 +329,7 @@ def export_project_specific_metrics(instance_name, connection_params, project_di
     return exported_files
 
 
-def export_to_json(output_dir="exports", days=365, config_file='config.json'):
+def export_to_json(output_dir="exports", days=365, config_file='config.json', projects_filter=None):
     """Export all metrics to JSON files with multi-instance support
     
     Creates a separate ZIP file for each configured instance
@@ -335,6 +338,7 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json'):
         output_dir: Directory for exports
         days: Number of days for trend analysis
         config_file: Path to configuration file
+        projects_filter: Optional list of project names to restrict export
         
     Returns:
         list: List of paths to created ZIP files (one per instance)
@@ -353,6 +357,8 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json'):
     print(f"Instances to export: {len(enabled_instances)}")
     for inst in enabled_instances:
         print(f"  - {inst['name']}")
+    if projects_filter:
+        print(f"Project filter: {', '.join(projects_filter)}") 
     
     zip_files = []
     
@@ -399,7 +405,8 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json'):
             instance_name, 
             connection_params, 
             instance_dir,
-            days
+            days,
+            projects_filter=projects_filter
         )
         
         metadata['instances'][instance_name] = {
@@ -410,9 +417,12 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json'):
         
         # Get available projects and export project-specific metrics
         try:
-            metrics = CoverityMetrics(connection_params=connection_params)
-            projects_df = metrics.get_available_projects()
-            projects = projects_df['project_name'].tolist() if not projects_df.empty else []
+            if projects_filter:
+                projects = projects_filter
+            else:
+                metrics = CoverityMetrics(connection_params=connection_params)
+                projects_df = metrics.get_available_projects()
+                projects = projects_df['project_name'].tolist() if not projects_df.empty else []
             
             metadata['instances'][instance_name]['projects'] = projects
             
@@ -485,9 +495,13 @@ def main():
     parser.add_argument('--output', '-o', default='exports', help='Output directory (default: exports)')
     parser.add_argument('--days', '-d', type=int, default=365, help='Number of days for trend analysis (default: 365)')
     parser.add_argument('--config', '-c', default='config.json', help='Path to configuration file (default: config.json)')
+    parser.add_argument('--project', '-p', type=str, default=None, help='Comma-separated list of project names to export (default: all projects)')
     parser.add_argument('--version', action='store_true', help='Print version and exit')
 
     args = parser.parse_args()
+
+    if args.project:
+        args.project = [p.strip() for p in args.project.split(',') if p.strip()]
 
     if args.version:
         try:
@@ -498,7 +512,7 @@ def main():
         return 0
 
     try:
-        zip_files = export_to_json(output_dir=args.output, days=args.days, config_file=args.config)
+        zip_files = export_to_json(output_dir=args.output, days=args.days, config_file=args.config, projects_filter=args.project if args.project else None)
         # Note: export_to_json now returns a list of ZIP files (one per instance)
         return 0
     except Exception as e:

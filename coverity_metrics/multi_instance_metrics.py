@@ -90,7 +90,7 @@ class MultiInstanceMetrics:
         """Get metrics manager for a specific instance"""
         return self.metrics_managers.get(instance_name)
     
-    def get_metrics_for_instance(self, instance_name: str, project_name: Optional[str] = None) -> Optional[CoverityMetrics]:
+    def get_metrics_for_instance(self, instance_name: str, project_name=None) -> Optional[CoverityMetrics]:
         """
         Get metrics manager for a specific instance, optionally filtered by project
         

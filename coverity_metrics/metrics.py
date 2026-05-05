@@ -22,18 +22,72 @@ class CoverityMetrics:
             raise ValueError("connection_params is required. Please provide database connection parameters from config.json")
         
         self.db = CoverityDatabase(connection_params=connection_params)
+        # Use the property setter so _project_names is always normalised
         self.project_name = project_name
+
+    # ------------------------------------------------------------------
+    # project_name property – accepts str, list[str], or None.
+    # Internally stored as self._project_names (list or None).
+    # ------------------------------------------------------------------
+    @property
+    def project_name(self):
+        """Return a display-friendly project name string (or None)."""
+        if not self._project_names:
+            return None
+        return self._project_names[0] if len(self._project_names) == 1 else ', '.join(self._project_names)
+
+    @project_name.setter
+    def project_name(self, value):
+        if value is None:
+            self._project_names = None
+        elif isinstance(value, list):
+            self._project_names = value if value else None
+        else:
+            self._project_names = [value]
     
     # ========== DEFECT METRICS ==========
     
     def get_total_defects_by_project(self):
-        """Get total defect count grouped by project, or by stream when filtered to a project
+        """Get total defect count grouped by project, or by stream when filtered to a single project
         Includes both code-based fixes and triaged defects (False Positive/Intentional)
         
         Returns:
             pandas.DataFrame: Project/stream name and defect count
         """
-        if self.project_name:
+        multi_project = self._project_names and len(self._project_names) > 1
+        single_project = self._project_names and len(self._project_names) == 1
+
+        if multi_project:
+            # Multiple projects: group by project name, filter to selected projects only
+            query = """
+                SELECT 
+                    p.name as project_name,
+                    COUNT(DISTINCT sd.id) as defect_count,
+                    COUNT(DISTINCT CASE 
+                        WHEN sd.fixed_snapshot_element_id IS NULL 
+                            AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
+                        THEN sd.id 
+                    END) as active_defects,
+                    COUNT(DISTINCT CASE 
+                        WHEN sd.fixed_snapshot_element_id IS NOT NULL 
+                            OR de_cls.name IN ('False Positive', 'Intentional')
+                        THEN sd.id 
+                    END) as fixed_defects
+                FROM project p
+                JOIN project_stream ps ON p.id = ps.project_id
+                JOIN stream s ON ps.stream_id = s.id
+                JOIN stream_element se ON s.id = se.stream_id
+                LEFT JOIN stream_defect sd ON se.id = sd.stream_element_id
+                LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
+                WHERE p.deleted = false AND s.deleted = false
+                    AND p.name = ANY(%s)
+                GROUP BY p.name
+                ORDER BY defect_count DESC
+            """
+            results = self.db.execute_query_dict(query, (self._project_names,))
+        elif single_project:
+            # Single project: group by stream for drill-down view
             query = """
                 SELECT 
                     s.name as project_name,
@@ -56,11 +110,11 @@ class CoverityMetrics:
                 LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
                 LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
                 WHERE p.deleted = false AND s.deleted = false
-                    AND p.name = %s
+                    AND p.name = ANY(%s)
                 GROUP BY s.name
                 ORDER BY defect_count DESC
             """
-            results = self.db.execute_query_dict(query, (self.project_name,))
+            results = self.db.execute_query_dict(query, (self._project_names,))
         else:
             query = """
                 SELECT 
@@ -119,9 +173,9 @@ class CoverityMetrics:
                     ELSE 4
                 END
         """
-        if self.project_name:
-            query = query.format(project_filter="AND p.name = %s")
-            results = self.db.execute_query_dict(query, (self.project_name,))
+        if self._project_names:
+            query = query.format(project_filter="AND p.name = ANY(%s)")
+            results = self.db.execute_query_dict(query, (self._project_names,))
         else:
             query = query.format(project_filter="")
             results = self.db.execute_query_dict(query)
@@ -156,9 +210,9 @@ class CoverityMetrics:
             ORDER BY defect_count DESC
             {limit_clause}
         """
-        if self.project_name:
-            query = query.format(project_filter="AND p.name = %s")
-            params = (self.project_name,) if fetch_all else (self.project_name, limit)
+        if self._project_names:
+            query = query.format(project_filter="AND p.name = ANY(%s)")
+            params = (self._project_names,) if fetch_all else (self._project_names, limit)
             results = self.db.execute_query_dict(query, params)
         else:
             query = query.format(project_filter="")
@@ -198,9 +252,9 @@ class CoverityMetrics:
             ORDER BY defect_count DESC
             {limit_clause}
         """
-        if self.project_name:
-            query = query.format(project_filter="AND p.name = %s")
-            params = (self.project_name,) if fetch_all else (self.project_name, limit)
+        if self._project_names:
+            query = query.format(project_filter="AND p.name = ANY(%s)")
+            params = (self._project_names,) if fetch_all else (self._project_names, limit)
             results = self.db.execute_query_dict(query, params)
         else:
             query = query.format(project_filter="")
@@ -238,9 +292,9 @@ class CoverityMetrics:
             GROUP BY p.name, s.name
             ORDER BY defects_per_kloc DESC
         """
-        if self.project_name:
-            query = query.format(project_filter="AND p.name = %s")
-            results = self.db.execute_query_dict(query, (self.project_name,))
+        if self._project_names:
+            query = query.format(project_filter="AND p.name = ANY(%s)")
+            results = self.db.execute_query_dict(query, (self._project_names,))
         else:
             query = query.format(project_filter="")
             results = self.db.execute_query_dict(query)
@@ -347,9 +401,9 @@ class CoverityMetrics:
             GROUP BY s.name
             ORDER BY total_loc DESC
         """
-        if self.project_name:
-            query = query.format(project_filter="AND p.name = %s")
-            results = self.db.execute_query_dict(query, (self.project_name,))
+        if self._project_names:
+            query = query.format(project_filter="AND p.name = ANY(%s)")
+            results = self.db.execute_query_dict(query, (self._project_names,))
         else:
             query = query.format(project_filter="")
             results = self.db.execute_query_dict(query)
@@ -576,7 +630,7 @@ class CoverityMetrics:
                     WHERE ts.date_created >= CURRENT_DATE - INTERVAL '{days} days'
                         AND ts.user_created_id IS NOT NULL
                         AND u.username NOT IN ('system', 'reporter')
-                        AND p.name = '{self.project_name}'
+                        AND p.name = ANY(%s)
                     
                     UNION
                     
@@ -595,7 +649,7 @@ class CoverityMetrics:
                         AND u.username NOT IN ('system', 'reporter')
                         AND ts.cmnt IS NOT NULL
                         AND ts.cmnt != ''
-                        AND p.name = '{self.project_name}'
+                        AND p.name = ANY(%s)
                     
                     UNION
                     
@@ -610,7 +664,7 @@ class CoverityMetrics:
                         AND sn.committer_user_id IS NOT NULL
                         AND u.username NOT IN ('system', 'reporter')
                         AND sn.deleted = false
-                        AND p.name = '{self.project_name}'
+                        AND p.name = ANY(%s)
                 ) active_user_list
             """
         else:
@@ -649,7 +703,8 @@ class CoverityMetrics:
                 ) active_user_list
             """
         
-        active_users_result = self.db.execute_query(active_users_query)
+        active_users_result = self.db.execute_query(active_users_query,
+            (self._project_names, self._project_names, self._project_names) if self._project_names else None)
         active_users = active_users_result[0][0] if active_users_result else 0
         
         return {
@@ -720,29 +775,29 @@ class CoverityMetrics:
         if self.project_name:
             # Project-specific queries
             queries = {
-                'total_projects': ("SELECT COUNT(*) FROM project WHERE deleted = false AND name = %s", (self.project_name,)),
+                'total_projects': ("SELECT COUNT(*) FROM project WHERE deleted = false AND name = ANY(%s)", (self._project_names,)),
                 'total_streams': ("""
                     SELECT COUNT(DISTINCT s.id) FROM stream s
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
-                    WHERE s.deleted = false AND p.name = %s
-                """, (self.project_name,)),
+                    WHERE s.deleted = false AND p.name = ANY(%s)
+                """, (self._project_names,)),
                 'total_defects': ("""
                     SELECT COUNT(DISTINCT sd.id) FROM stream_defect sd
                     JOIN stream_element se ON sd.stream_element_id = se.id
                     JOIN stream s ON se.stream_id = s.id
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
-                    WHERE sd.fixed_snapshot_element_id IS NULL AND p.name = %s
-                """, (self.project_name,)),
+                    WHERE sd.fixed_snapshot_element_id IS NULL AND p.name = ANY(%s)
+                """, (self._project_names,)),
                 'total_files': ("""
                     SELECT COUNT(DISTINCT sfile.id) FROM stream_file sfile
                     JOIN stream_element se ON sfile.stream_element_id = se.id
                     JOIN stream s ON se.stream_id = s.id
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
-                    WHERE p.name = %s
-                """, (self.project_name,)),
+                    WHERE p.name = ANY(%s)
+                """, (self._project_names,)),
                 'total_functions': ("""
                     SELECT COUNT(sf.id) FROM stream_function sf
                     JOIN stream_file sfile ON sf.stream_file_id = sfile.id
@@ -750,16 +805,16 @@ class CoverityMetrics:
                     JOIN stream s ON se.stream_id = s.id
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
-                    WHERE p.name = %s
-                """, (self.project_name,)),
+                    WHERE p.name = ANY(%s)
+                """, (self._project_names,)),
                 'total_loc': ("""
                     SELECT SUM(COALESCE(sfile.current_code_line_count, 0)) FROM stream_file sfile
                     JOIN stream_element se ON sfile.stream_element_id = se.id
                     JOIN stream s ON se.stream_id = s.id
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
-                    WHERE p.name = %s
-                """, (self.project_name,)),
+                    WHERE p.name = ANY(%s)
+                """, (self._project_names,)),
                 'total_users': ("""
                     SELECT COUNT(DISTINCT user_id) FROM (
                         -- Users with triage activity on this project's defects
@@ -774,7 +829,7 @@ class CoverityMetrics:
                         JOIN project p ON ps.project_id = p.id
                         WHERE ts.user_created_id IS NOT NULL
                             AND u.username NOT IN ('system', 'reporter')
-                            AND p.name = %s
+                            AND p.name = ANY(%s)
                         
                         UNION
                         
@@ -792,7 +847,7 @@ class CoverityMetrics:
                             AND u.username NOT IN ('system', 'reporter')
                             AND ts.cmnt IS NOT NULL
                             AND ts.cmnt != ''
-                            AND p.name = %s
+                            AND p.name = ANY(%s)
                         
                         UNION
                         
@@ -806,9 +861,9 @@ class CoverityMetrics:
                         WHERE sn.committer_user_id IS NOT NULL
                             AND u.username NOT IN ('system', 'reporter')
                             AND sn.deleted = false
-                            AND p.name = %s
+                            AND p.name = ANY(%s)
                     ) active_users
-                """, (self.project_name, self.project_name, self.project_name)),
+                """, (self._project_names, self._project_names, self._project_names)),
                 'high_severity_defects': ("""
                     SELECT COUNT(DISTINCT sd.id) FROM stream_defect sd 
                     JOIN checker_properties cp ON sd.checker_properties_id = cp.id
@@ -818,8 +873,8 @@ class CoverityMetrics:
                     JOIN project p ON ps.project_id = p.id
                     WHERE sd.fixed_snapshot_element_id IS NULL 
                         AND cp.impact = 'High' 
-                        AND p.name = %s
-                """, (self.project_name,)),
+                        AND p.name = ANY(%s)
+                """, (self._project_names,)),
             }
         else:
             # Global queries
@@ -912,8 +967,8 @@ class CoverityMetrics:
             {limit_clause}
         """
         if self.project_name:
-            query = query.format(project_filter="AND p.name = %s")
-            params = (self.project_name,) if fetch_all else (self.project_name, limit)
+            query = query.format(project_filter="AND p.name = ANY(%s)")
+            params = (self._project_names,) if fetch_all else (self._project_names, limit)
             results = self.db.execute_query_dict(query, params)
         else:
             query = query.format(project_filter="")
@@ -927,20 +982,37 @@ class CoverityMetrics:
         Returns:
             pandas.DataFrame: List of projects with basic information
         """
-        query = """
-            SELECT 
-                p.name as project_name,
-                COUNT(DISTINCT ps.stream_id) as stream_count,
-                p.date_created,
-                p.deleted
-            FROM project p
-            LEFT JOIN project_stream ps ON p.id = ps.project_id
-            WHERE p.deleted = false
-                AND p.name != 'Developer Streams'
-            GROUP BY p.name, p.date_created, p.deleted
-            ORDER BY p.name
-        """
-        results = self.db.execute_query_dict(query)
+        if self._project_names:
+            query = """
+                SELECT 
+                    p.name as project_name,
+                    COUNT(DISTINCT ps.stream_id) as stream_count,
+                    p.date_created,
+                    p.deleted
+                FROM project p
+                LEFT JOIN project_stream ps ON p.id = ps.project_id
+                WHERE p.deleted = false
+                    AND p.name != 'Developer Streams'
+                    AND p.name = ANY(%s)
+                GROUP BY p.name, p.date_created, p.deleted
+                ORDER BY p.name
+            """
+            results = self.db.execute_query_dict(query, (self._project_names,))
+        else:
+            query = """
+                SELECT 
+                    p.name as project_name,
+                    COUNT(DISTINCT ps.stream_id) as stream_count,
+                    p.date_created,
+                    p.deleted
+                FROM project p
+                LEFT JOIN project_stream ps ON p.id = ps.project_id
+                WHERE p.deleted = false
+                    AND p.name != 'Developer Streams'
+                GROUP BY p.name, p.date_created, p.deleted
+                ORDER BY p.name
+            """
+            results = self.db.execute_query_dict(query)
         return pd.DataFrame(results)
     
     def _add_project_filter(self, query, table_alias='p'):
@@ -956,15 +1028,15 @@ class CoverityMetrics:
         if self.project_name:
             # Add WHERE or AND clause for project filter
             if 'WHERE' in query.upper():
-                query = query.replace('WHERE', f"WHERE {table_alias}.name = %s AND", 1)
+                query = query.replace('WHERE', f"WHERE {table_alias}.name = ANY(%s) AND", 1)
             else:
                 # Find the position before GROUP BY or ORDER BY
                 for keyword in ['GROUP BY', 'ORDER BY', 'LIMIT']:
                     if keyword in query.upper():
                         pos = query.upper().index(keyword)
-                        query = query[:pos] + f" WHERE {table_alias}.name = %s " + query[pos:]
+                        query = query[:pos] + f" WHERE {table_alias}.name = ANY(%s) " + query[pos:]
                         break
-            return query, (self.project_name,)
+            return query, (self._project_names,)
         return query, None
     
     # ========== PERFORMANCE METRICS ==========
@@ -1130,10 +1202,10 @@ class CoverityMetrics:
                     JOIN project_stream ps ON st.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                     WHERE s.prevent_ver_ext IS NOT NULL
-                        AND p.name = %s
+                        AND p.name = ANY(%s)
                         AND s.deleted = false
                 """
-                params = [self.project_name]
+                params = [self._project_names]
             else:
                 # Instance-wide query
                 query = """
@@ -1237,9 +1309,9 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s"
+                project_filter="AND p.name = ANY(%s)"
             )
-            results = self.db.execute_query_dict(query, (self.project_name, limit))
+            results = self.db.execute_query_dict(query, (self._project_names, limit))
         else:
             query = query.format(project_filter_join="", project_filter="")
             results = self.db.execute_query_dict(query, (limit,))
@@ -1275,9 +1347,9 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s"
+                project_filter="AND p.name = ANY(%s)"
             )
-            result = self.db.execute_query_dict(query, (self.project_name,))
+            result = self.db.execute_query_dict(query, (self._project_names,))
         else:
             query = query.format(project_filter_join="", project_filter="")
             result = self.db.execute_query_dict(query)
@@ -1352,7 +1424,7 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s"
+                project_filter="AND p.name = ANY(%s)"
             )
             query_by_dow = query_by_dow.format(
                 project_filter_join="""
@@ -1360,10 +1432,10 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s"
+                project_filter="AND p.name = ANY(%s)"
             )
-            by_hour = self.db.execute_query_dict(query_by_hour, (self.project_name,))
-            by_dow = self.db.execute_query_dict(query_by_dow, (self.project_name,))
+            by_hour = self.db.execute_query_dict(query_by_hour, (self._project_names,))
+            by_dow = self.db.execute_query_dict(query_by_dow, (self._project_names,))
         else:
             query_by_hour = query_by_hour.format(project_filter_join="", project_filter="")
             query_by_dow = query_by_dow.format(project_filter_join="", project_filter="")
@@ -1496,9 +1568,9 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s"
+                project_filter="AND p.name = ANY(%s)"
             )
-            results = self.db.execute_query_dict(query, (days, self.project_name))
+            results = self.db.execute_query_dict(query, (days, self._project_names))
         else:
             query = query.format(project_filter_join="", project_filter="")
             results = self.db.execute_query_dict(query, (days,))
@@ -1579,14 +1651,14 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s",
+                project_filter="AND p.name = ANY(%s)",
                 project_filter_join_triage="""
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter_triage="AND p.name = %s"
+                project_filter_triage="AND p.name = ANY(%s)"
             )
-            results = self.db.execute_query_dict(query, (days, self.project_name, days, self.project_name))
+            results = self.db.execute_query_dict(query, (days, self._project_names, days, self._project_names))
         else:
             query = query.format(
                 project_filter_join="", 
@@ -1640,9 +1712,9 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s"
+                project_filter="AND p.name = ANY(%s)"
             )
-            results = self.db.execute_query_dict(query, (self.project_name,))
+            results = self.db.execute_query_dict(query, (self._project_names,))
         else:
             query = query.format(project_filter_join="", project_filter="")
             results = self.db.execute_query_dict(query)
@@ -1704,9 +1776,9 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s"
+                project_filter="AND p.name = ANY(%s)"
             )
-            results = self.db.execute_query_dict(query, (self.project_name,))
+            results = self.db.execute_query_dict(query, (self._project_names,))
         else:
             query = query.format(project_filter_join="", project_filter="")
             results = self.db.execute_query_dict(query)
@@ -1737,7 +1809,7 @@ class CoverityMetrics:
                 JOIN project_stream ps ON s.id = ps.stream_id
                 JOIN project p ON ps.project_id = p.id
             """
-            where_filter = "AND p.name = %s"
+            where_filter = "AND p.name = ANY(%s)"
         else:
             name_col = "p.name"
             extra_join = """
@@ -1777,7 +1849,7 @@ class CoverityMetrics:
         """
 
         if self.project_name:
-            results = self.db.execute_query_dict(query, (self.project_name,))
+            results = self.db.execute_query_dict(query, (self._project_names,))
         else:
             results = self.db.execute_query_dict(query)
 
@@ -1886,24 +1958,24 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s",
+                project_filter="AND p.name = ANY(%s)",
                 project_filter_join_triaged_stats="""
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter_triaged_stats="AND p.name = %s",
+                project_filter_triaged_stats="AND p.name = ANY(%s)",
                 project_filter_join_fix="""
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter_fix="AND p.name = %s",
+                project_filter_fix="AND p.name = ANY(%s)",
                 project_filter_join_triage="""
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter_triage="AND p.name = %s"
+                project_filter_triage="AND p.name = ANY(%s)"
             )
-            result = self.db.execute_query_dict(query, (days, self.project_name, days, self.project_name, days, self.project_name, days, self.project_name))
+            result = self.db.execute_query_dict(query, (days, self._project_names, days, self._project_names, days, self._project_names, days, self._project_names))
         else:
             query = query.format(
                 project_filter_join="", 
@@ -1986,14 +2058,14 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s",
+                project_filter="AND p.name = ANY(%s)",
                 project_filter_join_triage="""
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter_triage="AND p.name = %s"
+                project_filter_triage="AND p.name = ANY(%s)"
             )
-            results = self.db.execute_query_dict(query, (days, self.project_name, days, self.project_name))
+            results = self.db.execute_query_dict(query, (days, self._project_names, days, self._project_names))
         else:
             query = query.format(
                 project_filter_join="", 
@@ -2074,14 +2146,14 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s",
+                project_filter="AND p.name = ANY(%s)",
                 project_filter_join_triage="""
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter_triage="AND p.name = %s"
+                project_filter_triage="AND p.name = ANY(%s)"
             )
-            results = self.db.execute_query_dict(query, (days, self.project_name, days, self.project_name))
+            results = self.db.execute_query_dict(query, (days, self._project_names, days, self._project_names))
         else:
             query = query.format(
                 project_filter_join="", 
@@ -2164,19 +2236,19 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter_period="AND p.name = %s",
+                project_filter_period="AND p.name = ANY(%s)",
                 project_filter_join_triaged="""
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter_triaged="AND p.name = %s",
+                project_filter_triaged="AND p.name = ANY(%s)",
                 project_filter_join_current="""
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter_current="AND p.name = %s"
+                project_filter_current="AND p.name = ANY(%s)"
             )
-            result = self.db.execute_query_dict(query, (days, self.project_name, days, self.project_name, self.project_name))
+            result = self.db.execute_query_dict(query, (days, self._project_names, days, self._project_names, self._project_names))
         else:
             query = query.format(
                 project_filter_join_period="",
@@ -2260,9 +2332,9 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s"
+                project_filter="AND p.name = ANY(%s)"
             )
-            results = self.db.execute_query_dict(query, (self.project_name,))
+            results = self.db.execute_query_dict(query, (self._project_names,))
         else:
             query = query.format(project_filter_join="", project_filter="")
             results = self.db.execute_query_dict(query)
@@ -2300,8 +2372,8 @@ class CoverityMetrics:
         """
         
         if self.project_name:
-            query = query.format(project_filter="AND p.name = %s")
-            result = self.db.execute_query_dict(query, (self.project_name,))
+            query = query.format(project_filter="AND p.name = ANY(%s)")
+            result = self.db.execute_query_dict(query, (self._project_names,))
         else:
             query = query.format(project_filter="")
             result = self.db.execute_query_dict(query)
@@ -2359,9 +2431,9 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                 """,
-                project_filter="AND p.name = %s"
+                project_filter="AND p.name = ANY(%s)"
             )
-            results = self.db.execute_query_dict(query, (self.project_name,))
+            results = self.db.execute_query_dict(query, (self._project_names,))
         else:
             query = query.format(
                 project_filter_join="",
@@ -2409,7 +2481,8 @@ class CoverityMetrics:
         Returns:
             pandas.DataFrame: Projects ranked by fixes
         """
-        query = """
+        project_filter = "AND p.name = ANY(%s)" if self._project_names else ""
+        query = f"""
             WITH project_fixes AS (
                 SELECT 
                     p.name as project_name,
@@ -2429,6 +2502,7 @@ class CoverityMetrics:
                 WHERE p.deleted = false
                     AND sn.deleted = false
                     AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    {project_filter}
                 GROUP BY p.name
                 HAVING COUNT(DISTINCT sd.id) FILTER (WHERE sn.eliminated_defect_count > 0) > 0
             )
@@ -2443,30 +2517,17 @@ class CoverityMetrics:
             LIMIT %s
         """
         
-        results = self.db.execute_query_dict(query, (days, limit))
+        if self._project_names:
+            results = self.db.execute_query_dict(query, (days, self._project_names, limit))
+        else:
+            results = self.db.execute_query_dict(query, (days, limit))
         return pd.DataFrame(results)
     
     def get_most_improved_projects(self, days=90, limit=10):
-        """Get projects ranked by improvement within the analysis period.
-
-        For projects with 2+ snapshots the improvement is the percentage
-        reduction between the first and last snapshot in the period.  When a
-        project has only one snapshot (or all snapshots show no reduction) the
-        improvement is measured by the fraction of defects that have been
-        triaged as ``False Positive`` or ``Intentional``, since those count as
-        handled/resolved in Coverity's workflow.
-
-        The list always returns up to ``limit`` projects — even at 0 % — so
-        the leaderboard is never empty when there are active projects.
-
-        Args:
-            days: Number of days to look back for snapshots.
-            limit: Number of projects to return.
-
-        Returns:
-            pandas.DataFrame: Projects ranked by improvement percentage.
-        """
-        query = """
+        """Get projects ranked by improvement within the analysis period."""
+        project_filter_snap = "AND p.name = ANY(%s)" if self._project_names else ""
+        project_filter_triage = "AND p.name = ANY(%s)" if self._project_names else ""
+        query = f"""
             WITH snapshot_data AS (
                 SELECT
                     p.name                                                                AS project_name,
@@ -2481,6 +2542,7 @@ class CoverityMetrics:
                 WHERE p.deleted  = false
                   AND sn.deleted = false
                   AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                  {project_filter_snap}
             ),
             snapshot_comparison AS (
                 SELECT
@@ -2507,6 +2569,7 @@ class CoverityMetrics:
                 LEFT JOIN dynamic_enum de  ON dt.current_classification_id = de.id
                                           AND de.dtype = 'Cls'
                 WHERE p.deleted = false AND s.deleted = false
+                  {project_filter_triage}
                 GROUP BY p.name
             ),
             combined AS (
@@ -2517,7 +2580,6 @@ class CoverityMetrics:
                     sc.snapshot_count,
                     COALESCE(tc.dismissed_defects, 0) AS dismissed_defects,
                     COALESCE(tc.total_defects,    0) AS total_defects,
-                    -- Snapshot improvement: pct reduction first to last (NULL when <2 snapshots)
                     CASE
                         WHEN sc.snapshot_count >= 2 AND COALESCE(sc.first_defects, 0) > 0
                         THEN GREATEST(0.0,
@@ -2525,7 +2587,6 @@ class CoverityMetrics:
                                     / sc.first_defects * 100), 1))
                         ELSE NULL
                     END AS snap_pct,
-                    -- Triage improvement: fraction of all defects dismissed as FP/Intentional
                     CASE
                         WHEN COALESCE(tc.total_defects, 0) > 0
                         THEN ROUND((COALESCE(tc.dismissed_defects, 0)::numeric
@@ -2540,18 +2601,15 @@ class CoverityMetrics:
                 COALESCE(last_defects,  total_defects) AS current_defects,
                 COALESCE(first_defects, total_defects) AS previous_avg_defects,
                 snapshot_count,
-                -- Best available signal: snapshot reduction first, triage as fallback
                 CASE
                     WHEN snap_pct IS NOT NULL AND snap_pct > 0 THEN snap_pct
                     ELSE COALESCE(triage_pct, 0)
                 END AS improvement_percentage,
-                -- Defects "handled": either snapshot reduction or triage dismissals
                 CASE
                     WHEN snap_pct IS NOT NULL AND snap_pct > 0
                         THEN GREATEST(0, first_defects - last_defects)
                     ELSE dismissed_defects
                 END AS defects_reduced,
-                -- Which method was used (for display transparency)
                 CASE
                     WHEN snap_pct IS NOT NULL AND snap_pct > 0 THEN 'snapshot'
                     ELSE 'triage'
@@ -2560,8 +2618,10 @@ class CoverityMetrics:
             ORDER BY improvement_percentage DESC, defects_reduced DESC
             LIMIT %s
         """
-
-        results = self.db.execute_query_dict(query, (days, limit))
+        if self._project_names:
+            results = self.db.execute_query_dict(query, (days, self._project_names, self._project_names, limit))
+        else:
+            results = self.db.execute_query_dict(query, (days, limit))
         return pd.DataFrame(results)
     
     def get_top_projects_by_triage_activity(self, days=30, limit=10):
@@ -2576,7 +2636,8 @@ class CoverityMetrics:
         Returns:
             pandas.DataFrame: Projects ranked by triage completeness
         """
-        query = """
+        project_filter = "AND p.name = ANY(%s)" if self._project_names else ""
+        query = f"""
             WITH project_triage AS (
                 SELECT 
                     p.name as project_name,
@@ -2600,6 +2661,7 @@ class CoverityMetrics:
                 LEFT JOIN dynamic_enum de_act ON dt.current_action_id = de_act.id AND de_act.dtype = 'Act'
                 WHERE p.deleted = false
                     AND sd.fixed_snapshot_element_id IS NULL
+                    {project_filter}
                 GROUP BY p.name
                 HAVING COUNT(DISTINCT sd.id) > 0
             )
@@ -2615,8 +2677,10 @@ class CoverityMetrics:
             ORDER BY triage_percentage DESC, classified_defects DESC
             LIMIT %s
         """
-        
-        results = self.db.execute_query_dict(query, (limit,))
+        if self._project_names:
+            results = self.db.execute_query_dict(query, (self._project_names, limit))
+        else:
+            results = self.db.execute_query_dict(query, (limit,))
         return pd.DataFrame(results)
     
     def get_top_users_by_fixes(self, days=30, limit=10):
@@ -2645,7 +2709,7 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                     WHERE sd.fixed_snapshot_element_id IS NOT NULL
-                        AND p.name = %s
+                        AND p.name = ANY(%s)
                 ),
                 last_triagers AS (
                     -- For each fixed defect, find the last HUMAN user who triaged it
@@ -2683,7 +2747,7 @@ class CoverityMetrics:
                 ORDER BY defects_fixed DESC, active_days DESC
                 LIMIT %s
             """
-            results = self.db.execute_query_dict(query, (self.project_name, limit))
+            results = self.db.execute_query_dict(query, (self._project_names, limit))
         else:
             query = """
                 WITH fixed_defects AS (
@@ -2764,7 +2828,7 @@ class CoverityMetrics:
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
                     WHERE ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
-                        AND p.name = %s
+                        AND p.name = ANY(%s)
                     GROUP BY u.id, u.username, u.given_name, u.family_name
                     HAVING COUNT(DISTINCT ts.id) > 0
                 )
@@ -2781,7 +2845,7 @@ class CoverityMetrics:
                 ORDER BY defects_triaged DESC, triage_actions DESC
                 LIMIT %s
             """
-            results = self.db.execute_query_dict(query, (days, self.project_name, limit))
+            results = self.db.execute_query_dict(query, (days, self._project_names, limit))
         else:
             query = """
                 WITH user_triage_stats AS (
@@ -2847,7 +2911,7 @@ class CoverityMetrics:
                     WHERE ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
                         AND ts.cmnt IS NOT NULL 
                         AND ts.cmnt != ''
-                        AND p.name = %s
+                        AND p.name = ANY(%s)
                     GROUP BY u.id, u.username, u.given_name, u.family_name
                     HAVING COUNT(DISTINCT ts.id) FILTER (WHERE ts.cmnt IS NOT NULL AND ts.cmnt != '') > 0
                 )
@@ -2862,7 +2926,7 @@ class CoverityMetrics:
                 ORDER BY comments_added DESC, active_days DESC
                 LIMIT %s
             """
-            results = self.db.execute_query_dict(query, (days, self.project_name, limit))
+            results = self.db.execute_query_dict(query, (days, self._project_names, limit))
         else:
             query = """
                 WITH user_collaboration AS (
@@ -2953,7 +3017,7 @@ class CoverityMetrics:
             LEFT JOIN checker_properties cp ON sd.checker_properties_id = cp.id
             LEFT JOIN dynamic_enum de ON dt.current_severity_id = de.id
             LEFT JOIN dynamic_enum act ON dt.current_action_id = act.id
-            WHERE p.name = %s
+            WHERE p.name = ANY(%s)
                 AND cp.cwe IS NOT NULL
                 AND sd.fixed_snapshot_element_id IS NULL  -- Only outstanding defects
                 AND sd.merged_defect_id IS NOT NULL
@@ -2961,7 +3025,7 @@ class CoverityMetrics:
             ORDER BY cp.cwe, de.name
         """
         
-        results = self.db.execute_query_dict(query, (self.project_name,))
+        results = self.db.execute_query_dict(query, (self._project_names,))
         
         # Aggregate by OWASP category.
         # A CWE in multiple categories contributes to each of them, so that
@@ -3056,14 +3120,14 @@ class CoverityMetrics:
             LEFT JOIN stream_file sf ON sdo.stream_file_id = sf.id
             LEFT JOIN file_path fp ON sf.file_path_id = fp.id
             LEFT JOIN function func ON sdo.function_id = func.id
-            WHERE p.name = %s
+            WHERE p.name = ANY(%s)
                 AND cp.cwe IN ({cwe_placeholders})
                 AND sd.fixed_snapshot_element_id IS NULL
                 AND sd.merged_defect_id IS NOT NULL
             ORDER BY sd.merged_defect_id, cp.cwe, de.name DESC
         """
         
-        defect_results = self.db.execute_query_dict(defects_query, (self.project_name, *cwe_ids))
+        defect_results = self.db.execute_query_dict(defects_query, (self._project_names, *cwe_ids))
         
         # Process all defects and collect checker stats
         checker_breakdown = {}
@@ -3151,14 +3215,14 @@ class CoverityMetrics:
             JOIN defect_triage dt ON sd.defect_triage_id = dt.id
             LEFT JOIN checker_properties cp ON sd.checker_properties_id = cp.id
             LEFT JOIN dynamic_enum de ON dt.current_severity_id = de.id
-            WHERE p.name = %s
+            WHERE p.name = ANY(%s)
                 AND cp.cwe IS NOT NULL
                 AND sd.fixed_snapshot_element_id IS NULL  -- Only outstanding defects
             GROUP BY cp.cwe, de.name
             ORDER BY cp.cwe, de.name
         """
         
-        results = self.db.execute_query_dict(query, (self.project_name,))
+        results = self.db.execute_query_dict(query, (self._project_names,))
         
         # Update CWE data with actual defect counts
         for row in results:
@@ -3238,14 +3302,14 @@ class CoverityMetrics:
             LEFT JOIN stream_file sf ON sdo.stream_file_id = sf.id
             LEFT JOIN file_path fp ON sf.file_path_id = fp.id
             LEFT JOIN function func ON sdo.function_id = func.id
-            WHERE p.name = %s
+            WHERE p.name = ANY(%s)
                 AND cp.cwe = %s
                 AND sd.fixed_snapshot_element_id IS NULL
                 AND sd.merged_defect_id IS NOT NULL
             ORDER BY sd.merged_defect_id, de.name DESC
         """
         
-        defect_results = self.db.execute_query_dict(defects_query, (self.project_name, cwe_id))
+        defect_results = self.db.execute_query_dict(defects_query, (self._project_names, cwe_id))
         
         # Process all defects and collect checker stats
         checker_breakdown = {}

@@ -45,7 +45,7 @@
 
     <div class="container">
         <!-- Back to Aggregated View Button -->
-        {% if current_instance %}
+        {% if current_instance and has_aggregated_dashboard %}
         <div style="margin-bottom: 1.5rem;">
             <a href="../dashboard_aggregated.html" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1.25rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 6px; font-weight: 600; transition: all 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)';"
@@ -98,6 +98,7 @@
                         <span class="badge-label">Viewing:</span>
                         <span class="badge-value">{{ current_project }}</span>
                     </div>
+                    {% if has_instance_dashboard %}
                     <button id="clear-project-filter" class="clear-filter-btn" type="button" title="Show all projects" onclick="window.location.href='dashboard.html'">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -105,6 +106,7 @@
                         </svg>
                         Show All
                     </button>
+                    {% endif %}
                 </div>
                 {% endif %}
             </div>
@@ -1209,11 +1211,11 @@
                 </div>
                 <div class="summary-card">
                     <div class="label">Avg Files/Commit</div>
-                    <div class="value">{{ commit_stats.avg_files_per_commit|int }}</div>
+                    <div class="value">{{ commit_stats.avg_files_per_commit|default(0)|int }}</div>
                 </div>
                 <div class="summary-card">
                     <div class="label">Avg New Defects/Commit</div>
-                    <div class="value">{{ commit_stats.avg_new_defects_per_commit|int }}</div>
+                    <div class="value">{{ commit_stats.avg_new_defects_per_commit|default(0)|int }}</div>
                 </div>
             </div>
 
