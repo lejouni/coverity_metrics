@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added guard against negative uptimes with "Invalid (negative)" display for edge cases
   - Database uptime now calculates correctly regardless of database timezone or system local timezone
 
+### Documentation
+- **Multi-Project `--project` Parameter**: Documented that `--project` accepts comma-separated values for filtering multiple projects simultaneously (e.g. `--project "AppA,AppB,AppC"`); updated README parameter table, CLI examples, and USAGE_GUIDE
+
 ## [1.0.14] - 2026-03-19
 
 ### Added

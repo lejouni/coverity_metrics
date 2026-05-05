@@ -4,7 +4,14 @@
 
 ### Version 1.0.15 - 2026-05-05
 
-**Bug Fix Release**
+**Bug Fix & Documentation Release**
+
+#### Documentation Fixes
+
+##### 📋 Multi-Project `--project` Parameter Now Documented
+- **Issue**: Documentation described `--project` as accepting only a single project name, even though the CLI has always supported comma-separated multiple projects
+- **Clarification**: Pass multiple projects as a comma-separated string — e.g. `--project "AppA,AppB,AppC"` — to generate individual per-project dashboards for each, plus an aggregated instance dashboard. Works in both database mode and ZIP file mode.
+- **Updated**: README parameter table, database/ZIP mode examples, auto-detection behavior notes, and USAGE_GUIDE quick-start section
 
 #### Bug Fixes
 
