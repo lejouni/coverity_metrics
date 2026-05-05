@@ -30,6 +30,9 @@ The dashboard will be saved to `output/dashboard.html` and can optionally open i
 # View metrics for a specific project only
 coverity-dashboard --project "feature"
 
+# View metrics for multiple projects (comma-separated)
+coverity-dashboard --project "feature,sampleapp-feature"
+
 # Generate with custom output location
 coverity-dashboard --output reports/my_dashboard.html
 
@@ -37,7 +40,7 @@ coverity-dashboard --output reports/my_dashboard.html
 coverity-dashboard --no-browser
 ```
 
-Without `--project` filter, the tool automatically generates dashboards for all projects.
+When multiple projects are specified, individual per-project dashboards are generated for each, plus an aggregated instance dashboard. Without `--project` filter, the tool automatically generates dashboards for all projects.
 
 ### 3. Export Metrics to CSV
 ```bash

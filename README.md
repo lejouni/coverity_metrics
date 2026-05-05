@@ -364,6 +364,9 @@ coverity-dashboard
 # Filter by specific project across all instances
 coverity-dashboard --project "MyProject"
 
+# Filter by multiple projects (comma-separated)
+coverity-dashboard --project "AppA,AppB,AppC"
+
 # Generate for specific instance only
 coverity-dashboard --instance Production
 
@@ -386,8 +389,9 @@ coverity-dashboard --config my-config.json
 # Generate from exported ZIP file (no database required!)
 coverity-dashboard --zip-file exports/coverity_export_Production_20260224_120000.zip
 
-# ZIP mode with project filter
+# ZIP mode with project filter (single or multiple)
 coverity-dashboard --zip-file exports/coverity_export_Production_20260224_120000.zip --project MyProject
+coverity-dashboard --zip-file exports/coverity_export_Production_20260224_120000.zip --project "AppA,AppB"
 
 # ZIP mode with instance filter (single ZIP only)
 coverity-dashboard --zip-file exports/coverity_export_Prod_Dev_20260224_120000.zip --instance Production
@@ -410,7 +414,7 @@ coverity-dashboard --zip-file exports/*.zip --no-browser
 - **config.json is required** with at least one enabled instance configured
 - If `config.json` has **2+ enabled instances**: Multi-instance mode (generates aggregated + per-instance + per-project dashboards)
 - If `config.json` has **1 enabled instance**: Single-instance mode (generates dashboard for that instance)
-- Use `--project` to filter by specific project only
+- Use `--project` to filter by one or more projects (comma-separated: `--project "AppA,AppB"`)
 - Use `--instance` to generate for specific instance only (multi-instance mode)
 - Use `--single-instance-mode` to force single-instance behavior even with multiple instances
 
@@ -419,7 +423,7 @@ coverity-dashboard --zip-file exports/*.zip --no-browser
 - No `config.json` needed
 - Auto-selects first instance in ZIP if not specified
 - Use `--instance` to select specific instance from ZIP
-- Use `--project` to filter by project (same as database mode)
+- Use `--project` to filter by one or more projects, comma-separated (same as database mode)
 
 ### CLI Parameters Reference
 
@@ -427,7 +431,7 @@ coverity-dashboard --zip-file exports/*.zip --no-browser
 
 | Parameter | Short | Type | Default | Description |
 |-----------|-------|------|---------|-------------|
-| `--project` | `-p` | string | None | Filter metrics by specific project name |
+| `--project` | `-p` | string | None | Filter metrics by project name(s). Use comma-separated values for multiple projects (e.g. `AppA,AppB,AppC`). Multiple projects generate per-project dashboards plus an aggregated instance dashboard |
 | `--output` | `-o` | string | `output` | Output folder path for dashboard files |
 | `--no-browser` | - | flag | False | Do not open dashboard in browser automatically |
 | `--zip-file` | `-z` | string(s) | None | **NEW!** Use exported ZIP file(s) as data source instead of database. Supports multiple files for multi-instance aggregation |
