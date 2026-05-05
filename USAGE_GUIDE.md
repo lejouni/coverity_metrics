@@ -106,6 +106,26 @@ for project in ["feature", "sampleapp-feature", "Damm-Vulnerable-dotNet-Applicat
 - Generate project-specific reports
 - Track individual project trends over time
 
+### Retrieving All Results with `fetch_all`
+
+By default, methods with a `limit` parameter return only the top N results. Pass `fetch_all=True` to get the complete result set:
+
+```python
+from metrics import CoverityMetrics
+
+metrics = CoverityMetrics()
+
+# Default: returns top 10 file hotspots
+hotspots_top10 = metrics.get_file_hotspots(limit=10)
+
+# fetch_all=True: returns every hotspot
+all_hotspots = metrics.get_file_hotspots(fetch_all=True)
+
+# Works with any method that accepts a limit parameter
+all_checkers = metrics.get_defects_by_checker_name(fetch_all=True)
+all_owners   = metrics.get_defects_by_owner(fetch_all=True)
+```
+
 ### For Executive/Management Reports
 ```python
 from metrics import CoverityMetrics

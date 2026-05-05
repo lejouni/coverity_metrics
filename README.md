@@ -39,9 +39,13 @@ coverity-dashboard
 ## Features
 
 
-**🆕 Latest Bug Fixes (Unreleased):**
+**🆕 Latest Bug Fixes (v1.0.15, 2026-05-05):**
 - **📊 Project-Level ZIP Dashboard Fix**: Fixed "Top Analysis Versions Used" and 7 other metrics showing instance-wide data instead of project-specific data on project-level dashboards generated from ZIP exports — project reports now correctly display project-scoped analysis versions, snapshot performance, commit statistics, and trends
 - **⏰ Database Uptime Fix**: Fixed negative database uptime display (e.g., "-1d 23h 24m") caused by timezone conversion issues — uptime now calculates correctly using UTC timestamps regardless of database or system timezone settings
+
+**Recent Enhancements (v1.0.14, 2026-03-19):**
+- **🔢 `fetch_all` Parameter**: Added `fetch_all=True` parameter to metrics methods — pass it to any method with a `limit` parameter to retrieve the complete result set instead of just the top N results
+- **📋 CLI Parameter Documentation**: Added comprehensive CLI parameter reference tables for all tools (`coverity-dashboard`, `coverity-metrics`, `coverity-export`) to README
 
 **Recent Enhancements (v1.0.13, 2026-03-13):**
 - **🗑️ Removed "Most Improved" Leaderboard**: The "Most Improved" card has been removed from the Team Leaderboards section — improvement percentage was unreliable for instances with sparse snapshot data (projects with only one snapshot had no meaningful baseline), and the metric did not add actionable value

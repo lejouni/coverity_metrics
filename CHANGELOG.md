@@ -5,19 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.14] - 2026-03-19
-
-### Added
-- Added `fetch_all` parameter to metrics methods for retrieving all data instead of just top N results
-- Enhanced CLI parameter documentation in README
-
-### Changed
-- Updated Python library usage examples in README
-
-### Fixed
-- Bug fixes and improvements
-
-## [Unreleased]
+## [1.0.15] - 2026-05-05
 
 ### Fixed
 - **Project-Level Metrics in ZIP Dashboards**
@@ -31,6 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added timezone-aware conversion using `.astimezone(timezone.utc)` to handle timezone offsets correctly
   - Added guard against negative uptimes with "Invalid (negative)" display for edge cases
   - Database uptime now calculates correctly regardless of database timezone or system local timezone
+
+## [1.0.14] - 2026-03-19
+
+### Added
+- Added `fetch_all` parameter to metrics methods for retrieving all data instead of just top N results
+- Enhanced CLI parameter documentation in README
+
+### Changed
+- Updated Python library usage examples in README
+
+### Fixed
+- Bug fixes and improvements
 
 ## [1.0.13] - 2026-03-13
 

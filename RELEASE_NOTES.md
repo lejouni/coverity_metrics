@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.0.14 - 2026-03-19
+### Version 1.0.15 - 2026-05-05
 
 **Bug Fix Release**
 
@@ -11,7 +11,7 @@
 ##### 📊 Fixed Project-Level Metrics in ZIP Dashboards
 - **Issue**: Project-level dashboards generated from ZIP exports showed instance-wide aggregate data instead of project-specific data for "Top Analysis Versions Used" and 7 other metrics
 - **Example**: A project dashboard would show all analysis versions used across the entire instance rather than just the versions used for that specific project
-- **Root Cause**: 
+- **Root Cause**:
   - 8 methods in `ZipDataLoader` were hardcoded to always read from instance-level files (`self._get_metric_file()`) instead of checking for project-specific files first
   - Project-level metrics were not being exported to ZIP files in the first place
 - **Fix**:
@@ -30,17 +30,31 @@
 
 ---
 
-### Version 1.0.13 - 2026-03-13
+### Version 1.0.14 - 2026-03-19
 
-**Release Update**
+**Parameter Enhancement & Documentation**
 
-#### Features
-- Added `fetch_all` parameter to metrics methods for complete data retrieval
-- Enhanced documentation with CLI parameter reference tables
+#### Added
+- **`fetch_all` Parameter**: Added `fetch_all` parameter to metrics methods — pass `fetch_all=True` to any method with a `limit` parameter to retrieve the complete result set instead of just the top N results
 
 #### Improvements
-- Updated README with comprehensive parameter documentation
-- Improved Python library usage examples
+- **CLI Parameter Documentation**: Enhanced CLI parameter documentation in README with comprehensive reference tables for all tools (`coverity-dashboard`, `coverity-metrics`, `coverity-export`)
+- **Python Library Examples**: Updated Python library usage examples in README to reflect current API and features
+
+---
+
+### Version 1.0.13 - 2026-03-13
+
+**Leaderboard Cleanup**
+
+#### Changes
+
+##### 🗑️ Removed "Most Improved" Leaderboard Card
+- **Change**: The "Most Improved" leaderboard card has been removed from the Team Leaderboards section
+- **Reason**: Improvement percentage was unreliable for sparse snapshot data — projects with only one snapshot had no meaningful baseline to compare against, making the metric misleading
+- **Impact**: Removed `get_most_improved_projects` from all dashboard generation paths (`dashboard.py`) and from the ZIP export config (`export.py`); the "Improvement" entry has also been removed from the Leaderboard Metrics Explained legend
+
+---
 
 ### Version 1.0.12 - 2026-03-05
 
