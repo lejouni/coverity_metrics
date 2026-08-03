@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.17] - 2026-08-03
+
+### Added
+- **Scan Activity Over Time Chart**
+  - New Trends & Progress section on every project and instance dashboard showing snapshot/commit counts bucketed over time (daily for per-project, weekly for instance-wide)
+  - Secondary y-axis overlays unique committers per bucket so the chart tells both "how often" and "who"
+  - Aggregated multi-instance dashboard adds a per-instance overlay chart — one colored line per instance — for cross-instance cadence comparison
+  - Backed by new `CoverityMetrics.get_scan_activity_trend(days, granularity)` and `MultiInstanceMetrics.get_aggregated_scan_activity(days, granularity)`
+  - ZIP exports now include `scan_activity_trend.json` at both project and instance levels; `ZipDataLoader` exposes `get_scan_activity_trend()` and returns an empty DataFrame gracefully when reading pre-1.0.17 ZIPs
+
+- **Parallel Per-Project Export & Dashboard Generation**
+  - New `--workers N` (`-w`) flag on both `coverity-export` and `coverity-dashboard` — default 1, clamped to 1–8
+  - In database mode each worker gets its own `CoverityMetrics` instance (and therefore its own Postgres connection); psycopg2 connections aren't thread-safe, so no sharing
+  - In ZIP mode each worker gets its own `ZipDataLoader` (ZipFile handles aren't thread-safe)
+  - Auto-mode dashboard generation and per-instance export loops both parallelized with `concurrent.futures.ThreadPoolExecutor`
+  - Typical wins: 4–6× at `--workers 4` for the database export path, ~2–3× for the ZIP dashboard path
+  - Per-project exceptions are logged and the loop continues, matching current behaviour
+
+- **Execution Time Reporting**
+  - Both `coverity-export` and `coverity-dashboard` print `Total execution time: …` at the end (via a `finally` block, so it fires even on failure)
+  - Export additionally prints per-instance timing, e.g. `Time: 4m 12.3s for 645 projects (~0.39s/project)`
+  - Human-readable format: `8.7s`, `2m 5.3s`, or `1h 15m 23s`
+
+- **`--version` Flag on `coverity-dashboard`**
+  - Prints `coverity-dashboard version: X.Y.Z` and exits. Brings the dashboard CLI in line with `coverity-export` and `coverity-metrics`, which already supported `--version`. Handler short-circuits before the timing wrapper so no execution-time line is printed.
+
+### Changed
+- **Instance-scoped `CoverityMetrics` reuse across projects**
+  - Both the export CLI and the dashboard CLI now build one `CoverityMetrics` per instance and rescope via the `.project_name` property between projects
+  - Eliminates ~N-1 redundant Postgres connect + auth handshakes per instance (previously one per project)
+  - Redundant `get_available_projects()` call at the top of the per-instance export loop removed
+- **Jinja `Environment` and inline CSS cached at module scope**
+  - `Environment(loader=FileSystemLoader(...))`, template loading, and the inline CSS payload are now built once per process and reused across every project dashboard render, instead of re-created hundreds of times
+- **"Scan Activity Over Time" empty-state message**
+  - When there are no snapshots in the analysed window, project and instance dashboards now show an inline info alert ("No scan activity in the last N days") instead of silently hiding the section — makes it clear the metric ran and returned nothing, versus the section being disabled
+- **Single-source-of-truth for the package version**
+  - `pyproject.toml` now uses `dynamic = ["version"]` + `[tool.setuptools.dynamic] version = {attr = "coverity_metrics.__version__.__version__"}` — the wheel metadata is stamped from `__version__.py` at build time, so future releases only need to bump one file
+
+### Fixed
+- **Graceful DB errors**
+  - `CoverityDatabase.execute_query()` and `execute_query_dict()` now wrap the query with `try/except`, log a warning via the module logger, roll the connection back, and return `[]` on any error. Callers receive an empty DataFrame instead of a traceback; the process no longer aborts if a single query fails
+- **Division-by-zero in leaderboard queries**
+  - `avg_fixes_per_day` in `get_top_projects_by_fix_rate` wrapped in `NULLIF(EXTRACT(EPOCH FROM ...), 0)` so projects with a single snapshot or same-timestamp snapshots return `NULL` instead of raising `division by zero`
+  - Audited every other SQL division in `metrics.py` and `multi_instance_metrics.py` — all remaining sites are either dividing by a constant, guarded by `CASE WHEN ... > 0`, wrapped in `NULLIF`, or guarded by a Python `if x > 0` check
+- **Jinja `|round()` on `None` values**
+  - Every leaderboard cell that reads from a `NULLIF`-guarded SQL column (`avg_fixes_per_day`, `avg_triage_per_day`, `avg_comments_per_day`, `triage_percentage`) now uses `{{ field|round(2) if field is not none else 'N/A' }}` — fixes crashes when a NULLIF returns `NULL` and the template tries to round it
+  - Aggregated dashboard's per-instance `triage_completion` fixed at the source (`multi_instance_metrics.py`) — `dict.get(k, 0)` returns `None` when the key exists with value `None`, so callers now use `.get(k) or 0` to convert `None`/missing to `0`
+- **`AttributeError: 'ZipDataLoader' object has no attribute 'get_scan_activity_trend'`** when opening a dashboard from a pre-1.0.17 ZIP export — `ZipDataLoader` gained the method and returns an empty DataFrame if the metric isn't in the ZIP
+
+- **Ctrl+C responsiveness during parallel runs**
+  - `ThreadPoolExecutor`'s implicit `shutdown(wait=True)` at the `with` block exit was blocking Ctrl+C until every in-flight worker finished — on a 645-project run that made the CLI look frozen for minutes
+  - All three parallel sites (export, dashboard DB-mode, dashboard ZIP-mode) now build the executor explicitly, catch `KeyboardInterrupt` around the `as_completed` loop, cancel every pending future, call `executor.shutdown(wait=False, cancel_futures=True)`, and re-raise
+  - Both `coverity-export` and `coverity-dashboard` catch `KeyboardInterrupt` at the top level and exit cleanly with code 130 (`[INTERRUPTED] Aborted by user.`)
+  - Effect: first Ctrl+C now drops all queued tasks immediately; only currently-executing DB queries or renders need to finish (typically seconds). A second Ctrl+C hard-kills the process.
+
 ## [1.0.16] - 2026-05-05
 
 ### Added

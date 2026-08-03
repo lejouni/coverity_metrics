@@ -2,6 +2,81 @@
 
 ## Version History
 
+### Version 1.0.17 - 2026-08-03
+
+**Scan Activity Chart, Parallel Generation & Reliability Fixes**
+
+#### New Features
+
+##### 📊 Scan / Commit Activity Over Time
+- New Trends & Progress section on every project and instance dashboard shows snapshot (scan/commit) counts bucketed over time
+- Daily buckets for per-project dashboards, weekly buckets for instance-wide and aggregated views
+- Secondary y-axis overlays unique committers per bucket so the same chart shows both cadence and team engagement
+- Aggregated multi-instance dashboard adds one overlaid line per instance for cross-instance comparison
+- Backed by `CoverityMetrics.get_scan_activity_trend(days, granularity)` and `MultiInstanceMetrics.get_aggregated_scan_activity(days, granularity)`
+- ZIP exports now capture `scan_activity_trend.json` at both project and instance levels; pre-1.0.17 ZIPs render the section as hidden (no crash)
+
+##### ⚡ Parallel Per-Project Generation (`--workers`)
+- New `--workers N` (`-w`) flag on both `coverity-export` and `coverity-dashboard` — default 1, clamped 1–8
+- In database mode each worker owns its own `CoverityMetrics` (and Postgres connection); psycopg2 connections aren't thread-safe
+- In ZIP mode each worker owns its own `ZipDataLoader` (ZipFile handles aren't thread-safe)
+- Typical speed-ups measured on a 645-project instance:
+  - Database export: **4–6× at `--workers 4`**, up to 8× at `--workers 8`
+  - ZIP-based dashboards: **~2–3× at `--workers 4`** (CPU-bound rendering shares the GIL less well)
+- Per-project errors are logged and the loop continues, matching current behaviour
+- Recommendation: start with `--workers 4`; bump to 8 only if the Postgres server has headroom (each worker = one sustained connection)
+
+##### ⏱ Execution Time Reporting
+- Both CLIs print `Total execution time: 8.7s` / `1m 23.4s` / `2h 5m 12s` at the end (via a `finally` block, so failures still get timed)
+- Export additionally prints per-instance breakdown, e.g. `Time: 4m 12.3s for 645 projects (~0.39s/project)` — makes measuring the `--workers` speedup trivial without external timing
+
+##### 🏷 `--version` on Every CLI
+- `coverity-dashboard` now supports `--version`, matching `coverity-export` and `coverity-metrics`. Prints `coverity-dashboard version: X.Y.Z` and exits. Also documented in the parameter tables in the README
+
+#### Performance Improvements
+
+- **One Postgres connection per instance, not per project**
+  - Export and dashboard CLIs now build a single `CoverityMetrics` and rescope via the `.project_name` property between projects
+  - Eliminates one connect+auth handshake per project (previously ~645 handshakes on a large deployment)
+- **Jinja `Environment` and inline CSS cached at module scope**
+  - Template files and the inline CSS payload are read + compiled once per process and reused across every dashboard render, instead of re-parsed hundreds of times
+
+#### Bug Fixes
+
+##### 🛡 Graceful DB Errors
+- `CoverityDatabase.execute_query()` / `execute_query_dict()` now wrap queries in `try/except`, log a warning, roll the connection back, and return `[]` on failure
+- Callers get an empty DataFrame instead of a traceback — a single query failure no longer aborts the whole export or dashboard run
+
+##### ➗ Division-by-Zero in Leaderboard Queries
+- `avg_fixes_per_day` in `get_top_projects_by_fix_rate` no longer crashes when a project has only a single snapshot (or all snapshots share a timestamp) — the denominator `EXTRACT(EPOCH FROM (last - first))` is now wrapped in `NULLIF(..., 0)`, returning `NULL` instead of raising
+- Audited every SQL division across `metrics.py` and `multi_instance_metrics.py` — every remaining site is either a constant denominator, guarded by `CASE WHEN ... > 0`, wrapped in `NULLIF`, or gated by a Python `if x > 0` check
+
+##### 🧩 Template `|round()` on `None` Values
+- Every leaderboard cell that reads from a `NULLIF`-guarded column (`avg_fixes_per_day`, `avg_triage_per_day`, `avg_comments_per_day`, `triage_percentage`) now uses `{{ field|round(2) if field is not none else 'N/A' }}` — fixes crashes when a NULL value was piped through `|round(...)` in Jinja
+- Aggregated dashboard's per-instance `triage_completion` fixed at the source: `dict.get(k, 0)` returns `None` when the key is present with value `None`, so it's now `.get(k) or 0`
+
+##### 📦 `AttributeError` Opening Pre-1.0.17 ZIPs
+- `ZipDataLoader` gained `get_scan_activity_trend()` — returns an empty DataFrame when the ZIP predates this metric, so old exports render cleanly and the new section is just hidden until you re-export
+
+##### 🛑 Ctrl+C During Parallel Runs
+- Previously Ctrl+C on a `coverity-export --workers N` or `coverity-dashboard --workers N` run appeared to hang for minutes because `ThreadPoolExecutor`'s `with` block waited for every in-flight worker to finish
+- All three parallel loops (export, dashboard DB-mode, dashboard ZIP-mode) now catch `KeyboardInterrupt`, cancel every queued future, and call `executor.shutdown(wait=False, cancel_futures=True)` before re-raising
+- Both CLIs catch the interrupt at the top level, print `[INTERRUPTED] Aborted by user.`, and exit with code 130. First Ctrl+C drops queued tasks; second Ctrl+C hard-kills.
+
+#### Developer Experience
+
+##### 🎯 Empty-state Message on the Scan Activity Chart
+- If a project or instance has no snapshots in the analysed `--days` window, the "Scan Activity Over Time" section now stays visible and shows an inline info alert:
+  > ℹ️ No scan activity in the last N days. Re-export with a longer `--days` window if you expect older snapshots to be included.
+- Same treatment on the aggregated multi-instance dashboard. Makes it obvious the metric ran and returned nothing, versus the section being disabled.
+
+##### 🔖 Single-Source-of-Truth Package Version
+- `pyproject.toml` now uses `dynamic = ["version"]` with `[tool.setuptools.dynamic] version = {attr = "coverity_metrics.__version__.__version__"}`
+- Both the pip metadata (`pip show coverity-metrics`) and the runtime `--version` output now read from the same file: `coverity_metrics/__version__.py`
+- Future releases: bump one file, not two. No more "installed 1.0.16 when 1.0.17 was expected" surprises.
+
+---
+
 ### Version 1.0.16 - 2026-05-05
 
 **Module Support & Documentation Release**

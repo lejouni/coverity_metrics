@@ -42,7 +42,19 @@ python -m coverity_metrics dashboard
 ## Features
 
 
-**🆕 Latest Enhancements (v1.0.16, 2026-05-05):**
+**🆕 Latest Enhancements (v1.0.17, 2026-08-03):**
+- **📊 Scan / Commit Activity Chart**: New Trends & Progress section on every project and instance dashboard shows snapshot counts over time (daily per-project, weekly instance-wide) with unique-committers overlay. Aggregated multi-instance dashboards get one line per instance for cadence comparison
+- **⚡ Parallel Generation (`--workers N`)**: Both `coverity-export` and `coverity-dashboard` now accept `--workers N` (default 1, max 8) to parallelize per-project generation. 4–6× speed-up on large database exports at `--workers 4`; ~2–3× on ZIP-based dashboards. Each worker owns its own Postgres connection / ZipDataLoader
+- **⏱ Execution Time Reporting**: Both CLIs print `Total execution time: 8.7s / 1m 23.4s / 2h 5m 12s` at the end, plus per-instance timing for the export command
+- **🏷 `--version` on Every CLI**: `coverity-dashboard`, `coverity-export`, and `coverity-metrics` all support `--version` for quick version checks
+- **🚀 Fewer Postgres Connections**: One `CoverityMetrics` per instance instead of one per project — rescopes via `.project_name` property to eliminate hundreds of connect/auth handshakes
+- **🛡 Graceful DB Errors**: `execute_query` / `execute_query_dict` now log and return `[]` on failure, so a single bad query no longer aborts an entire export or dashboard run
+- **➗ Division-by-Zero Fix**: `avg_fixes_per_day` (and every audited SQL division) is now safe against single-snapshot projects; template cells guard `|round(...)` against `None`
+- **📦 Backward-Compatible ZIPs**: `ZipDataLoader.get_scan_activity_trend()` returns an empty DataFrame for pre-1.0.17 ZIPs, so old exports still render (just without the new chart until re-exported)
+- **🛑 Ctrl+C Responsiveness**: `--workers` runs now abort cleanly on first Ctrl+C — pending tasks are cancelled, in-flight ones finish, and the process exits with code 130. Previously the `ThreadPoolExecutor` context manager blocked shutdown until every worker finished.
+- **🔖 Single-Source Version**: `pyproject.toml` now derives its version dynamically from `coverity_metrics/__version__.py` — future releases only need to bump one file, no more mismatched wheel metadata.
+
+**Recent Enhancements (v1.0.16, 2026-05-05):**
 - **🐍 Python Module Support**: The package can now be run as a Python module — `python -m coverity_metrics dashboard`, `python -m coverity_metrics export`, `python -m coverity_metrics report` — all arguments pass through identically to the CLI entry points
 
 **Recent Enhancements (v1.0.15, 2026-05-05):**
@@ -441,7 +453,8 @@ coverity-dashboard --zip-file exports/*.zip --no-browser
 | `--project` | `-p` | string | None | Filter metrics by project name(s). Use comma-separated values for multiple projects (e.g. `AppA,AppB,AppC`). Multiple projects generate per-project dashboards plus an aggregated instance dashboard |
 | `--output` | `-o` | string | `output` | Output folder path for dashboard files |
 | `--no-browser` | - | flag | False | Do not open dashboard in browser automatically |
-| `--zip-file` | `-z` | string(s) | None | **NEW!** Use exported ZIP file(s) as data source instead of database. Supports multiple files for multi-instance aggregation |
+| `--workers` | `-w` | integer | `1` | **NEW!** Number of parallel workers for per-project dashboard generation. Clamped to 1–8. In database mode each worker uses its own Postgres connection; in ZIP mode each worker uses its own `ZipDataLoader` |
+| `--zip-file` | `-z` | string(s) | None | Use exported ZIP file(s) as data source instead of database. Supports multiple files for multi-instance aggregation |
 | `--config` | `-c` | string | `config.json` | Path to configuration file (not needed for ZIP mode) |
 | `--instance` | `-i` | string | None | Generate dashboard for specific instance only |
 | `--single-instance-mode` | - | flag | False | Force single-instance mode even with multiple instances in config |
@@ -454,6 +467,7 @@ coverity-dashboard --zip-file exports/*.zip --no-browser
 | `--days` | `-d` | integer | `365` | Number of days for trend analysis |
 | `--track-progress` | - | flag | False | Enable progress tracking for large operations |
 | `--resume` | - | string | None | Resume from interrupted session (provide session ID) |
+| `--version` | - | flag | False | Print version and exit |
 
 **Examples:**
 ```bash
@@ -466,6 +480,10 @@ coverity-dashboard --project "MyApp" --days 180
 # Generate without browser, custom output
 coverity-dashboard --no-browser --output reports/weekly
 
+# Parallelize per-project dashboard generation (NEW in 1.0.17)
+coverity-dashboard --workers 4                          # 4 workers, database mode
+coverity-dashboard --workers 4 --zip-file export.zip    # 4 workers, ZIP mode
+
 # Clear cache and regenerate
 coverity-dashboard --clear-cache --no-cache
 
@@ -475,10 +493,14 @@ coverity-dashboard --cache-stats
 
 #### coverity-metrics Parameters
 
-**No command-line parameters available.** This tool runs with default settings and outputs to the terminal.
+| Parameter | Short | Type | Default | Description |
+|-----------|-------|------|---------|-------------|
+| `--zip-file` | `-z` | string(s) | None | Read metrics from exported ZIP file(s) instead of database |
+| `--config` | `-c` | string | `config.json` | Path to configuration file (default: `config.json`) |
+| `--version` | - | flag | False | Print version and exit |
 
 The tool:
-- Automatically uses the first enabled instance from `config.json`
+- Automatically uses the first enabled instance from `config.json` when no `--zip-file` is given
 - Prints formatted tables directly to stdout
 - Can be redirected to files: `coverity-metrics > report.txt`
 
@@ -491,6 +513,9 @@ The tool:
 | `--output` | `-o` | string | `exports` | Output directory for ZIP files |
 | `--days` | `-d` | integer | `365` | Number of days for trend analysis |
 | `--config` | `-c` | string | `config.json` | Path to configuration file |
+| `--project` | `-p` | string | None | Comma-separated list of project names to export (default: all projects) |
+| `--workers` | `-w` | integer | `1` | **NEW!** Number of parallel workers for per-project export. Clamped to 1–8. Each worker uses its own Postgres connection. Recommended: `--workers 4` for large deployments (645+ projects) |
+| `--version` | - | flag | False | Print version and exit |
 
 The tool:
 - **Creates a separate ZIP file for each enabled instance** from `config.json`
@@ -515,6 +540,11 @@ coverity-export --output archive --days 90
 
 # Use custom config file
 coverity-export --config my-config.json --days 180
+
+# Parallelize per-project export for large deployments (NEW in 1.0.17)
+coverity-export --workers 4
+# 4 workers → ~4× faster on 645-project instances vs. sequential.
+# Each worker keeps its own Postgres connection; cap is 8.
 ```
 
 ---
@@ -540,7 +570,7 @@ coverity-metrics > "report-$(date +%Y%m%d).txt"
 - SSH sessions without GUI
 - Piping to log files or other tools
 
-**Note:** This tool has no command-line parameters. To filter by project or instance, modify `config.json` before running.
+**Note:** Supports `--zip-file`, `--config`, and `--version`. To filter by project or instance, modify `config.json` before running.
 
 #### 3. Export to ZIP (NEW!)
 

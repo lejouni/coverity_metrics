@@ -338,7 +338,15 @@ class ZipDataLoader:
     def get_defect_velocity_trend(self, days=90):
         """Get defect velocity trend"""
         return self._read_metric_json('defect_velocity_trend', as_dataframe=True)
-    
+
+    def get_scan_activity_trend(self, days=90, granularity='day'):
+        """Get scan / commit activity trend.
+
+        Returns an empty DataFrame if the metric was not present in the
+        exported ZIP (i.e. the export predates this metric being added).
+        """
+        return self._read_metric_json('scan_activity_trend', as_dataframe=True)
+
     def get_cumulative_defect_trend(self, days=90):
         """Get cumulative defect trend"""
         return self._read_metric_json('cumulative_defect_trend', as_dataframe=True)

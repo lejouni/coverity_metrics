@@ -9,6 +9,7 @@ import sys
 import argparse
 import logging
 import json
+import time
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader
 from coverity_metrics.metrics import CoverityMetrics
@@ -16,6 +17,21 @@ from coverity_metrics.zip_data_loader import ZipDataLoader
 import webbrowser
 from tqdm import tqdm
 from coverity_metrics.metrics_cache import MetricsCache, ProgressTracker, collect_metrics_with_cache
+
+
+def _format_duration(seconds):
+    """Format a duration in seconds into a compact human-readable string.
+
+    Examples: '8.7s', '1m 23.4s', '2h 5m 12s'.
+    """
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    if seconds < 3600:
+        minutes, secs = divmod(seconds, 60)
+        return f"{int(minutes)}m {secs:.1f}s"
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{int(hours)}h {int(minutes)}m {int(secs)}s"
 
 # Configure logging
 logging.basicConfig(
@@ -60,21 +76,50 @@ def assign_instance_colors(instance_names):
 def load_inline_css():
     """
     Load CSS content from static directory to embed inline in HTML
-    
+
+    Cached at module level after first call — the CSS is static across the
+    whole run, so we don't want to re-read + re-parse it for every project
+    dashboard (there can be hundreds).
+
     Returns:
         str: CSS content to embed in HTML style tags
     """
+    global _CACHED_INLINE_CSS
+    if _CACHED_INLINE_CSS is not None:
+        return _CACHED_INLINE_CSS
+
     # Get the package directory (where this file is located)
     package_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     css_path = os.path.join(package_dir, 'static', 'css', 'dashboard.css')
-    
+
     # Load CSS file content
     if os.path.exists(css_path):
         with open(css_path, 'r', encoding='utf-8') as f:
-            return f.read()
+            _CACHED_INLINE_CSS = f.read()
     else:
         tqdm.write(f"  [WARNING] CSS file not found at {css_path}")
-        return "/* CSS file not found */"
+        _CACHED_INLINE_CSS = "/* CSS file not found */"
+    return _CACHED_INLINE_CSS
+
+
+# Module-level caches populated on first use so we don't re-read the CSS
+# file or re-parse the Jinja templates for every per-project dashboard.
+_CACHED_INLINE_CSS = None
+_CACHED_JINJA_ENV = None
+_CACHED_TEMPLATES = {}
+
+
+def _get_template(template_name):
+    """Return a compiled Jinja2 template, initialising the shared Environment
+    on first use. Both the environment and each template are cached at module
+    scope; Jinja2 templates are thread-safe for ``render()`` after loading."""
+    global _CACHED_JINJA_ENV
+    if _CACHED_JINJA_ENV is None:
+        template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
+        _CACHED_JINJA_ENV = Environment(loader=FileSystemLoader(template_dir))
+    if template_name not in _CACHED_TEMPLATES:
+        _CACHED_TEMPLATES[template_name] = _CACHED_JINJA_ENV.get_template(template_name)
+    return _CACHED_TEMPLATES[template_name]
 
 
 def detect_multi_instance_config(config_file='config.json'):
@@ -182,6 +227,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             cwe_top25_metrics = metrics_data.get('cwe_top25_metrics', [])
             cwe_top25_details = metrics_data.get('cwe_top25_details', {})
             tech_debt_summary = metrics_data.get('tech_debt_summary', {})
+            scan_activity_trend = metrics_data.get('scan_activity_trend', [])
         else:
             # Collect from database and cache
             metrics_data = _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days)
@@ -225,6 +271,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             cwe_top25_metrics = metrics_data.get('cwe_top25_metrics', [])
             cwe_top25_details = metrics_data.get('cwe_top25_details', {})
             tech_debt_summary = metrics_data.get('tech_debt_summary', {})
+            scan_activity_trend = metrics_data.get('scan_activity_trend', [])
     else:
         # Collect without caching
         all_projects = metrics.get_available_projects()
@@ -271,7 +318,10 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         defect_velocity = metrics.get_defect_velocity_trend(days=days).to_dict('records')
         cumulative_trends = metrics.get_cumulative_defect_trend(days=days).to_dict('records')
         trend_summary = metrics.get_defect_trend_summary(days=days)
-        
+
+        # Collect scan/commit activity trend (snapshots over time)
+        scan_activity_trend = metrics.get_scan_activity_trend(days=days, granularity=granularity).to_dict('records')
+
         # Collect technical debt summary
         tech_debt_summary = metrics.get_technical_debt_summary()
         
@@ -321,16 +371,12 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
     # Check for high severity alert
     high_severity_alert = summary.get('high_severity_defects', 0) > 0
     
-    # Load CSS content for inline embedding
+    # Load CSS content for inline embedding (module-cached)
     inline_css = load_inline_css()
-    
-    # Set up Jinja2 environment (templates are in parent package directory)
-    template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
-    env = Environment(loader=FileSystemLoader(template_dir))
-    
-    # Load template
-    template = env.get_template('dashboard.html')
-    
+
+    # Load Jinja template (module-cached — Environment created once)
+    template = _get_template('dashboard.html')
+
     # Render template with data
     html_content = template.render(
         inline_css=inline_css,
@@ -383,6 +429,8 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         # CWE Top 25 2024 (project-level only)
         cwe_top25_metrics=cwe_top25_metrics,
         cwe_top25_details=cwe_top25_details,
+        # Scan / commit activity over time
+        scan_activity_trend=scan_activity_trend,
         has_aggregated_dashboard=has_aggregated_dashboard,
         has_instance_dashboard=has_instance_dashboard
     )
@@ -449,7 +497,10 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
     defect_velocity = metrics.get_defect_velocity_trend(days=days).to_dict('records')
     cumulative_trends = metrics.get_cumulative_defect_trend(days=days).to_dict('records')
     trend_summary = metrics.get_defect_trend_summary(days=days)
-    
+
+    # Collect scan/commit activity trend (snapshots over time)
+    scan_activity_trend = metrics.get_scan_activity_trend(days=days, granularity=granularity).to_dict('records')
+
     # Collect leaderboard data (project-level only - database doesn't have history tables for user tracking)
     top_projects_by_fix_rate = metrics.get_top_projects_by_fix_rate(days=30, limit=10).to_dict('records')
     top_projects_by_triage = metrics.get_top_projects_by_triage_activity(days=30, limit=10).to_dict('records')
@@ -536,7 +587,8 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
         'owasp_details': owasp_details,
         'cwe_top25_metrics': cwe_top25_metrics,
         'cwe_top25_details': cwe_top25_details,
-        'tech_debt_summary': tech_debt_summary
+        'tech_debt_summary': tech_debt_summary,
+        'scan_activity_trend': scan_activity_trend
     }
     
     # Cache the data
@@ -567,6 +619,7 @@ def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_a
     database_statistics = multi_metrics.get_aggregated_database_statistics()
     commit_activity = multi_metrics.get_aggregated_commit_activity()
     aggregated_trends = multi_metrics.get_aggregated_trends(days=days)
+    scan_activity_series = multi_metrics.get_aggregated_scan_activity(days=days, granularity='week')
     
     # Get instance names with colors
     instance_configs = []
@@ -585,14 +638,10 @@ def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_a
     
     # Load CSS content for inline embedding
     inline_css = load_inline_css()
-    
-    # Set up Jinja2 environment (templates are in parent package directory)
-    template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
-    env = Environment(loader=FileSystemLoader(template_dir))
-    
-    # Load aggregated template
-    template = env.get_template('dashboard_aggregated.html')
-    
+
+    # Load aggregated template (module-cached — Environment created once)
+    template = _get_template('dashboard_aggregated.html')
+
     # Render template with data
     html_content = template.render(
         inline_css=inline_css,
@@ -609,6 +658,7 @@ def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_a
         trend_summary=aggregated_trends['trend_summary'],
         fix_rate_metrics=aggregated_trends['fix_rate_metrics'],
         trends_by_instance=aggregated_trends['by_instance'],
+        scan_activity_series=scan_activity_series,
         trend_period_text=f"Last {days} Days",
         multi_instance_mode=True
     )
@@ -1163,13 +1213,9 @@ def generate_aggregated_dashboard_from_zips(zip_loaders, instance_configs, outpu
     # Load CSS content for inline embedding
     inline_css = load_inline_css()
     
-    # Set up Jinja2 environment
-    template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'templates')
-    env = Environment(loader=FileSystemLoader(template_dir))
-    
-    # Load aggregated template
-    template = env.get_template('dashboard_aggregated.html')
-    
+    # Load aggregated template (module-cached — Environment created once)
+    template = _get_template('dashboard_aggregated.html')
+
     # Render template with data
     html_content = template.render(
         inline_css=inline_css,
@@ -1186,6 +1232,7 @@ def generate_aggregated_dashboard_from_zips(zip_loaders, instance_configs, outpu
         trend_summary=trend_summary,
         fix_rate_metrics=fix_rate_metrics,
         trends_by_instance=trends_by_instance,
+        scan_activity_series=[],
         trend_period_text=f"Last {days} Days",
         multi_instance_mode=True,
         zip_mode=True  # Flag to indicate ZIP mode (some features unavailable)
@@ -1232,6 +1279,9 @@ def main():
                        help='Output folder path (default: output)')
     parser.add_argument('--no-browser', action='store_true',
                        help='Do not open dashboard in browser')
+    parser.add_argument('--workers', '-w', type=int, default=1,
+                       help='Number of parallel workers for per-project dashboard generation (default: 1, capped at 8). '
+                            'In database mode each worker uses its own Postgres connection; in ZIP mode each worker uses its own ZipDataLoader.')
     
     # Data source arguments
     parser.add_argument('--zip-file', '-z', type=str, nargs='+',
@@ -1268,15 +1318,36 @@ def main():
                        help='Enable progress tracking for large operations')
     parser.add_argument('--resume', type=str,
                        help='Resume from interrupted session (provide session ID)')
-    
+
+    parser.add_argument('--version', action='store_true',
+                       help='Print version and exit')
+
     args = parser.parse_args()
+
+    if args.version:
+        try:
+            from coverity_metrics.__version__ import __version__
+            print(f"coverity-dashboard version: {__version__}")
+        except Exception:
+            print("coverity-dashboard version: unknown")
+        return
 
     # Normalize --project to a list (split comma-separated input)
     if args.project:
         args.project = [p.strip() for p in args.project.split(',') if p.strip()]
         if not args.project:
             args.project = None
-    
+
+    t0 = time.perf_counter()
+    try:
+        _run_main(args)
+    finally:
+        total_elapsed = time.perf_counter() - t0
+        print(f"\nTotal execution time: {_format_duration(total_elapsed)}")
+
+
+def _run_main(args):
+    """Main body split out so the top-level main() can wrap it with timing."""
     tqdm.write("\nCoverity Metrics HTML Dashboard Generator")
     tqdm.write("=" * 80)
     
@@ -1599,20 +1670,77 @@ def main():
                     generated_files.append((f"{args.instance} - All Projects", dashboard_path))
                     
                     # Project-level dashboards
-                    for project_name in available_projects:
-                        tqdm.write(f"  Generating project dashboard: {project_name}")
-                        zip_loader.project_name = project_name
-                        output_file = f"{output_folder}/dashboard_{project_name.replace(' ', '_')}.html"
-                        dashboard_path = generate_html_dashboard(
-                            output_file, 
-                            project_name, 
-                            args.instance, 
-                            zip_loader, 
-                            cache=None, 
-                            use_cache=False, 
-                            days=metadata.get('days', 365)
-                        )
-                        generated_files.append((f"{args.instance} - {project_name}", dashboard_path))
+                    requested_workers = max(1, min(getattr(args, 'workers', 1) or 1, 8))
+                    effective_workers = max(1, min(requested_workers, len(available_projects)))
+                    if effective_workers == 1:
+                        for project_name in available_projects:
+                            tqdm.write(f"  Generating project dashboard: {project_name}")
+                            zip_loader.project_name = project_name
+                            output_file = f"{output_folder}/dashboard_{project_name.replace(' ', '_')}.html"
+                            dashboard_path = generate_html_dashboard(
+                                output_file,
+                                project_name,
+                                args.instance,
+                                zip_loader,
+                                cache=None,
+                                use_cache=False,
+                                days=metadata.get('days', 365)
+                            )
+                            generated_files.append((f"{args.instance} - {project_name}", dashboard_path))
+                    else:
+                        # Parallel: one ZipDataLoader per worker (ZipFile
+                        # handle isn't thread-safe, so open extras rather
+                        # than sharing with a lock).
+                        from concurrent.futures import ThreadPoolExecutor, as_completed
+                        from queue import Queue
+
+                        loader_pool = Queue()
+                        loader_pool.put(zip_loader)
+                        extras = []
+                        for _ in range(effective_workers - 1):
+                            extras.append(ZipDataLoader(zip_file, instance_name=args.instance))
+                            loader_pool.put(extras[-1])
+
+                        def _render(project_name):
+                            output_file = f"{output_folder}/dashboard_{project_name.replace(' ', '_')}.html"
+                            loader = loader_pool.get()
+                            try:
+                                loader.project_name = project_name
+                                path = generate_html_dashboard(
+                                    output_file,
+                                    project_name,
+                                    args.instance,
+                                    loader,
+                                    cache=None,
+                                    use_cache=False,
+                                    days=metadata.get('days', 365)
+                                )
+                                return project_name, path, None
+                            except Exception as exc:
+                                return project_name, output_file, exc
+                            finally:
+                                loader_pool.put(loader)
+
+                        tqdm.write(f"  Generating {len(available_projects)} project dashboards (workers={effective_workers})...")
+                        executor = ThreadPoolExecutor(max_workers=effective_workers)
+                        try:
+                            futures = [executor.submit(_render, p) for p in available_projects]
+                            try:
+                                for future in tqdm(as_completed(futures), total=len(futures),
+                                                    desc="  Projects", unit="dashboard"):
+                                    project_name, path, err = future.result()
+                                    if err is not None:
+                                        tqdm.write(f"    [ERROR] {project_name}: {err}")
+                                    else:
+                                        generated_files.append((f"{args.instance} - {project_name}", path))
+                            except KeyboardInterrupt:
+                                tqdm.write("\n[INTERRUPTED] Cancelling pending dashboards (in-flight ones will still finish)...")
+                                for f in futures:
+                                    f.cancel()
+                                executor.shutdown(wait=False, cancel_futures=True)
+                                raise
+                        finally:
+                            executor.shutdown(wait=True)
                 
                 # Summary
                 tqdm.write("\n" + "=" * 80)
@@ -1874,13 +2002,16 @@ def main():
                                     generated_files.append((_inst_label, inst_output))
                                 pbar.update(1)
 
-                                # Per-project dashboards
+                                # Per-project dashboards — reuse ONE CoverityMetrics
+                                # for the instance, rescoping via .project_name to
+                                # avoid a fresh Postgres connection per project.
+                                instance_metrics = multi_metrics.get_metrics_for_instance(instance_name)
                                 for proj in projects_filter:
                                     _proj_label = f"{instance_name} - {proj}"
                                     proj_output = f"{instance_folder}/dashboard_{proj.replace(' ', '_')}.html"
                                     if _proj_label not in completed_names:
-                                        metrics_proj = multi_metrics.get_metrics_for_instance(instance_name, proj)
-                                        dashboard_path = generate_html_dashboard(proj_output, proj, instance_name, metrics_proj, cache, use_cache, args.days)
+                                        instance_metrics.project_name = proj
+                                        dashboard_path = generate_html_dashboard(proj_output, proj, instance_name, instance_metrics, cache, use_cache, args.days)
                                         generated_files.append((_proj_label, dashboard_path))
                                         if progress_tracker and session_id:
                                             progress_tracker.update_progress(session_id, _proj_label)
@@ -1971,30 +2102,109 @@ def main():
                         # Auto-generate project-level dashboards for each instance
                         tqdm.write("\nGenerating project-level dashboards for all instances...")
                         total_projects = 0
+                        requested_workers = max(1, min(getattr(args, 'workers', 1) or 1, 8))
                         for idx, instance_name in enumerate(instance_names, 1):
-                            metrics = multi_metrics.get_metrics_for_instance(instance_name)
-                            projects = metrics.get_available_projects()
-                            
-                            if not projects.empty:
-                                pbar_overall.set_description(f"Instance {idx}/{len(instance_names)}: {instance_name} projects")
-                                for proj_idx, project in enumerate(projects['project_name'], 1):
-                                    pbar_overall.set_postfix_str(f"{project} ({proj_idx}/{len(projects)})")
+                            base_metrics = multi_metrics.get_metrics_for_instance(instance_name)
+                            projects = base_metrics.get_available_projects()
+
+                            if projects.empty:
+                                continue
+
+                            project_list = list(projects['project_name'])
+                            pbar_overall.set_description(f"Instance {idx}/{len(instance_names)}: {instance_name} projects")
+
+                            instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
+                            os.makedirs(instance_folder, exist_ok=True)
+
+                            effective_workers = max(1, min(requested_workers, len(project_list)))
+                            if effective_workers == 1:
+                                # Sequential path — reuse one CoverityMetrics for all projects.
+                                for proj_idx, project in enumerate(project_list, 1):
+                                    pbar_overall.set_postfix_str(f"{project} ({proj_idx}/{len(project_list)})")
                                     _proj_label = f"{instance_name} - {project}"
-                                    instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"
-                                    os.makedirs(instance_folder, exist_ok=True)
                                     output_file = f"{instance_folder}/dashboard_{project.replace(' ', '_')}.html"
                                     if _proj_label not in completed_names:
-                                        metrics_proj = multi_metrics.get_metrics_for_instance(instance_name, project)
-                                        dashboard_path = generate_html_dashboard(output_file, project, instance_name, metrics_proj, cache, use_cache, args.days)
-                                        generated_files.append((_proj_label, dashboard_path))
-                                        if progress_tracker and session_id:
-                                            progress_tracker.update_progress(session_id, _proj_label)
+                                        base_metrics.project_name = project
+                                        try:
+                                            dashboard_path = generate_html_dashboard(output_file, project, instance_name, base_metrics, cache, use_cache, args.days)
+                                            generated_files.append((_proj_label, dashboard_path))
+                                            if progress_tracker and session_id:
+                                                progress_tracker.update_progress(session_id, _proj_label)
+                                        except Exception as exc:
+                                            tqdm.write(f"  [ERROR] {_proj_label}: {exc}")
                                     else:
                                         tqdm.write(f"  [SKIP] {_proj_label}")
                                         generated_files.append((_proj_label, output_file))
                                     total_projects += 1
                                     pbar_overall.update(1)
-                        
+                                base_metrics.project_name = None
+                            else:
+                                # Parallel path — one worker owns one
+                                # CoverityMetrics (psycopg2 conns aren't
+                                # thread-safe). Reuse ``base_metrics`` as
+                                # worker #0 and open extras for the rest.
+                                from concurrent.futures import ThreadPoolExecutor, as_completed
+                                from queue import Queue
+                                import threading
+
+                                instance_config = multi_metrics.get_instance_config(instance_name)
+                                conn_params = instance_config.get_connection_params() if instance_config else None
+
+                                worker_pool = Queue()
+                                base_metrics.project_name = None
+                                worker_pool.put(base_metrics)
+                                extras = []
+                                for _ in range(effective_workers - 1):
+                                    extras.append(CoverityMetrics(connection_params=conn_params))
+                                    worker_pool.put(extras[-1])
+
+                                progress_lock = threading.Lock()
+
+                                def _process(project):
+                                    _label = f"{instance_name} - {project}"
+                                    output_file = f"{instance_folder}/dashboard_{project.replace(' ', '_')}.html"
+                                    if _label in completed_names:
+                                        return _label, output_file, True  # skipped
+                                    m = worker_pool.get()
+                                    try:
+                                        m.project_name = project
+                                        path = generate_html_dashboard(output_file, project, instance_name, m, cache, use_cache, args.days)
+                                        return _label, path, False
+                                    finally:
+                                        worker_pool.put(m)
+
+                                pbar_overall.set_postfix_str(f"parallel x{effective_workers}")
+                                executor = ThreadPoolExecutor(max_workers=effective_workers)
+                                try:
+                                    futures = [executor.submit(_process, p) for p in project_list]
+                                    try:
+                                        for future in as_completed(futures):
+                                            try:
+                                                _label, path, was_skipped = future.result()
+                                                generated_files.append((_label, path))
+                                                if was_skipped:
+                                                    tqdm.write(f"  [SKIP] {_label}")
+                                                elif progress_tracker and session_id:
+                                                    with progress_lock:
+                                                        progress_tracker.update_progress(session_id, _label)
+                                            except Exception as exc:
+                                                tqdm.write(f"  [ERROR] {exc}")
+                                            total_projects += 1
+                                            pbar_overall.update(1)
+                                    except KeyboardInterrupt:
+                                        tqdm.write("\n[INTERRUPTED] Cancelling pending dashboards (in-flight ones will still finish)...")
+                                        for f in futures:
+                                            f.cancel()
+                                        executor.shutdown(wait=False, cancel_futures=True)
+                                        raise
+                                finally:
+                                    executor.shutdown(wait=True)
+                                    for extra in extras:
+                                        try:
+                                            extra.db.close()
+                                        except Exception:
+                                            pass
+
                         pbar_overall.set_description("Complete")
                         pbar_overall.set_postfix_str("")
                     
@@ -2193,7 +2403,10 @@ def main():
         tqdm.write("\n" + "=" * 80)
         tqdm.write("Dashboard generation completed successfully!")
         tqdm.write("=" * 80 + "\n")
-        
+
+    except KeyboardInterrupt:
+        tqdm.write("\n[INTERRUPTED] Aborted by user.")
+        sys.exit(130)
     except Exception as e:
         tqdm.write(f"\n[ERROR] Failed to generate dashboard")
         tqdm.write(f"  {str(e)}")
@@ -2202,10 +2415,4 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    import time
-    start_time = time.time()
     main()
-    end_time = time.time()
-    elapsed = end_time - start_time
-    mins, secs = divmod(int(elapsed), 60)
-    print(f"\nTotal execution time: {mins} min {secs} sec ({elapsed:.2f} seconds)")

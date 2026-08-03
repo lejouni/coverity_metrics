@@ -50,6 +50,17 @@ coverity-dashboard --no-browser
 
 When multiple projects are specified, individual per-project dashboards are generated for each, plus an aggregated instance dashboard. Without `--project` filter, the tool automatically generates dashboards for all projects.
 
+**Speed Up Large Runs (v1.0.17+):**
+```bash
+# 4 parallel workers for per-project dashboards (database or ZIP mode)
+coverity-dashboard --workers 4
+
+# Same for the export CLI — recommended for instances with hundreds of projects
+coverity-export --workers 4
+```
+
+Each worker uses its own Postgres connection (or its own `ZipDataLoader` in ZIP mode). Default is `1` (sequential); the flag is clamped to a maximum of `8`. Both CLIs print total wall time and per-instance timing at the end so you can measure the speedup directly.
+
 ### 3. Export Metrics to ZIP
 ```bash
 # CLI entry point

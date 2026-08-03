@@ -2077,6 +2077,60 @@ class CoverityMetrics:
         
         return pd.DataFrame(results)
     
+    def get_scan_activity_trend(self, days=90, granularity='day'):
+        """Get snapshot (scan/commit) activity bucketed over time.
+
+        Args:
+            days: Number of days to analyze.
+            granularity: Bucket size — one of 'day', 'week', 'month'.
+                Defaults to 'day'. Anything else falls back to 'day'.
+
+        Returns:
+            pandas.DataFrame with columns:
+                period (date of bucket start),
+                scan_count,
+                unique_committers,
+                total_files_analyzed,
+                total_new_defects,
+                total_eliminated_defects.
+        """
+        # Whitelist granularity — value is injected directly into SQL, not bound.
+        allowed = {'day', 'week', 'month'}
+        bucket = granularity if granularity in allowed else 'day'
+
+        query = f"""
+            SELECT
+                DATE_TRUNC('{bucket}', sn.date_created)::date as period,
+                COUNT(*) as scan_count,
+                COUNT(DISTINCT sn.committer_user_id) as unique_committers,
+                COALESCE(SUM(sn.total_file_count), 0) as total_files_analyzed,
+                COALESCE(SUM(sn.new_defect_count), 0) as total_new_defects,
+                COALESCE(SUM(sn.eliminated_defect_count), 0) as total_eliminated_defects
+            FROM snapshot sn
+            {{project_filter_join}}
+            WHERE sn.deleted = false
+                AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                {{project_filter}}
+            GROUP BY DATE_TRUNC('{bucket}', sn.date_created)
+            ORDER BY period ASC
+        """
+
+        if self.project_name:
+            query = query.format(
+                project_filter_join="""
+                    JOIN stream s ON sn.stream_id = s.id
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
+                project_filter="AND p.name = ANY(%s)"
+            )
+            results = self.db.execute_query_dict(query, (days, self._project_names))
+        else:
+            query = query.format(project_filter_join="", project_filter="")
+            results = self.db.execute_query_dict(query, (days,))
+
+        return pd.DataFrame(results)
+
     def get_cumulative_defect_trend(self, days=90):
         """Get cumulative defect counts over time
         Includes both code-based fixes and triaged defects (False Positive/Intentional)
@@ -2511,7 +2565,7 @@ class CoverityMetrics:
                 defects_fixed as eliminated_defects,
                 snapshot_count,
                 avg_fixes_per_snapshot,
-                ROUND(defects_fixed::numeric / EXTRACT(EPOCH FROM (last_snapshot - first_snapshot))::numeric * 86400, 2) as avg_fixes_per_day
+                ROUND(defects_fixed::numeric / NULLIF(EXTRACT(EPOCH FROM (last_snapshot - first_snapshot))::numeric, 0) * 86400, 2) as avg_fixes_per_day
             FROM project_fixes
             ORDER BY defects_fixed DESC, avg_fixes_per_snapshot DESC
             LIMIT %s

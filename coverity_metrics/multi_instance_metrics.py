@@ -543,7 +543,7 @@ class MultiInstanceMetrics:
                 by_instance.append({
                     'instance_name': instance_name,
                     'color': instance_config.color if instance_config else '#2c3e50',
-                    'triage_completion': triage.get('triage_completion_percentage', 0),
+                    'triage_completion': triage.get('triage_completion_percentage') or 0,
                     'classified': triage.get('classified_count', 0),
                     'total_new': trend.get('total_new', 0) or 0,
                     'total_fixed': trend.get('total_fixed', 0) or 0,
@@ -792,6 +792,42 @@ class MultiInstanceMetrics:
         
         # Return top N
         return result[:limit]
+
+    def get_aggregated_scan_activity(self, days: int = 90, granularity: str = 'week') -> list:
+        """Get scan/commit activity trend across all instances.
+
+        For each configured instance, calls `get_scan_activity_trend` and
+        returns a list of per-instance series suitable for rendering as
+        overlaid lines on the aggregated dashboard.
+
+        Args:
+            days: Number of days to analyze.
+            granularity: Bucket size ('day', 'week', or 'month').
+
+        Returns:
+            list of dicts, one per instance, each with keys:
+                instance_name, color, periods (list of str),
+                scan_counts (list of int), unique_committers (list of int).
+            Instances that fail to return data are skipped with a warning.
+        """
+        series = []
+        for instance_name, metrics in self.metrics_managers.items():
+            try:
+                instance_config = self.get_instance_config(instance_name)
+                df = metrics.get_scan_activity_trend(days=days, granularity=granularity)
+                if df is None or df.empty:
+                    continue
+                series.append({
+                    'instance_name': instance_name,
+                    'color': instance_config.color if instance_config else '#2c3e50',
+                    'periods': [str(p) for p in df['period'].tolist()],
+                    'scan_counts': [int(v) for v in df['scan_count'].tolist()],
+                    'unique_committers': [int(v) for v in df['unique_committers'].tolist()],
+                })
+            except Exception as e:
+                tqdm.write(f"Warning: Failed to get scan activity from {instance_name}: {str(e)}")
+                continue
+        return series
 
 
 if __name__ == "__main__":

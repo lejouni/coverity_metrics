@@ -536,6 +536,26 @@
         </div>
         {% endif %}
 
+        <!-- Scan / Commit Activity Over Time (per instance) -->
+        {% if scan_activity_series and scan_activity_series|length > 0 %}
+        <div class="section">
+            <h2 class="section-title">📊 Scan Activity Over Time - By Instance
+                <span class="info-icon">ℹ<span class="tooltip tooltip-right">Number of scans/commits (Coverity snapshots) submitted per week for each instance. Each colored line represents one instance. Calculated from the snapshot table's date_created field. Helps compare analysis cadence across instances.</span></span>
+            </h2>
+            <div class="chart-container" id="agg-scan-activity-chart"></div>
+        </div>
+        {% else %}
+        <div class="section">
+            <h2 class="section-title">📊 Scan Activity Over Time - By Instance
+                <span class="info-icon">ℹ<span class="tooltip tooltip-right">Number of scans/commits (Coverity snapshots) submitted per week for each instance. Each colored line represents one instance. Calculated from the snapshot table's date_created field. Helps compare analysis cadence across instances.</span></span>
+            </h2>
+            <div class="alert alert-info">
+                <strong>ℹ️ No scan activity in the {{ trend_period_text|default('selected period')|lower }}.</strong>
+                <span style="margin-left: 0.5rem; opacity: 0.85;">Re-export with a longer <code>--days</code> window if you expect older snapshots to be included. Note: multi-ZIP aggregation does not yet stitch this metric across instances.</span>
+            </div>
+        </div>
+        {% endif %}
+
         </div>
         <!-- End Trends & Progress Tab -->
 
@@ -909,6 +929,34 @@
         };
 
         Plotly.newPlot('severity-chart', severityData, severityLayout, {responsive: true, displaylogo: false});
+
+        {% if scan_activity_series and scan_activity_series|length > 0 %}
+        // Aggregated Scan Activity Over Time — one overlaid line per instance
+        var aggScanActivityData = [
+            {% for inst in scan_activity_series %}
+            {
+                x: [{% for p in inst.periods %}'{{ p }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+                y: [{% for c in inst.scan_counts %}{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}],
+                name: '{{ inst.instance_name }}',
+                type: 'scatter',
+                mode: 'lines+markers',
+                marker: {color: '{{ inst.color }}', size: 6},
+                line: {color: '{{ inst.color }}', width: 2}
+            }{% if not loop.last %},{% endif %}
+            {% endfor %}
+        ];
+
+        var aggScanActivityLayout = {
+            title: 'Scans per Week - By Instance',
+            height: 450,
+            xaxis: {title: 'Week'},
+            yaxis: {title: 'Scan Count', rangemode: 'tozero'},
+            showlegend: true,
+            legend: {x: 1.01, y: 1}
+        };
+
+        Plotly.newPlot('agg-scan-activity-chart', aggScanActivityData, aggScanActivityLayout, {responsive: true, displaylogo: false});
+        {% endif %}
     </script>
     
     <script>

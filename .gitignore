@@ -137,6 +137,9 @@ reports/
 test_*/
 emoji_test/
 final_emoji*/
+bench_w1/*
+bench_w3/*
+smoke_out*
 
 # Cache directories
 cache/

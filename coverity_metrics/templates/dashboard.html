@@ -898,6 +898,58 @@
         </div>
         {% endif %}
 
+        <!-- Scan / Commit Activity Over Time -->
+        {% if scan_activity_trend|length > 0 %}
+        <div class="section">
+            <h2 class="section-title">
+                {% if current_project %}Scan Activity Over Time - {{ current_project }}{% else %}Scan Activity Over Time - All Projects{% endif %}
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Number of scans/commits (Coverity snapshots) submitted per {% if current_project %}day{% else %}week{% endif %}, plus the count of unique committers active in each bucket. Calculated from the snapshot table's date_created and committer_user_id fields. Helps visualize analysis cadence and team engagement over time.</span>
+                </span>
+            </h2>
+            <div class="chart-container" id="scan-activity-chart"></div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Period</th>
+                        <th>Scans</th>
+                        <th>Unique Committers</th>
+                        <th>Files Analyzed</th>
+                        <th>New Defects</th>
+                        <th>Fixed Defects</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in scan_activity_trend[-30:] %}
+                    <tr>
+                        <td>{{ row.period }}</td>
+                        <td class="metric-number">{{ row.scan_count }}</td>
+                        <td class="metric-number">{{ row.unique_committers }}</td>
+                        <td>{{ "{:,}".format(row.total_files_analyzed|default(0)|int) }}</td>
+                        <td class="metric-number {% if row.total_new_defects > 10 %}metric-increase{% endif %}">
+                            {{ row.total_new_defects|default(0) }}
+                        </td>
+                        <td class="metric-number metric-decrease">{{ row.total_eliminated_defects|default(0) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="section">
+            <h2 class="section-title">
+                {% if current_project %}Scan Activity Over Time - {{ current_project }}{% else %}Scan Activity Over Time - All Projects{% endif %}
+                <span class="info-icon">ℹ
+                        <span class="tooltip">Number of scans/commits (Coverity snapshots) submitted per {% if current_project %}day{% else %}week{% endif %}, plus the count of unique committers active in each bucket. Calculated from the snapshot table's date_created and committer_user_id fields. Helps visualize analysis cadence and team engagement over time.</span>
+                </span>
+            </h2>
+            <div class="alert alert-info">
+                <strong>ℹ️ No scan activity in the {{ trend_period_text|default('selected period')|lower }}{% if current_project %} for {{ current_project }}{% endif %}.</strong>
+                <span style="margin-left: 0.5rem; opacity: 0.85;">Re-export with a longer <code>--days</code> window if you expect older snapshots to be included.</span>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Fix Rate Metrics -->
         {% if fix_rate_metrics %}
         <div class="section">
@@ -1427,7 +1479,7 @@
                                     </td>
                                     <td style="font-weight: 500;">{{ row.project_name }}</td>
                                     <td style="text-align: center; font-weight: 600; color: var(--success-color);">{{ row.eliminated_defects }}</td>
-                                    <td style="text-align: center;">{{ row.avg_fixes_per_day|round(2) }}</td>
+                                    <td style="text-align: center;">{{ row.avg_fixes_per_day|round(2) if row.avg_fixes_per_day is not none else 'N/A' }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -1469,9 +1521,9 @@
                                     <td style="text-align: center; font-weight: 600; color: var(--info-color);">{{ row.triage_actions }}</td>
                                     <td style="text-align: center;">
                                         <div class="activity-bar">
-                                            <div class="activity-fill" style="width: {{ [row.triage_percentage, 100]|min }}%;"></div>
+                                            <div class="activity-fill" style="width: {{ [row.triage_percentage|default(0), 100]|min }}%;"></div>
                                         </div>
-                                        <span style="font-size: 0.85rem; color: var(--text-color); opacity: 0.8;">{{ row.triage_percentage|round(1) }}%</span>
+                                        <span style="font-size: 0.85rem; color: var(--text-color); opacity: 0.8;">{{ row.triage_percentage|round(1) if row.triage_percentage is not none else 'N/A' }}%</span>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -1525,7 +1577,7 @@
                                         <div style="font-size: 0.85rem; opacity: 0.7;">@{{ row.username }}</div>
                                     </td>
                                     <td style="text-align: center; font-weight: 600; color: var(--success-color);">{{ row.total_fixes }}</td>
-                                    <td style="text-align: center;">{{ row.avg_fixes_per_day|round(2) }}</td>
+                                    <td style="text-align: center;">{{ row.avg_fixes_per_day|round(2) if row.avg_fixes_per_day is not none else 'N/A' }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -1566,7 +1618,7 @@
                                         <div style="font-size: 0.85rem; opacity: 0.7;">@{{ row.username }}</div>
                                     </td>
                                     <td style="text-align: center; font-weight: 600; color: var(--info-color);">{{ row.total_triage_actions }}</td>
-                                    <td style="text-align: center;">{{ row.avg_triage_per_day|round(2) }}</td>
+                                    <td style="text-align: center;">{{ row.avg_triage_per_day|round(2) if row.avg_triage_per_day is not none else 'N/A' }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -1607,7 +1659,7 @@
                                         <div style="font-size: 0.85rem; opacity: 0.7;">@{{ row.username }}</div>
                                     </td>
                                     <td style="text-align: center; font-weight: 600; color: var(--warning-color);">{{ row.total_comments }}</td>
-                                    <td style="text-align: center;">{{ row.avg_comments_per_day|round(2) }}</td>
+                                    <td style="text-align: center;">{{ row.avg_comments_per_day|round(2) if row.avg_comments_per_day is not none else 'N/A' }}</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -2249,6 +2301,45 @@
         };
 
         Plotly.newPlot('velocity-chart', velocityData, velocityLayout, {responsive: true, displaylogo: false});
+        {% endif %}
+
+        {% if scan_activity_trend|length > 0 %}
+        // Scan / Commit Activity Over Time Chart
+        var scanActivityData = [{
+            x: [{% for row in scan_activity_trend %}'{{ row.period }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in scan_activity_trend %}{{ row.scan_count }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'Scans',
+            type: 'scatter',
+            mode: 'lines+markers',
+            marker: {color: '#2980b9', size: 8},
+            line: {width: 3}
+        }, {
+            x: [{% for row in scan_activity_trend %}'{{ row.period }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+            y: [{% for row in scan_activity_trend %}{{ row.unique_committers }}{% if not loop.last %}, {% endif %}{% endfor %}],
+            name: 'Unique Committers',
+            type: 'scatter',
+            mode: 'lines+markers',
+            marker: {color: '#e67e22', size: 6},
+            line: {width: 2, dash: 'dot'},
+            yaxis: 'y2'
+        }];
+
+        var scanActivityLayout = {
+            title: '{% if current_project %}Scans per Day - {{ current_project }}{% else %}Scans per Week - All Projects{% endif %}',
+            height: 400,
+            xaxis: {title: '{% if current_project %}Day{% else %}Week{% endif %}'},
+            yaxis: {title: 'Scan Count', side: 'left'},
+            yaxis2: {
+                title: 'Unique Committers',
+                overlaying: 'y',
+                side: 'right',
+                rangemode: 'tozero'
+            },
+            showlegend: true,
+            legend: {x: 0.01, y: 0.99}
+        };
+
+        Plotly.newPlot('scan-activity-chart', scanActivityData, scanActivityLayout, {responsive: true, displaylogo: false});
         {% endif %}
 
         {% if defect_aging|length > 0 %}

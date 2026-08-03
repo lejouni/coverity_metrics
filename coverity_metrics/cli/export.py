@@ -6,6 +6,7 @@ Supports multi-instance export with ZIP packaging
 import os
 import json
 import sys
+import time
 import zipfile
 from datetime import datetime, date
 from decimal import Decimal
@@ -13,6 +14,21 @@ from coverity_metrics.metrics import CoverityMetrics
 import pandas as pd
 from tqdm import tqdm
 import argparse
+
+
+def _format_duration(seconds):
+    """Format a duration in seconds into a compact human-readable string.
+
+    Examples: '8.7s', '1m 23.4s', '2h 5m 12s'.
+    """
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    if seconds < 3600:
+        minutes, secs = divmod(seconds, 60)
+        return f"{int(minutes)}m {secs:.1f}s"
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{int(hours)}h {int(minutes)}m {int(secs)}s"
 
 
 def json_serializer(obj):
@@ -119,6 +135,7 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
         'triage_progress_summary': {'method': 'get_triage_progress_summary'},
         'defect_velocity_trend': {'method': 'get_defect_velocity_trend', 'kwargs': {'days': days}},
         'cumulative_defect_trend': {'method': 'get_cumulative_defect_trend', 'kwargs': {'days': days}},
+        'scan_activity_trend': {'method': 'get_scan_activity_trend', 'kwargs': {'days': days, 'granularity': 'week'}},
         'defect_trend_summary': {'method': 'get_defect_trend_summary', 'kwargs': {'days': days}},
         'technical_debt_summary': {'method': 'get_technical_debt_summary'},
         
@@ -183,21 +200,25 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
     return exported_files
 
 
-def export_project_specific_metrics(instance_name, connection_params, project_dir, project_name, days=365):
+def export_project_specific_metrics(metrics, instance_name, project_dir, project_name, days=365):
     """Export project-specific metrics (OWASP, CWE) for a single project
-    
+
     Args:
-        instance_name: Name of the instance
-        connection_params: Database connection parameters
+        metrics: Shared CoverityMetrics instance. Its ``project_name`` is
+            reassigned in-place so that all downstream queries are scoped to
+            the given project. This avoids reconnecting to Postgres for
+            every project in a large export.
+        instance_name: Name of the instance (used only for messages)
         project_dir: Project-specific directory to save JSON files
         project_name: Name of the project
         days: Number of days for trend analysis
-        
+
     Returns:
         dict: Metadata about exported files
     """
-    metrics = CoverityMetrics(connection_params=connection_params, project_name=project_name)
-    
+    # Reuse the shared connection — just re-scope the metrics object.
+    metrics.project_name = project_name
+
     exported_files = {}
     
     # Export core project-specific metrics needed for dashboards
@@ -229,6 +250,7 @@ def export_project_specific_metrics(instance_name, connection_params, project_di
         'defect_discovery_rate': {'method': 'get_defect_discovery_rate', 'kwargs': {'days': days}},
         'defect_velocity_trend': {'method': 'get_defect_velocity_trend', 'kwargs': {'days': days}},
         'cumulative_defect_trend': {'method': 'get_cumulative_defect_trend', 'kwargs': {'days': days}},
+        'scan_activity_trend': {'method': 'get_scan_activity_trend', 'kwargs': {'days': days, 'granularity': 'day'}},
     }
     
     # Export each project metric
@@ -329,17 +351,19 @@ def export_project_specific_metrics(instance_name, connection_params, project_di
     return exported_files
 
 
-def export_to_json(output_dir="exports", days=365, config_file='config.json', projects_filter=None):
+def export_to_json(output_dir="exports", days=365, config_file='config.json', projects_filter=None, workers=1):
     """Export all metrics to JSON files with multi-instance support
-    
+
     Creates a separate ZIP file for each configured instance
-    
+
     Args:
         output_dir: Directory for exports
         days: Number of days for trend analysis
         config_file: Path to configuration file
         projects_filter: Optional list of project names to restrict export
-        
+        workers: Number of parallel workers per instance for per-project export
+            (each worker uses its own Postgres connection).
+
     Returns:
         list: List of paths to created ZIP files (one per instance)
     """
@@ -366,7 +390,8 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
     for instance in enabled_instances:
         instance_name = instance['name']
         sanitized_name = instance_name.replace(' ', '_').replace('/', '_').replace('\\', '_')
-        
+        instance_t0 = time.perf_counter()
+
         print(f"\n{'=' * 80}")
         print(f"Processing instance: {instance_name}")
         print(f"{'=' * 80}")
@@ -415,38 +440,117 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
             'database': instance['database']['database']
         }
         
-        # Get available projects and export project-specific metrics
+        # Get available projects and export project-specific metrics.
+        # Reuse a single CoverityMetrics (and therefore a single Postgres
+        # connection) across all projects in this instance to avoid ~645
+        # redundant connect/auth round-trips on large deployments. When
+        # ``workers > 1`` we open one such instance per worker.
+        shared_metrics = None
+        worker_pool = None
         try:
+            shared_metrics = CoverityMetrics(connection_params=connection_params)
             if projects_filter:
                 projects = projects_filter
             else:
-                metrics = CoverityMetrics(connection_params=connection_params)
-                projects_df = metrics.get_available_projects()
+                projects_df = shared_metrics.get_available_projects()
                 projects = projects_df['project_name'].tolist() if not projects_df.empty else []
-            
+
             metadata['instances'][instance_name]['projects'] = projects
-            
-            print(f"\n[{instance_name}] Exporting project-specific metrics for {len(projects)} projects...")
-            for project_name in tqdm(projects, desc=f"  {instance_name} Projects", unit="project"):
-                # Create project directory within instance directory
-                project_dir = os.path.join(instance_dir, project_name)
-                os.makedirs(project_dir, exist_ok=True)
-                
-                project_files = export_project_specific_metrics(
-                    instance_name,
-                    connection_params,
-                    project_dir,
-                    project_name,
-                    days
-                )
-                
-                if project_files:
-                    if 'project_specific_exports' not in metadata['instances'][instance_name]:
-                        metadata['instances'][instance_name]['project_specific_exports'] = {}
-                    metadata['instances'][instance_name]['project_specific_exports'][project_name] = project_files
-        
+
+            # Pre-create the project directories on the main thread so worker
+            # threads don't race on os.makedirs.
+            project_dirs = {}
+            for project_name in projects:
+                pdir = os.path.join(instance_dir, project_name)
+                os.makedirs(pdir, exist_ok=True)
+                project_dirs[project_name] = pdir
+
+            effective_workers = 1 if not projects else max(1, min(workers, len(projects), 8))
+            print(f"\n[{instance_name}] Exporting project-specific metrics for {len(projects)} projects (workers={effective_workers})...")
+
+            project_specific = metadata['instances'][instance_name].setdefault('project_specific_exports', {})
+
+            if effective_workers == 1:
+                # Sequential path — one shared metrics instance for all projects.
+                for project_name in tqdm(projects, desc=f"  {instance_name} Projects", unit="project"):
+                    try:
+                        project_files = export_project_specific_metrics(
+                            shared_metrics,
+                            instance_name,
+                            project_dirs[project_name],
+                            project_name,
+                            days,
+                        )
+                        if project_files:
+                            project_specific[project_name] = project_files
+                    except Exception as exc:
+                        tqdm.write(f"  [ERROR] {project_name}: {exc}")
+            else:
+                # Parallel path — each worker owns its own CoverityMetrics
+                # instance (psycopg2 connections aren't thread-safe).
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                from queue import Queue
+
+                worker_pool = Queue()
+                # Reuse the shared_metrics as one of the workers.
+                worker_pool.put(shared_metrics)
+                for _ in range(effective_workers - 1):
+                    worker_pool.put(CoverityMetrics(connection_params=connection_params))
+
+                def _process(project_name):
+                    m = worker_pool.get()
+                    try:
+                        return project_name, export_project_specific_metrics(
+                            m,
+                            instance_name,
+                            project_dirs[project_name],
+                            project_name,
+                            days,
+                        )
+                    finally:
+                        worker_pool.put(m)
+
+                executor = ThreadPoolExecutor(max_workers=effective_workers)
+                try:
+                    futures = [executor.submit(_process, p) for p in projects]
+                    try:
+                        for future in tqdm(as_completed(futures), total=len(futures),
+                                            desc=f"  {instance_name} Projects", unit="project"):
+                            try:
+                                project_name, project_files = future.result()
+                                if project_files:
+                                    project_specific[project_name] = project_files
+                            except Exception as exc:
+                                tqdm.write(f"  [ERROR] {exc}")
+                    except KeyboardInterrupt:
+                        tqdm.write("\n[INTERRUPTED] Cancelling pending exports (in-flight ones will still finish)...")
+                        for f in futures:
+                            f.cancel()
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        raise
+                finally:
+                    executor.shutdown(wait=True)
+
         except Exception as e:
             tqdm.write(f"[WARNING] Failed to export project-specific metrics for {instance_name}: {str(e)}")
+        finally:
+            if shared_metrics is not None:
+                try:
+                    shared_metrics.db.close()
+                except Exception:
+                    pass
+            # Close any extra worker connections created for parallel mode.
+            if worker_pool is not None:
+                while not worker_pool.empty():
+                    try:
+                        m = worker_pool.get_nowait()
+                        if m is not shared_metrics:
+                            try:
+                                m.db.close()
+                            except Exception:
+                                pass
+                    except Exception:
+                        break
         
         # Save metadata
         metadata_file = os.path.join(temp_dir, 'metadata.json')
@@ -473,10 +577,17 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
         shutil.rmtree(temp_dir)
         
         zip_size_mb = os.path.getsize(zip_path) / 1024 / 1024
+        instance_elapsed = time.perf_counter() - instance_t0
+        project_count = len(metadata['instances'][instance_name].get('projects', []) or [])
+        per_project = (instance_elapsed / project_count) if project_count > 0 else None
         print(f"[OK] {instance_name} export completed")
         print(f"     ZIP file: {zip_filename}")
         print(f"     Size: {zip_size_mb:.2f} MB")
-        
+        if per_project is not None:
+            print(f"     Time: {_format_duration(instance_elapsed)} for {project_count} projects (~{per_project:.2f}s/project)")
+        else:
+            print(f"     Time: {_format_duration(instance_elapsed)}")
+
         zip_files.append(zip_path)
     
     print(f"\n{'=' * 80}")
@@ -490,12 +601,14 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
 
 def main():
     """Main function"""
-    
+
     parser = argparse.ArgumentParser(description='Export Coverity metrics to JSON and ZIP (separate file per instance)')
     parser.add_argument('--output', '-o', default='exports', help='Output directory (default: exports)')
     parser.add_argument('--days', '-d', type=int, default=365, help='Number of days for trend analysis (default: 365)')
     parser.add_argument('--config', '-c', default='config.json', help='Path to configuration file (default: config.json)')
     parser.add_argument('--project', '-p', type=str, default=None, help='Comma-separated list of project names to export (default: all projects)')
+    parser.add_argument('--workers', '-w', type=int, default=1,
+                        help='Number of parallel workers for per-project export (default: 1, capped at 8). Each worker uses its own Postgres connection.')
     parser.add_argument('--version', action='store_true', help='Print version and exit')
 
     args = parser.parse_args()
@@ -511,15 +624,31 @@ def main():
             print("coverity-metrics export version: unknown")
         return 0
 
+    t0 = time.perf_counter()
     try:
-        zip_files = export_to_json(output_dir=args.output, days=args.days, config_file=args.config, projects_filter=args.project if args.project else None)
+        workers = max(1, min(args.workers, 8))
+        if workers != args.workers:
+            print(f"[INFO] --workers clamped to {workers} (allowed range: 1..8)")
+        zip_files = export_to_json(
+            output_dir=args.output,
+            days=args.days,
+            config_file=args.config,
+            projects_filter=args.project if args.project else None,
+            workers=workers,
+        )
         # Note: export_to_json now returns a list of ZIP files (one per instance)
         return 0
+    except KeyboardInterrupt:
+        print("\n[INTERRUPTED] Aborted by user.")
+        return 130
     except Exception as e:
         print(f"\n[ERROR] Export failed - {e}")
         import traceback
         traceback.print_exc()
         return 1
+    finally:
+        total_elapsed = time.perf_counter() - t0
+        print(f"\nTotal execution time: {_format_duration(total_elapsed)}")
 
 if __name__ == "__main__":
     main()
