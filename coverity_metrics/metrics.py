@@ -2216,10 +2216,11 @@ class CoverityMetrics:
                 (COALESCE(sm.new_count, 0) - (COALESCE(sm.code_fixed_count, 0) + COALESCE(tm.triaged_count, 0))) as net_change,
                 ROUND(COALESCE(sm.outstanding_count, 0)::numeric, 0) as outstanding,
                 CASE 
-                    WHEN COALESCE(sm.new_count, 0) = 0 THEN 0
-                    WHEN (COALESCE(sm.code_fixed_count, 0) + COALESCE(tm.triaged_count, 0)) > 0 
-                    THEN ROUND(((COALESCE(sm.code_fixed_count, 0) + COALESCE(tm.triaged_count, 0))::numeric / sm.new_count * 100), 1)
-                    ELSE 0
+                    WHEN (COALESCE(sm.new_count, 0) + COALESCE(sm.code_fixed_count, 0) + COALESCE(tm.triaged_count, 0)) = 0 THEN 0
+                    ELSE ROUND(
+                        ((COALESCE(sm.code_fixed_count, 0) + COALESCE(tm.triaged_count, 0))::numeric
+                         / (COALESCE(sm.new_count, 0) + COALESCE(sm.code_fixed_count, 0) + COALESCE(tm.triaged_count, 0))) * 100,
+                        1)
                 END as fix_efficiency_pct
             FROM daily_snapshot_metrics sm
             FULL OUTER JOIN daily_triaged_metrics tm ON sm.snapshot_date = tm.snapshot_date

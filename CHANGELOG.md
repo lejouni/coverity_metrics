@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.18] - 2026-08-04
+
+### Fixed
+- **Daily Fix Efficiency % always showed 0% when fixes and introductions happened on different days**
+  - `get_defect_velocity_trend` computed `fix_efficiency_pct = Fixed / New * 100` with an early `WHEN new_count = 0 THEN 0` branch, so any day that had fixes but no newly-introduced defects collapsed to 0% — which is the common case, since fixes rarely land in the same daily snapshot as the defects they resolve
+  - The dashboard tooltip already promised the correct formula: `Fixes / (Fixes + Introductions) × 100%`. The SQL now matches: `Fixed / (New + Fixed) * 100`, with a single divide-by-zero guard when both are 0
+  - Real-world example: `853-descuento-en-factura-changeplan` — 5 new defects introduced 2023-05-08, all 5 fixed 2023-05-17. Old behaviour: fix efficiency = 0% on every row of the trend. New behaviour: 2023-05-17 correctly shows 100%, matching the aggregate `fix_rate_metrics.fix_rate_percentage = 100%`
+
 ## [1.0.17] - 2026-08-04
 
 ### Added

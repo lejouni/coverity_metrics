@@ -2,6 +2,17 @@
 
 ## Version History
 
+### Version 1.0.18 - 2026-08-04
+
+**Daily Fix Efficiency % Correctness Fix**
+
+#### Fixed
+
+##### 📉 Daily Fix Efficiency % Was Always 0% When Fixes Landed on a Different Day Than Introductions
+- `get_defect_velocity_trend` computed `fix_efficiency_pct = Fixed / New * 100` per day, with an early `WHEN new_count = 0 THEN 0` branch. Since fixes and their originating introductions almost never share the same daily snapshot, most rows collapsed to 0% — including the row where the fix actually landed
+- The dashboard tooltip already promised the correct formula: `Fixes / (Fixes + Introductions) × 100%`. The SQL now matches the tooltip: `Fixed / (New + Fixed) * 100`, with a single divide-by-zero guard when both are 0
+- Real-world example: project `853-descuento-en-factura-changeplan` — 5 defects introduced 2023-05-08, all 5 fixed 2023-05-17. Before this fix the Daily Fix Velocity table showed 0% on every row (contradicting the 100% shown by the aggregate Fix Rate metric); after, 2023-05-17 correctly shows 100%
+
 ### Version 1.0.17 - 2026-08-04
 
 **Scan Activity Chart, Parallel Generation & Reliability Fixes**
