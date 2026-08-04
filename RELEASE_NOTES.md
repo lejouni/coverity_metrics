@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.0.17 - 2026-08-03
+### Version 1.0.17 - 2026-08-04
 
 **Scan Activity Chart, Parallel Generation & Reliability Fixes**
 

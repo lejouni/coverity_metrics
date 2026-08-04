@@ -536,9 +536,10 @@ if ((-not $NoInstallTest) -and (-not $DryRun)) {
   
   # Verify CLI commands
   Write-Host "Verifying coverity-dashboard CLI..." -ForegroundColor Cyan
-  Invoke-Step -Command "$testPy -m coverity_metrics.cli.dashboard --help"
+  $dashboardCli = Join-Path $venv 'Scripts/coverity-dashboard.exe'
+  Invoke-Step -Command "`"$dashboardCli`" --help"
   Write-Host "Verifying coverity-metrics CLI..." -ForegroundColor Cyan
-  Invoke-Step -Command "$testPy -c `"from coverity_metrics import __version__; print('Version:', __version__)`""
+  Invoke-Step -Command "`"$testPy`" -c `"from coverity_metrics import __version__; print('Version:', __version__)`""
 }
 
 Write-Host "Done." -ForegroundColor Green
