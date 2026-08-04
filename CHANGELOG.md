@@ -31,6 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`--version` Flag on `coverity-dashboard`**
   - Prints `coverity-dashboard version: X.Y.Z` and exits. Brings the dashboard CLI in line with `coverity-export` and `coverity-metrics`, which already supported `--version`. Handler short-circuits before the timing wrapper so no execution-time line is printed.
 
+- **📸 Snapshots Tab on Project Dashboards — Recent Analysis Command Lines**
+  - New project-only tab (📸 Snapshots) shows the exact `cov-build` and `cov-analyze` invocations recorded for the most recent 10 snapshots on the project — mirrors the "Command Line" data shown per snapshot in the Coverity Connect UI
+  - Each snapshot is a collapsible entry displaying stream, timestamp, invoker (user), host, and platform; expanding reveals a per-element block (`Build / Capture` and `Static Analysis`) with runtime, success/failure counts, and the full command in a preformatted block
+  - Backed by new `CoverityMetrics.get_snapshot_commands(limit=20)` which joins `snapshot` → `snapshot_element` and filters by project via `project_stream`/`project`
+  - ZIP exports now include `snapshot_commands.json` under `{instance}/{project}/`; `ZipDataLoader.get_snapshot_commands()` reads it and returns an empty DataFrame gracefully when opening pre-1.0.17 ZIPs
+  - Tab button and section are hidden automatically when there are no command rows to show (e.g. instance-level dashboards or projects with no committed snapshots)
+
 ### Changed
 - **Instance-scoped `CoverityMetrics` reuse across projects**
   - Both the export CLI and the dashboard CLI now build one `CoverityMetrics` per instance and rescope via the `.project_name` property between projects
@@ -59,6 +66,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All three parallel sites (export, dashboard DB-mode, dashboard ZIP-mode) now build the executor explicitly, catch `KeyboardInterrupt` around the `as_completed` loop, cancel every pending future, call `executor.shutdown(wait=False, cancel_futures=True)`, and re-raise
   - Both `coverity-export` and `coverity-dashboard` catch `KeyboardInterrupt` at the top level and exit cleanly with code 130 (`[INTERRUPTED] Aborted by user.`)
   - Effect: first Ctrl+C now drops all queued tasks immediately; only currently-executing DB queries or renders need to finish (typically seconds). A second Ctrl+C hard-kills the process.
+
+- **Individual Contributors leaderboards ignored `--days`**
+  - All five leaderboard queries in `dashboard.py` were hardcoded to `days=30`, so a dashboard generated with `--days 3650` still showed "Last 30 Days" cards. Now `top_projects_by_fix_rate`, `top_projects_by_triage`, `top_users_by_fixes`, `top_triagers`, and `most_collaborative_users` all pass the CLI-supplied `days` value
+  - Template subtitles and tooltips replaced literal "Last 30 Days" with `{{ trend_period_text }}` so the cards match the dashboard's actual analysis window
+  - Removed stale "improvement percentage (last 90 days)" fragment from the Project Performance tooltip — the Most Improved card was removed in 1.0.13
+- **`get_top_users_by_fixes` did not filter by the `days` window at all**
+  - The SQL for Top Fixers ignored the `days` parameter entirely — it aggregated all history regardless of the requested window
+  - Added `AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'` to the `last_triagers` CTE in both the project and instance branches, and threaded `days` into the parameter tuples
+- **Individual Contributors on project ZIP dashboards showed instance-wide rankings**
+  - `ZipDataLoader.get_top_users_by_fixes`, `get_top_triagers`, and `get_most_collaborative_users` called `_read_json_from_zip(self._get_metric_file(...))` directly, bypassing `self.project_name`, so project-level dashboards always displayed instance-wide user rankings
+  - Switched all three methods to `_read_metric_json(...)`, which checks `{instance}/{project}/{metric}.json` first and falls back to empty when the project file is absent — matching how other project-scoped metrics behave
+  - `export_project_specific_metrics` now writes `top_users_by_fixes.json`, `top_triagers.json`, and `most_collaborative_users.json` under `{instance}/{project}/` so the project-scoped files exist in new ZIPs. **Pre-1.0.17 ZIPs won't contain these files**, so project user leaderboards will be hidden until the ZIP is re-exported
+  - Instance-level and project-level leaderboard exports now use the CLI `days` value instead of hardcoded 30
+- **Cached dashboard path dropped the Individual Contributors cards entirely**
+  - `_collect_and_cache_metrics` in `dashboard.py` was setting `top_users_by_fixes`, `top_triagers`, and `most_collaborative_users` to empty lists with an outdated "not available without defect_triage_history table" comment — so every cached dashboard hid the Individual Contributors section
+  - Replaced with real calls (`metrics.get_top_users_by_fixes(days=days, limit=10)`, etc.) and updated `top_projects_by_fix_rate` / `top_projects_by_triage_activity` in the same block to use `days=days` instead of hardcoded 30
+- **Overview tab "Active Defects" card counted False Positive and Intentional as active**
+  - `get_overall_summary` computed `total_defects` and `high_severity_defects` from `stream_defect` with only `fixed_snapshot_element_id IS NULL`, so dismissed defects (classified as `False Positive` or `Intentional`) were included even though the card's tooltip promised they were excluded and the Defects by Stream table's `active_defects` column already excluded them
+  - Both the project-scoped and global branches now `LEFT JOIN defect_triage` + `dynamic_enum` (`dtype = 'Cls'`) and add `AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)`, making the Overview card match the rest of the dashboard
+  - Example: a project with 162 stream_defects where 162 were classified as False Positive previously showed `Active Defects: 162`; now correctly shows `0`
+- **Dismissed defects (False Positive / Intentional) now treated as fixed EVERYWHERE**
+  - Extended the same triage-classification exclusion to every remaining query that counted "outstanding" defects, so all Overview / Hotspots / Aging / Triage / OWASP / CWE metrics now agree on what counts as active
+  - Updated queries: `get_defects_by_severity`, `get_defects_by_checker_category`, `get_defects_by_checker_name`, `get_defect_density_by_project`, `get_file_hotspots`, `get_triage_trends`, `get_defect_trend_summary` (current_state CTE), `get_defect_aging_distribution`, `get_triage_progress_summary`, `get_top_projects_by_triage_activity`, `get_owasp_top10_metrics`, `get_owasp_category_details`, `get_cwe_top25_metrics`, `get_cwe_top25_details`
+  - Intentionally **not** changed: `get_checker_classification_breakdown` and `get_top_projects_by_classification` — these metrics are *about* the classification distribution itself (they surface noisy checkers / projects that dismiss a lot) and would produce empty results if dismissed were filtered out
+  - Also intentionally not changed: the triaged-fix CTEs in `get_defect_trends`, `get_fix_rate_metrics`, `get_defect_velocity_trend`, `get_cumulative_defect_trend`, `get_defect_trend_summary` (period totals) — these deliberately *include* dismissed defects on the "fixed" side of the ledger, which is what the fix rate metric is supposed to show
+  - Real-world example: `Vista360_Fix_KeyCloak` (97 stream_defects with 96 classified as FP/Intentional) previously showed 97 in every Overview chart; now correctly shows 1 truly-active defect everywhere
+  - **Follow-up refinement**: Five of these charts were reverted to still include dismissed because they exist specifically to show *what Coverity found*, not just what remains actionable — see next entry
+- **Reverted dismissed-exclusion on five "raw defect" visibility charts**
+  - `get_defects_by_severity`, `get_defects_by_checker_category`, `get_defects_by_checker_name`, `get_defect_density_by_project`, and `get_triage_progress_summary` now include dismissed defects again
+  - Rationale: these are Overview / Trend & Progress charts that answer "which severities / categories / checkers is Coverity firing on?" and "how much has been classified?" — hiding dismissed makes them incomplete. In particular, `get_triage_progress_summary` was showing `total_defects = 0` for projects where every defect had been triaged as FP/Intentional, making the Current Triage Progress card look like there was nothing to see
+  - "Active only" is still enforced on the metrics whose purpose is remediation load: Overview `Active Defects` card, File Hotspots, Defect Aging, Triage Trends (per-stream classification bars of *outstanding* defects), OWASP Top 10, CWE Top 25, and the current-outstanding count in `get_defect_trend_summary`
+- **"Outstanding defect" semantic corrected across every active-defect query — `stream_defect.fixed_snapshot_element_id` is unreliable**
+  - Discovered `fixed_snapshot_element_id IS NULL` misses defects that were once removed from code but then re-appeared in a later snapshot: Coverity does not clear the field when the defect returns, so counts based purely on this column understate outstanding defects. Coverity Connect's UI uses the `last_detected_snapshot` table instead — a defect is currently outstanding iff its `last_detected_snapshot.detected_snapshot_id` equals the latest non-deleted `snapshot.id` for its stream
+  - Introduced three class constants on `CoverityMetrics` that codify the correct pattern: `_ACTIVE_JOIN_SQL` (join `last_detected_snapshot` + per-stream max snapshot), `_ACTIVE_COND_SQL` (`lds.detected_snapshot_id = sn_latest.latest_snap_id`), and `_FIXED_COND_SQL` (its inverse). Every active-defect query now injects these instead of relying on `fixed_snapshot_element_id`
+  - Rewrote all ~20 active-defect SQL sites in `metrics.py` to use the new pattern: `get_total_defects_by_project`, `get_defects_by_severity`, `get_defects_by_checker_category`, `get_defects_by_checker_name`, `get_defect_density_by_project`, `get_overall_summary` (project + global branches), `get_file_hotspots`, `get_triage_trends`, `get_checker_classification_breakdown`, `get_top_projects_by_classification`, `get_fix_rate_metrics` (all three CTEs), `get_defect_velocity_trend`, `get_cumulative_defect_trend`, `get_defect_trend_summary` (period_triaged + current_state), `get_defect_aging_distribution`, `get_triage_progress_summary`, `get_technical_debt_summary`, `get_top_projects_by_fix_rate`, `get_top_projects_by_triage`, `get_top_users_by_fixes` (project + global), `get_owasp_top10_metrics`, `get_owasp_category_details`, `get_cwe_top25_metrics`, `get_cwe_top25_details`
+  - `get_triage_progress_summary` was additionally reshaped to start `FROM stream_defect sd` (was `FROM defect_triage dt` with a `LEFT JOIN` to `sd`), so orphan triages that never belonged to a currently-outstanding defect no longer inflate the totals
+  - Real-world example: `786-834_proyecto_hrim_workday` — Coverity UI shows 2 outstanding defects (CID 38907 Intentional, CID 39378 Unclassified). Old behaviour: `get_triage_progress_summary.total_defects = 1` (CID 39378 hidden because its `fixed_snapshot_element_id` was stale). New behaviour: `total_defects = 2`, matching the UI
+- **Function Complexity Distribution leaked instance-wide numbers into project dashboards**
+  - `get_function_complexity_distribution` and `get_most_complex_functions` had no project filter at all — every project's ZIP export and DB dashboard showed the *instance-wide* complexity histogram / top-N list, so projects with zero streams still displayed thousands of functions
+  - Both queries now join `stream_file` → `stream_element` → `stream` → `project_stream` → `project` when `_project_names` is set and filter with `AND p.name = ANY(%s)`. Projects without streams now correctly return empty
+  - Pre-1.0.17 ZIPs still contain the leaky per-project `function_complexity_distribution.json` files — re-export with 1.0.17+ to get correct per-project numbers
 
 ## [1.0.16] - 2026-05-05
 

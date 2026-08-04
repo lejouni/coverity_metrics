@@ -291,6 +291,27 @@ class ZipDataLoader:
             return df.head(limit)
         return df
     
+    def get_snapshot_commands(self, limit=10):
+        """Get analysis and build command lines for recent snapshots.
+
+        Project-scoped when a project has been set on the loader; instance-level
+        exports typically do not include this metric.
+        """
+        df = self._read_metric_json('snapshot_commands', as_dataframe=True)
+        if df.empty:
+            return df
+        # Limit is expressed in snapshots, not rows — trim to the N most recent
+        # distinct snapshot_ids while preserving order.
+        if 'snapshot_id' in df.columns:
+            seen = []
+            for sid in df['snapshot_id']:
+                if sid not in seen:
+                    seen.append(sid)
+                if len(seen) >= limit:
+                    break
+            df = df[df['snapshot_id'].isin(seen)]
+        return df
+    
     def get_commit_time_statistics(self):
         """Get commit time statistics"""
         return self._read_metric_json('commit_time_statistics')
@@ -381,22 +402,22 @@ class ZipDataLoader:
         return df
     
     def get_top_users_by_fixes(self, days=30, limit=10):
-        """Get top users by fixes"""
-        df = self._read_json_from_zip(self._get_metric_file('top_users_by_fixes'), as_dataframe=True)
+        """Get top users by fixes (project-scoped when project_name is set)"""
+        df = self._read_metric_json('top_users_by_fixes', as_dataframe=True)
         if not df.empty:
             return df.head(limit)
         return df
     
     def get_top_triagers(self, days=30, limit=10):
-        """Get top triagers"""
-        df = self._read_json_from_zip(self._get_metric_file('top_triagers'), as_dataframe=True)
+        """Get top triagers (project-scoped when project_name is set)"""
+        df = self._read_metric_json('top_triagers', as_dataframe=True)
         if not df.empty:
             return df.head(limit)
         return df
     
     def get_most_collaborative_users(self, days=30, limit=10):
-        """Get most collaborative users"""
-        df = self._read_json_from_zip(self._get_metric_file('most_collaborative_users'), as_dataframe=True)
+        """Get most collaborative users (project-scoped when project_name is set)"""
+        df = self._read_metric_json('most_collaborative_users', as_dataframe=True)
         if not df.empty:
             return df.head(limit)
         return df

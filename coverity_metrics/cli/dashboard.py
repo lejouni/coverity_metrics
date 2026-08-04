@@ -201,6 +201,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             analysis_versions = metrics_data.get('analysis_versions', [])
             largest_tables = metrics_data.get('largest_tables', [])
             snapshot_performance = metrics_data.get('snapshot_performance', [])
+            snapshot_commands = metrics_data.get('snapshot_commands', [])
             commit_stats = metrics_data.get('commit_stats', {})
             commit_activity = metrics_data.get('commit_activity', {})
             defect_discovery = metrics_data.get('defect_discovery', [])
@@ -245,6 +246,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             analysis_versions = metrics_data.get('analysis_versions', [])
             largest_tables = metrics_data['largest_tables']
             snapshot_performance = metrics_data['snapshot_performance']
+            snapshot_commands = metrics_data.get('snapshot_commands', [])
             commit_stats = metrics_data['commit_stats']
             commit_activity = metrics_data.get('commit_activity', {})
             defect_discovery = metrics_data['defect_discovery']
@@ -296,6 +298,11 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         analysis_versions = metrics.get_analysis_versions(limit=10, days=days)
         largest_tables = metrics.get_largest_tables(limit=10).to_dict('records')
         snapshot_performance = metrics.get_snapshot_performance(limit=15).to_dict('records')
+        # Analysis command lines are only meaningful on project dashboards
+        snapshot_commands = (
+            metrics.get_snapshot_commands(limit=10).to_dict('records')
+            if project_name else []
+        )
         commit_stats = metrics.get_commit_time_statistics()
         commit_activity = metrics.get_commit_activity_patterns()
         defect_discovery = metrics.get_defect_discovery_rate(days=days).to_dict('records')
@@ -326,11 +333,11 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         tech_debt_summary = metrics.get_technical_debt_summary()
         
         # Collect leaderboard data (now using triage_state table for user metrics)
-        top_projects_by_fix_rate = metrics.get_top_projects_by_fix_rate(days=30, limit=10).to_dict('records')
-        top_projects_by_triage = metrics.get_top_projects_by_triage_activity(days=30, limit=10).to_dict('records')
-        top_users_by_fixes = metrics.get_top_users_by_fixes(days=30, limit=10).to_dict('records')
-        top_triagers = metrics.get_top_triagers(days=30, limit=10).to_dict('records')
-        most_collaborative_users = metrics.get_most_collaborative_users(days=30, limit=10).to_dict('records')
+        top_projects_by_fix_rate = metrics.get_top_projects_by_fix_rate(days=days, limit=10).to_dict('records')
+        top_projects_by_triage = metrics.get_top_projects_by_triage_activity(days=days, limit=10).to_dict('records')
+        top_users_by_fixes = metrics.get_top_users_by_fixes(days=days, limit=10).to_dict('records')
+        top_triagers = metrics.get_top_triagers(days=days, limit=10).to_dict('records')
+        most_collaborative_users = metrics.get_most_collaborative_users(days=days, limit=10).to_dict('records')
         
         # Collect OWASP Top 10 2025 metrics (project-level only)
         owasp_metrics = metrics.get_owasp_top10_metrics().to_dict('records') if project_name else []
@@ -400,6 +407,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         analysis_versions=analysis_versions,
         largest_tables=largest_tables,
         snapshot_performance=snapshot_performance,
+        snapshot_commands=snapshot_commands,
         commit_stats=commit_stats,
         commit_activity=commit_activity,
         defect_discovery=defect_discovery,
@@ -475,6 +483,11 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
     analysis_versions = metrics.get_analysis_versions(limit=10, days=days)
     largest_tables = metrics.get_largest_tables(limit=10).to_dict('records')
     snapshot_performance = metrics.get_snapshot_performance(limit=15).to_dict('records')
+    # Analysis command lines are only meaningful on project dashboards
+    snapshot_commands = (
+        metrics.get_snapshot_commands(limit=10).to_dict('records')
+        if project_name else []
+    )
     commit_stats = metrics.get_commit_time_statistics()
     commit_activity = metrics.get_commit_activity_patterns()
     defect_discovery = metrics.get_defect_discovery_rate(days=days).to_dict('records')
@@ -501,12 +514,12 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
     # Collect scan/commit activity trend (snapshots over time)
     scan_activity_trend = metrics.get_scan_activity_trend(days=days, granularity=granularity).to_dict('records')
 
-    # Collect leaderboard data (project-level only - database doesn't have history tables for user tracking)
-    top_projects_by_fix_rate = metrics.get_top_projects_by_fix_rate(days=30, limit=10).to_dict('records')
-    top_projects_by_triage = metrics.get_top_projects_by_triage_activity(days=30, limit=10).to_dict('records')
-    top_users_by_fixes = []  # Not available without defect_triage_history table
-    top_triagers = []  # Not available without defect_triage_history table
-    most_collaborative_users = []  # Not available without defect_history table
+    # Collect leaderboard data (project-scoped when metrics.project_name is set)
+    top_projects_by_fix_rate = metrics.get_top_projects_by_fix_rate(days=days, limit=10).to_dict('records')
+    top_projects_by_triage = metrics.get_top_projects_by_triage_activity(days=days, limit=10).to_dict('records')
+    top_users_by_fixes = metrics.get_top_users_by_fixes(days=days, limit=10).to_dict('records')
+    top_triagers = metrics.get_top_triagers(days=days, limit=10).to_dict('records')
+    most_collaborative_users = metrics.get_most_collaborative_users(days=days, limit=10).to_dict('records')
     
     # Collect OWASP Top 10 2025 metrics (project-level only)
     owasp_metrics = metrics.get_owasp_top10_metrics().to_dict('records') if project_name else []
@@ -562,6 +575,7 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
         'analysis_versions': analysis_versions,
         'largest_tables': largest_tables,
         'snapshot_performance': snapshot_performance,
+        'snapshot_commands': snapshot_commands,
         'commit_stats': commit_stats,
         'commit_activity': commit_activity,
         'defect_discovery': defect_discovery,

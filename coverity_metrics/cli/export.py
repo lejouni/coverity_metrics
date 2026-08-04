@@ -140,12 +140,12 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
         'technical_debt_summary': {'method': 'get_technical_debt_summary'},
         
         # Leaderboard Metrics
-        'top_projects_by_fix_rate': {'method': 'get_top_projects_by_fix_rate', 'kwargs': {'days': 30, 'limit': 100}},
+        'top_projects_by_fix_rate': {'method': 'get_top_projects_by_fix_rate', 'kwargs': {'days': days, 'limit': 100}},
 
-        'top_projects_by_triage_activity': {'method': 'get_top_projects_by_triage_activity', 'kwargs': {'days': 30, 'limit': 100}},
+        'top_projects_by_triage_activity': {'method': 'get_top_projects_by_triage_activity', 'kwargs': {'days': days, 'limit': 100}},
         'top_users_by_fixes': {'method': 'get_top_users_by_fixes', 'kwargs': {'days': days, 'limit': 100}},
-        'top_triagers': {'method': 'get_top_triagers', 'kwargs': {'days': 30, 'limit': 100}},
-        'most_collaborative_users': {'method': 'get_most_collaborative_users', 'kwargs': {'days': 30, 'limit': 100}},
+        'top_triagers': {'method': 'get_top_triagers', 'kwargs': {'days': days, 'limit': 100}},
+        'most_collaborative_users': {'method': 'get_most_collaborative_users', 'kwargs': {'days': days, 'limit': 100}},
         
         # User Activity
         'user_license_statistics': {'method': 'get_user_license_statistics', 'kwargs': {'days': days}},
@@ -245,12 +245,18 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
         # Snapshot and performance metrics (project-specific)
         'analysis_versions': {'method': 'get_analysis_versions', 'kwargs': {'limit': 100, 'days': days}},
         'snapshot_performance': {'method': 'get_snapshot_performance', 'kwargs': {'limit': 100}},
+        'snapshot_commands': {'method': 'get_snapshot_commands', 'kwargs': {'limit': 20}},
         'commit_time_statistics': {'method': 'get_commit_time_statistics'},
         'commit_activity_patterns': {'method': 'get_commit_activity_patterns'},
         'defect_discovery_rate': {'method': 'get_defect_discovery_rate', 'kwargs': {'days': days}},
         'defect_velocity_trend': {'method': 'get_defect_velocity_trend', 'kwargs': {'days': days}},
         'cumulative_defect_trend': {'method': 'get_cumulative_defect_trend', 'kwargs': {'days': days}},
         'scan_activity_trend': {'method': 'get_scan_activity_trend', 'kwargs': {'days': days, 'granularity': 'day'}},
+
+        # Per-project user leaderboards (scoped by metrics.project_name)
+        'top_users_by_fixes': {'method': 'get_top_users_by_fixes', 'kwargs': {'days': days, 'limit': 100}},
+        'top_triagers': {'method': 'get_top_triagers', 'kwargs': {'days': days, 'limit': 100}},
+        'most_collaborative_users': {'method': 'get_most_collaborative_users', 'kwargs': {'days': days, 'limit': 100}},
     }
     
     # Export each project metric

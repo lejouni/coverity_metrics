@@ -9,7 +9,24 @@ from tqdm import tqdm
 
 class CoverityMetrics:
     """Comprehensive metrics for Coverity static analysis data"""
-    
+
+    # A stream_defect is "currently outstanding" iff its last-detected snapshot equals the
+    # stream's latest snapshot. stream_defect.fixed_snapshot_element_id alone is unreliable
+    # because Coverity does not clear it when a previously-fixed defect reappears in a later
+    # snapshot. Queries embed these three constants via f-strings; use {{name}} for later
+    # .format() placeholders such as {project_filter}.
+    _ACTIVE_JOIN_SQL = """
+        LEFT JOIN last_detected_snapshot lds ON lds.stream_defect_id = sd.id
+        LEFT JOIN (
+            SELECT sn2.stream_id, MAX(sn2.id) AS latest_snap_id
+            FROM snapshot sn2
+            WHERE NOT COALESCE(sn2.deleted, FALSE)
+            GROUP BY sn2.stream_id
+        ) sn_latest ON sn_latest.stream_id = se.stream_id
+    """
+    _ACTIVE_COND_SQL = "lds.detected_snapshot_id = sn_latest.latest_snap_id"
+    _FIXED_COND_SQL = "(lds.detected_snapshot_id IS NULL OR lds.detected_snapshot_id != sn_latest.latest_snap_id)"
+
     def __init__(self, connection_params, project_name=None):
         """Initialize metrics calculator
         
@@ -59,17 +76,17 @@ class CoverityMetrics:
 
         if multi_project:
             # Multiple projects: group by project name, filter to selected projects only
-            query = """
+            query = f"""
                 SELECT 
                     p.name as project_name,
                     COUNT(DISTINCT sd.id) as defect_count,
                     COUNT(DISTINCT CASE 
-                        WHEN sd.fixed_snapshot_element_id IS NULL 
+                        WHEN {self._ACTIVE_COND_SQL}
                             AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                         THEN sd.id 
                     END) as active_defects,
                     COUNT(DISTINCT CASE 
-                        WHEN sd.fixed_snapshot_element_id IS NOT NULL 
+                        WHEN {self._FIXED_COND_SQL}
                             OR de_cls.name IN ('False Positive', 'Intentional')
                         THEN sd.id 
                     END) as fixed_defects
@@ -80,6 +97,7 @@ class CoverityMetrics:
                 LEFT JOIN stream_defect sd ON se.id = sd.stream_element_id
                 LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
                 LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
+                {self._ACTIVE_JOIN_SQL}
                 WHERE p.deleted = false AND s.deleted = false
                     AND p.name = ANY(%s)
                 GROUP BY p.name
@@ -88,17 +106,17 @@ class CoverityMetrics:
             results = self.db.execute_query_dict(query, (self._project_names,))
         elif single_project:
             # Single project: group by stream for drill-down view
-            query = """
+            query = f"""
                 SELECT 
                     s.name as project_name,
                     COUNT(DISTINCT sd.id) as defect_count,
                     COUNT(DISTINCT CASE 
-                        WHEN sd.fixed_snapshot_element_id IS NULL 
+                        WHEN {self._ACTIVE_COND_SQL}
                             AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                         THEN sd.id 
                     END) as active_defects,
                     COUNT(DISTINCT CASE 
-                        WHEN sd.fixed_snapshot_element_id IS NOT NULL 
+                        WHEN {self._FIXED_COND_SQL}
                             OR de_cls.name IN ('False Positive', 'Intentional')
                         THEN sd.id 
                     END) as fixed_defects
@@ -109,6 +127,7 @@ class CoverityMetrics:
                 LEFT JOIN stream_defect sd ON se.id = sd.stream_element_id
                 LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
                 LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
+                {self._ACTIVE_JOIN_SQL}
                 WHERE p.deleted = false AND s.deleted = false
                     AND p.name = ANY(%s)
                 GROUP BY s.name
@@ -116,17 +135,17 @@ class CoverityMetrics:
             """
             results = self.db.execute_query_dict(query, (self._project_names,))
         else:
-            query = """
+            query = f"""
                 SELECT 
                     p.name as project_name,
                     COUNT(DISTINCT sd.id) as defect_count,
                     COUNT(DISTINCT CASE 
-                        WHEN sd.fixed_snapshot_element_id IS NULL 
+                        WHEN {self._ACTIVE_COND_SQL}
                             AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                         THEN sd.id 
                     END) as active_defects,
                     COUNT(DISTINCT CASE 
-                        WHEN sd.fixed_snapshot_element_id IS NOT NULL 
+                        WHEN {self._FIXED_COND_SQL}
                             OR de_cls.name IN ('False Positive', 'Intentional')
                         THEN sd.id 
                     END) as fixed_defects
@@ -137,6 +156,7 @@ class CoverityMetrics:
                 LEFT JOIN stream_defect sd ON se.id = sd.stream_element_id
                 LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
                 LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
+                {self._ACTIVE_JOIN_SQL}
                 WHERE p.deleted = false AND s.deleted = false
                     AND p.name != 'Developer Streams'
                 GROUP BY p.name
@@ -147,11 +167,14 @@ class CoverityMetrics:
     
     def get_defects_by_severity(self):
         """Get defect count grouped by impact (severity)
-        
+
+        Includes dismissed defects (False Positive / Intentional) so the chart reflects
+        the full defect volume Coverity has surfaced, not just the currently-actionable set.
+
         Returns:
             pandas.DataFrame: Impact level and count
         """
-        query = """
+        query = f"""
             SELECT 
                 cp.impact,
                 COUNT(*) as defect_count
@@ -161,9 +184,10 @@ class CoverityMetrics:
             JOIN stream s ON se.stream_id = s.id
             JOIN project_stream ps ON s.id = ps.stream_id
             JOIN project p ON ps.project_id = p.id
-            WHERE sd.fixed_snapshot_element_id IS NULL
+            {self._ACTIVE_JOIN_SQL}
+            WHERE {self._ACTIVE_COND_SQL}
                 AND p.deleted = false
-                {project_filter}
+                {{project_filter}}
             GROUP BY cp.impact
             ORDER BY 
                 CASE cp.impact
@@ -203,7 +227,8 @@ class CoverityMetrics:
             JOIN stream s ON se.stream_id = s.id
             JOIN project_stream ps ON s.id = ps.stream_id
             JOIN project p ON ps.project_id = p.id
-            WHERE sd.fixed_snapshot_element_id IS NULL
+            {self._ACTIVE_JOIN_SQL}
+            WHERE {self._ACTIVE_COND_SQL}
                 AND p.deleted = false
                 {{project_filter}}
             GROUP BY cc.name
@@ -245,7 +270,8 @@ class CoverityMetrics:
             JOIN stream s ON se.stream_id = s.id
             JOIN project_stream ps ON s.id = ps.stream_id
             JOIN project p ON ps.project_id = p.id
-            WHERE sd.fixed_snapshot_element_id IS NULL
+            {self._ACTIVE_JOIN_SQL}
+            WHERE {self._ACTIVE_COND_SQL}
                 AND p.deleted = false
                 {{project_filter}}
             GROUP BY ct.name, cc.name, cp.impact
@@ -268,7 +294,7 @@ class CoverityMetrics:
         Returns:
             pandas.DataFrame: Project metrics including defect density
         """
-        query = """
+        query = f"""
             SELECT 
                 p.name as project_name,
                 s.name as stream_name,
@@ -283,12 +309,13 @@ class CoverityMetrics:
             JOIN project_stream ps ON p.id = ps.project_id
             JOIN stream s ON ps.stream_id = s.id
             JOIN stream_element se ON s.id = se.stream_id
-            LEFT JOIN stream_defect sd ON se.id = sd.stream_element_id 
-                AND sd.fixed_snapshot_element_id IS NULL
+            LEFT JOIN stream_defect sd ON se.id = sd.stream_element_id
+            {self._ACTIVE_JOIN_SQL}
             LEFT JOIN stream_file sf ON se.id = sf.stream_element_id
             WHERE p.deleted = false AND s.deleted = false
                 AND p.name != 'Developer Streams'
-                {project_filter}
+                AND (sd.id IS NULL OR {self._ACTIVE_COND_SQL})
+                {{project_filter}}
             GROUP BY p.name, s.name
             ORDER BY defects_per_kloc DESC
         """
@@ -415,13 +442,29 @@ class CoverityMetrics:
         Returns:
             pandas.DataFrame: Complexity ranges and counts
         """
-        query = """
+        project_filter_join = ""
+        project_filter_where = ""
+        params = None
+        if self._project_names:
+            project_filter_join = """
+                JOIN stream_file stf ON sf.stream_file_id = stf.id
+                JOIN stream_element se ON stf.stream_element_id = se.id
+                JOIN stream s ON se.stream_id = s.id
+                JOIN project_stream ps ON s.id = ps.stream_id
+                JOIN project p ON ps.project_id = p.id
+            """
+            project_filter_where = "AND p.name = ANY(%s)"
+            params = (self._project_names,)
+
+        query = f"""
             WITH complexity_data AS (
                 SELECT 
                     fm.cyclomatic_complexity as complexity
                 FROM stream_function sf
                 JOIN function_metrics fm ON sf.function_id = fm.id
+                {project_filter_join}
                 WHERE fm.cyclomatic_complexity IS NOT NULL
+                    {project_filter_where}
             )
             SELECT 
                 CASE 
@@ -451,7 +494,7 @@ class CoverityMetrics:
                     ELSE 5
                 END)
         """
-        results = self.db.execute_query_dict(query)
+        results = self.db.execute_query_dict(query, params)
         return pd.DataFrame(results)
     
     def get_most_complex_functions(self, limit=20, fetch_all=False):
@@ -465,6 +508,20 @@ class CoverityMetrics:
             pandas.DataFrame: Function details with complexity
         """
         limit_clause = "" if fetch_all else "LIMIT %s"
+
+        project_filter_join = ""
+        project_filter_where = ""
+        project_params = ()
+        if self._project_names:
+            project_filter_join = """
+                JOIN stream_element se ON stf.stream_element_id = se.id
+                JOIN stream s ON se.stream_id = s.id
+                JOIN project_stream ps ON s.id = ps.stream_id
+                JOIN project p ON ps.project_id = p.id
+            """
+            project_filter_where = "AND p.name = ANY(%s)"
+            project_params = (self._project_names,)
+
         query = f"""
             SELECT 
                 f.display_name as function_name,
@@ -476,11 +533,13 @@ class CoverityMetrics:
             JOIN function_metrics fm ON f.id = fm.id
             JOIN stream_file stf ON sf.stream_file_id = stf.id
             JOIN file_path fp ON stf.file_path_id = fp.id
+            {project_filter_join}
             WHERE fm.cyclomatic_complexity IS NOT NULL
+                {project_filter_where}
             ORDER BY fm.cyclomatic_complexity DESC, fm.line_count DESC
             {limit_clause}
         """
-        params = () if fetch_all else (limit,)
+        params = project_params if fetch_all else project_params + (limit,)
         results = self.db.execute_query_dict(query, params)
         return pd.DataFrame(results)
     
@@ -782,13 +841,19 @@ class CoverityMetrics:
                     JOIN project p ON ps.project_id = p.id
                     WHERE s.deleted = false AND p.name = ANY(%s)
                 """, (self._project_names,)),
-                'total_defects': ("""
+                'total_defects': (f"""
                     SELECT COUNT(DISTINCT sd.id) FROM stream_defect sd
                     JOIN stream_element se ON sd.stream_element_id = se.id
                     JOIN stream s ON se.stream_id = s.id
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
-                    WHERE sd.fixed_snapshot_element_id IS NULL AND p.name = ANY(%s)
+                    LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                    LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id
+                        AND de_cls.dtype = 'Cls'
+                    {self._ACTIVE_JOIN_SQL}
+                    WHERE {self._ACTIVE_COND_SQL}
+                        AND p.name = ANY(%s)
+                        AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                 """, (self._project_names,)),
                 'total_files': ("""
                     SELECT COUNT(DISTINCT sfile.id) FROM stream_file sfile
@@ -864,16 +929,21 @@ class CoverityMetrics:
                             AND p.name = ANY(%s)
                     ) active_users
                 """, (self._project_names, self._project_names, self._project_names)),
-                'high_severity_defects': ("""
+                'high_severity_defects': (f"""
                     SELECT COUNT(DISTINCT sd.id) FROM stream_defect sd 
                     JOIN checker_properties cp ON sd.checker_properties_id = cp.id
                     JOIN stream_element se ON sd.stream_element_id = se.id
                     JOIN stream s ON se.stream_id = s.id
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
-                    WHERE sd.fixed_snapshot_element_id IS NULL 
+                    LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                    LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id
+                        AND de_cls.dtype = 'Cls'
+                    {self._ACTIVE_JOIN_SQL}
+                    WHERE {self._ACTIVE_COND_SQL}
                         AND cp.impact = 'High' 
                         AND p.name = ANY(%s)
+                        AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                 """, (self._project_names,)),
             }
         else:
@@ -881,7 +951,16 @@ class CoverityMetrics:
             queries = {
                 'total_projects': ("SELECT COUNT(*) FROM project WHERE deleted = false AND name != 'Developer Streams'", None),
                 'total_streams': ("SELECT COUNT(*) FROM stream WHERE deleted = false", None),
-                'total_defects': ("SELECT COUNT(*) FROM stream_defect WHERE fixed_snapshot_element_id IS NULL", None),
+                'total_defects': (f"""
+                    SELECT COUNT(*) FROM stream_defect sd
+                    JOIN stream_element se ON sd.stream_element_id = se.id
+                    LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                    LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id
+                        AND de_cls.dtype = 'Cls'
+                    {self._ACTIVE_JOIN_SQL}
+                    WHERE {self._ACTIVE_COND_SQL}
+                        AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
+                """, None),
                 'total_files': ("SELECT COUNT(DISTINCT id) FROM stream_file", None),
                 'total_functions': ("SELECT COUNT(*) FROM stream_function", None),
                 'total_loc': ("SELECT SUM(COALESCE(current_code_line_count, 0)) FROM stream_file", None),
@@ -914,10 +993,16 @@ class CoverityMetrics:
                             AND sn.deleted = false
                     ) active_user_list
                 """, None),
-                'high_severity_defects': ("""
+                'high_severity_defects': (f"""
                     SELECT COUNT(*) FROM stream_defect sd 
                     JOIN checker_properties cp ON sd.checker_properties_id = cp.id 
-                    WHERE sd.fixed_snapshot_element_id IS NULL AND cp.impact = 'High'
+                    JOIN stream_element se ON sd.stream_element_id = se.id
+                    LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                    LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id
+                        AND de_cls.dtype = 'Cls'
+                    {self._ACTIVE_JOIN_SQL}
+                    WHERE {self._ACTIVE_COND_SQL} AND cp.impact = 'High'
+                        AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                 """, None),
             }
         
@@ -959,7 +1044,12 @@ class CoverityMetrics:
             JOIN stream s ON se.stream_id = s.id
             JOIN project_stream ps ON s.id = ps.stream_id
             JOIN project p ON ps.project_id = p.id
-            WHERE sd.fixed_snapshot_element_id IS NULL
+            LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+            LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id
+                AND de_cls.dtype = 'Cls'
+            {self._ACTIVE_JOIN_SQL}
+            WHERE {self._ACTIVE_COND_SQL}
+                AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                 AND p.deleted = false
                 {{project_filter}}
             GROUP BY fp.filename, sf.current_code_line_count
@@ -1318,6 +1408,79 @@ class CoverityMetrics:
         
         return pd.DataFrame(results)
     
+    def get_snapshot_commands(self, limit=20):
+        """Get analysis and build command lines for recent snapshots.
+
+        Reads `snapshot_element` rows attached to the N most recent snapshots
+        (filtered by project when `project_name` is set). Each snapshot has one
+        or more elements — typically one `SrcSE` (cov-build) and one `StcSE`
+        (cov-analyze). Mirrors the "Command Line" data shown per snapshot in
+        the Coverity Connect UI.
+
+        Args:
+            limit: Maximum number of recent snapshots to include.
+
+        Returns:
+            pandas.DataFrame: Columns snapshot_id, stream_name, date_created,
+            dtype, command_type, command, invoker, host, platform,
+            run_time_seconds, success_count, failure_count.
+        """
+        query = """
+            WITH recent_snapshots AS (
+                SELECT sn.id, sn.date_created, s.name AS stream_name
+                FROM snapshot sn
+                JOIN stream s ON sn.stream_id = s.id
+                {project_filter_join}
+                WHERE sn.deleted = false
+                    {project_filter}
+                ORDER BY sn.date_created DESC
+                LIMIT %s
+            )
+            SELECT
+                rs.id AS snapshot_id,
+                rs.stream_name,
+                rs.date_created,
+                se.dtype,
+                CASE se.dtype
+                    WHEN 'SrcSE' THEN 'Build / Capture'
+                    WHEN 'StcSE' THEN 'Static Analysis'
+                    ELSE se.dtype
+                END AS command_type,
+                se.command,
+                se.invoker,
+                se.host,
+                se.platform,
+                ROUND(se.run_time / 1000.0, 1) AS run_time_seconds,
+                se.success_count,
+                se.failure_count
+            FROM recent_snapshots rs
+            JOIN snapshot_element se ON se.snapshot_id = rs.id
+            WHERE se.command IS NOT NULL AND se.command <> ''
+            ORDER BY rs.date_created DESC, rs.id DESC,
+                     CASE se.dtype WHEN 'SrcSE' THEN 0 WHEN 'StcSE' THEN 1 ELSE 2 END,
+                     se.id
+        """
+
+        if self.project_name:
+            query = query.format(
+                project_filter_join="""
+                    JOIN project_stream ps ON s.id = ps.stream_id
+                    JOIN project p ON ps.project_id = p.id
+                """,
+                project_filter="AND p.name = ANY(%s)"
+            )
+            results = self.db.execute_query_dict(query, (self._project_names, limit))
+        else:
+            query = query.format(project_filter_join="", project_filter="")
+            results = self.db.execute_query_dict(query, (limit,))
+
+        df = pd.DataFrame(results)
+        if not df.empty:
+            # Convert pandas NaN (from SQL NULLs on numeric cols) to None so Jinja
+            # `is not none` and json.dumps produce clean, safe output
+            df = df.astype(object).where(df.notna(), None)
+        return df
+    
     def get_commit_time_statistics(self):
         """Get commit/analysis time statistics
         
@@ -1624,10 +1787,11 @@ class CoverityMetrics:
                 JOIN dynamic_enum de ON dt.current_classification_id = de.id
                 JOIN stream_element se ON sd.stream_element_id = se.id
                 JOIN stream s ON se.stream_id = s.id
+                {self._ACTIVE_JOIN_SQL}
                 {{project_filter_join_triage}}
                 WHERE de.dtype = 'Cls'
                     AND de.name IN ('False Positive', 'Intentional')
-                    AND sd.fixed_snapshot_element_id IS NULL
+                    AND {self._ACTIVE_COND_SQL}
                     AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
                     {{project_filter_triage}}
                 GROUP BY period
@@ -1672,13 +1836,15 @@ class CoverityMetrics:
     
     def get_triage_trends(self, days=90, granularity='week'):
         """Get triage classification distribution of outstanding defects, grouped by stream.
-        
+
         Shows ALL currently outstanding defects, broken down by stream and their CURRENT
         classification. Streams are ordered so those with the most unclassified defects
         appear first, highlighting where triage attention is most needed.
         Unclassified defects (defect_triage_id IS NULL or classification not set) are
         included explicitly under the 'Unclassified' bucket.
-        
+
+        Dismissed defects (False Positive / Intentional) are treated as fixed and excluded.
+
         Args:
             days: Not used (kept for API compatibility).
             granularity: Not used (kept for API compatibility).
@@ -1686,7 +1852,7 @@ class CoverityMetrics:
         Returns:
             pandas.DataFrame: Outstanding defect counts per stream and classification
         """
-        query = """
+        query = f"""
             SELECT 
                 s.name as stream,
                 COALESCE(de.name, 'Unclassified') as classification,
@@ -1696,9 +1862,11 @@ class CoverityMetrics:
             JOIN stream s ON se.stream_id = s.id
             LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
             LEFT JOIN dynamic_enum de ON dt.current_classification_id = de.id AND de.dtype = 'Cls'
-            {project_filter_join}
-            WHERE sd.fixed_snapshot_element_id IS NULL
-                {project_filter}
+            {self._ACTIVE_JOIN_SQL}
+            {{project_filter_join}}
+            WHERE {self._ACTIVE_COND_SQL}
+                AND (de.name NOT IN ('False Positive', 'Intentional') OR de.name IS NULL)
+                {{project_filter}}
             GROUP BY s.name, COALESCE(de.name, 'Unclassified')
             ORDER BY
                 COUNT(DISTINCT CASE WHEN de.name IS NULL OR de.name = 'Unclassified' THEN sd.id END) DESC,
@@ -1750,8 +1918,9 @@ class CoverityMetrics:
                 JOIN stream s ON se.stream_id = s.id
                 JOIN defect_triage dt ON sd.defect_triage_id = dt.id
                 JOIN dynamic_enum de ON dt.current_classification_id = de.id AND de.dtype = 'Cls'
+                {self._ACTIVE_JOIN_SQL}
                 {{project_filter_join}}
-                WHERE sd.fixed_snapshot_element_id IS NULL
+                WHERE {self._ACTIVE_COND_SQL}
                     AND de.name != 'Unclassified'
                     {{project_filter}}
                 GROUP BY ct.name, de.name
@@ -1830,7 +1999,8 @@ class CoverityMetrics:
                 {extra_join}
                 LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
                 LEFT JOIN dynamic_enum de ON dt.current_classification_id = de.id AND de.dtype = 'Cls'
-                WHERE sd.fixed_snapshot_element_id IS NULL
+                {self._ACTIVE_JOIN_SQL}
+                WHERE {self._ACTIVE_COND_SQL}
                     {where_filter}
                 GROUP BY {name_col}, COALESCE(de.name, 'Unclassified')
             ),
@@ -1864,17 +2034,17 @@ class CoverityMetrics:
         Returns:
             dict: Fix rate statistics
         """
-        query = """
+        query = f"""
             WITH fix_stats AS (
                 SELECT 
                     SUM(sn.new_defect_count) as total_new,
                     SUM(sn.eliminated_defect_count) as code_fixed,
                     AVG(sn.total_defect_count) as avg_outstanding
                 FROM snapshot sn
-                {project_filter_join}
+                {{project_filter_join}}
                 WHERE sn.deleted = false
                     AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
-                    {project_filter}
+                    {{project_filter}}
             ),
             triaged_stats AS (
                 -- Count defects triaged as False Positive or Intentional
@@ -1886,12 +2056,13 @@ class CoverityMetrics:
                 JOIN dynamic_enum de ON dt.current_classification_id = de.id
                 JOIN stream_element se ON sd.stream_element_id = se.id
                 JOIN stream s ON se.stream_id = s.id
-                {project_filter_join_triaged_stats}
+                {self._ACTIVE_JOIN_SQL}
+                {{project_filter_join_triaged_stats}}
                 WHERE de.dtype = 'Cls'
                     AND de.name IN ('False Positive', 'Intentional')
-                    AND sd.fixed_snapshot_element_id IS NULL
+                    AND {self._ACTIVE_COND_SQL}
                     AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
-                    {project_filter_triaged_stats}
+                    {{project_filter_triaged_stats}}
             ),
             fix_times AS (
                 -- Calculate actual fix times using snapshot_element and snapshot
@@ -1908,12 +2079,14 @@ class CoverityMetrics:
                 -- Join to stream for project filtering
                 JOIN stream_element se ON sd.stream_element_id = se.id
                 JOIN stream s ON se.stream_id = s.id
-                {project_filter_join_fix}
+                {self._ACTIVE_JOIN_SQL}
+                {{project_filter_join_fix}}
                 WHERE sd.fixed_snapshot_element_id IS NOT NULL
+                    AND {self._FIXED_COND_SQL}
                     AND sd.first_snapshot_element_id IS NOT NULL
                     AND sn_fix.date_created >= CURRENT_DATE - INTERVAL '%s days'
                     AND sn_fix.date_created > sn_detect.date_created
-                    {project_filter_fix}
+                    {{project_filter_fix}}
                 
                 UNION ALL
                 
@@ -1931,14 +2104,15 @@ class CoverityMetrics:
                 -- Join to stream for project filtering
                 JOIN stream_element se ON sd.stream_element_id = se.id
                 JOIN stream s ON se.stream_id = s.id
-                {project_filter_join_triage}
+                {self._ACTIVE_JOIN_SQL}
+                {{project_filter_join_triage}}
                 WHERE de.dtype = 'Cls'
                     AND de.name IN ('False Positive', 'Intentional')
-                    AND sd.fixed_snapshot_element_id IS NULL  -- Not already counted in code-based fixes
+                    AND {self._ACTIVE_COND_SQL}  -- Not already counted in code-based fixes
                     AND sd.first_snapshot_element_id IS NOT NULL
                     AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
                     AND ts.date_created > sn_detect.date_created
-                    {project_filter_triage}
+                    {{project_filter_triage}}
             )
             SELECT 
                 fs.total_new as total_defects,
@@ -2001,7 +2175,7 @@ class CoverityMetrics:
         Returns:
             pandas.DataFrame: Daily velocities with introduction and fix rates
         """
-        query = """
+        query = f"""
             WITH daily_snapshot_metrics AS (
                 SELECT 
                     DATE(sn.date_created) as snapshot_date,
@@ -2009,10 +2183,10 @@ class CoverityMetrics:
                     SUM(sn.eliminated_defect_count) as code_fixed_count,
                     AVG(sn.total_defect_count) as outstanding_count
                 FROM snapshot sn
-                {project_filter_join}
+                {{project_filter_join}}
                 WHERE sn.deleted = false
                     AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
-                    {project_filter}
+                    {{project_filter}}
                 GROUP BY DATE(sn.date_created)
             ),
             daily_triaged_metrics AS (
@@ -2026,12 +2200,13 @@ class CoverityMetrics:
                 JOIN dynamic_enum de ON dt.current_classification_id = de.id
                 JOIN stream_element se ON sd.stream_element_id = se.id
                 JOIN stream s ON se.stream_id = s.id
-                {project_filter_join_triage}
+                {self._ACTIVE_JOIN_SQL}
+                {{project_filter_join_triage}}
                 WHERE de.dtype = 'Cls'
                     AND de.name IN ('False Positive', 'Intentional')
-                    AND sd.fixed_snapshot_element_id IS NULL
+                    AND {self._ACTIVE_COND_SQL}
                     AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
-                    {project_filter_triage}
+                    {{project_filter_triage}}
                 GROUP BY DATE(ts.date_created)
             )
             SELECT 
@@ -2141,17 +2316,17 @@ class CoverityMetrics:
         Returns:
             pandas.DataFrame: Cumulative new, fixed, and net defects
         """
-        query = """
+        query = f"""
             WITH daily_snapshot_metrics AS (
                 SELECT 
                     DATE(sn.date_created) as snapshot_date,
                     SUM(sn.new_defect_count) as daily_new,
                     SUM(sn.eliminated_defect_count) as daily_code_fixed
                 FROM snapshot sn
-                {project_filter_join}
+                {{project_filter_join}}
                 WHERE sn.deleted = false
                     AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
-                    {project_filter}
+                    {{project_filter}}
                 GROUP BY DATE(sn.date_created)
             ),
             daily_triaged_metrics AS (
@@ -2165,12 +2340,13 @@ class CoverityMetrics:
                 JOIN dynamic_enum de ON dt.current_classification_id = de.id
                 JOIN stream_element se ON sd.stream_element_id = se.id
                 JOIN stream s ON se.stream_id = s.id
-                {project_filter_join_triage}
+                {self._ACTIVE_JOIN_SQL}
+                {{project_filter_join_triage}}
                 WHERE de.dtype = 'Cls'
                     AND de.name IN ('False Positive', 'Intentional')
-                    AND sd.fixed_snapshot_element_id IS NULL
+                    AND {self._ACTIVE_COND_SQL}
                     AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
-                    {project_filter_triage}
+                    {{project_filter_triage}}
                 GROUP BY DATE(ts.date_created)
             ),
             daily_combined AS (
@@ -2229,17 +2405,17 @@ class CoverityMetrics:
         Returns:
             dict: Summary statistics including rates and trends
         """
-        query = """
+        query = f"""
             WITH period_snapshot_metrics AS (
                 SELECT 
                     SUM(sn.new_defect_count) as total_new,
                     SUM(sn.eliminated_defect_count) as total_code_fixed,
                     COUNT(DISTINCT DATE(sn.date_created)) as days_with_data
                 FROM snapshot sn
-                {project_filter_join_period}
+                {{project_filter_join_period}}
                 WHERE sn.deleted = false
                     AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
-                    {project_filter_period}
+                    {{project_filter_period}}
             ),
             period_triaged_metrics AS (
                 -- Count defects triaged as False Positive or Intentional in period
@@ -2251,21 +2427,27 @@ class CoverityMetrics:
                 JOIN dynamic_enum de ON dt.current_classification_id = de.id
                 JOIN stream_element se ON sd.stream_element_id = se.id
                 JOIN stream s ON se.stream_id = s.id
-                {project_filter_join_triaged}
+                {self._ACTIVE_JOIN_SQL}
+                {{project_filter_join_triaged}}
                 WHERE de.dtype = 'Cls'
                     AND de.name IN ('False Positive', 'Intentional')
-                    AND sd.fixed_snapshot_element_id IS NULL
+                    AND {self._ACTIVE_COND_SQL}
                     AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
-                    {project_filter_triaged}
+                    {{project_filter_triaged}}
             ),
             current_state AS (
                 SELECT COUNT(*) as current_outstanding
                 FROM stream_defect sd
                 JOIN stream_element se ON sd.stream_element_id = se.id
                 JOIN stream s ON se.stream_id = s.id
-                {project_filter_join_current}
-                WHERE sd.fixed_snapshot_element_id IS NULL
-                    {project_filter_current}
+                LEFT JOIN defect_triage dt_cs ON sd.defect_triage_id = dt_cs.id
+                LEFT JOIN dynamic_enum de_cs ON dt_cs.current_classification_id = de_cs.id
+                    AND de_cs.dtype = 'Cls'
+                {self._ACTIVE_JOIN_SQL}
+                {{project_filter_join_current}}
+                WHERE {self._ACTIVE_COND_SQL}
+                    AND (de_cs.name NOT IN ('False Positive', 'Intentional') OR de_cs.name IS NULL)
+                    {{project_filter_current}}
             )
             SELECT 
                 pm.total_new,
@@ -2325,7 +2507,7 @@ class CoverityMetrics:
         Returns:
             pandas.DataFrame: Age ranges with defect counts, average age, and severity breakdown
         """
-        query = """
+        query = f"""
             WITH defect_ages AS (
                 SELECT 
                     sd.id,
@@ -2337,9 +2519,14 @@ class CoverityMetrics:
                 JOIN snapshot sn ON se_first.snapshot_id = sn.id
                 JOIN stream_element se ON sd.stream_element_id = se.id
                 JOIN stream s ON se.stream_id = s.id
-                {project_filter_join}
-                WHERE sd.fixed_snapshot_element_id IS NULL
-                    {project_filter}
+                LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id
+                    AND de_cls.dtype = 'Cls'
+                {self._ACTIVE_JOIN_SQL}
+                {{project_filter_join}}
+                WHERE {self._ACTIVE_COND_SQL}
+                    AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
+                    {{project_filter}}
             )
             SELECT 
                 CASE 
@@ -2401,7 +2588,7 @@ class CoverityMetrics:
         Returns:
             dict: Triage statistics
         """
-        query = """
+        query = f"""
             SELECT 
                 COUNT(DISTINCT sd.id) as total_defects,
                 COUNT(DISTINCT CASE WHEN de_cls.name IS NOT NULL AND de_cls.name != 'Unclassified' THEN sd.id END) as classified_count,
@@ -2413,16 +2600,17 @@ class CoverityMetrics:
                 COUNT(DISTINCT CASE WHEN de_cls.name = 'Bug' THEN sd.id END) as bug_count,
                 COUNT(DISTINCT CASE WHEN de_cls.name = 'False Positive' THEN sd.id END) as false_positive_count,
                 COUNT(DISTINCT CASE WHEN de_cls.name = 'Intentional' THEN sd.id END) as intentional_count
-            FROM defect_triage dt
+            FROM stream_defect sd
+            JOIN stream_element se ON sd.stream_element_id = se.id
+            JOIN stream s ON se.stream_id = s.id
+            LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
             LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
             LEFT JOIN dynamic_enum de_act ON dt.current_action_id = de_act.id AND de_act.dtype = 'Act'
-            LEFT JOIN stream_defect sd ON dt.id = sd.defect_triage_id
-            LEFT JOIN stream_element se ON sd.stream_element_id = se.id
-            LEFT JOIN stream s ON se.stream_id = s.id
             LEFT JOIN project_stream ps ON s.id = ps.stream_id
             LEFT JOIN project p ON ps.project_id = p.id
-            WHERE sd.fixed_snapshot_element_id IS NULL
-                {project_filter}
+            {self._ACTIVE_JOIN_SQL}
+            WHERE {self._ACTIVE_COND_SQL}
+                {{project_filter}}
         """
         
         if self.project_name:
@@ -2448,7 +2636,7 @@ class CoverityMetrics:
         Returns:
             dict: Technical debt statistics including total hours, days, and breakdown by impact
         """
-        query = """
+        query = f"""
             SELECT 
                 cp.impact,
                 COUNT(DISTINCT sd.id) as defect_count,
@@ -2465,10 +2653,11 @@ class CoverityMetrics:
             -- Join to exclude False Positive and Intentional classifications
             LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
             LEFT JOIN dynamic_enum de ON dt.current_classification_id = de.id AND de.dtype = 'Cls'
-            {project_filter_join}
-            WHERE sd.fixed_snapshot_element_id IS NULL
+            {self._ACTIVE_JOIN_SQL}
+            {{project_filter_join}}
+            WHERE {self._ACTIVE_COND_SQL}
                 AND (de.name IS NULL OR de.name NOT IN ('False Positive', 'Intentional'))
-                {project_filter}
+                {{project_filter}}
             GROUP BY cp.impact
             ORDER BY 
                 CASE cp.impact
@@ -2553,8 +2742,10 @@ class CoverityMetrics:
                 LEFT JOIN stream_element se ON s.id = se.stream_id
                 LEFT JOIN stream_defect sd ON se.id = sd.stream_element_id 
                     AND sd.fixed_snapshot_element_id IS NOT NULL
+                {self._ACTIVE_JOIN_SQL}
                 WHERE p.deleted = false
                     AND sn.deleted = false
+                    AND (sd.id IS NULL OR {self._FIXED_COND_SQL})
                     AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
                     {project_filter}
                 GROUP BY p.name
@@ -2713,8 +2904,10 @@ class CoverityMetrics:
                 LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
                 LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
                 LEFT JOIN dynamic_enum de_act ON dt.current_action_id = de_act.id AND de_act.dtype = 'Act'
+                {self._ACTIVE_JOIN_SQL}
                 WHERE p.deleted = false
-                    AND sd.fixed_snapshot_element_id IS NULL
+                    AND {self._ACTIVE_COND_SQL}
+                    AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                     {project_filter}
                 GROUP BY p.name
                 HAVING COUNT(DISTINCT sd.id) > 0
@@ -2751,7 +2944,7 @@ class CoverityMetrics:
             pandas.DataFrame: Users ranked by actual fixes (eliminated defects)
         """
         if self.project_name:
-            query = """
+            query = f"""
                 WITH fixed_defects AS (
                     -- Get all defects that were actually eliminated from code (not found in next snapshot)
                     SELECT 
@@ -2762,7 +2955,9 @@ class CoverityMetrics:
                     JOIN stream s ON se.stream_id = s.id
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
+                    {self._ACTIVE_JOIN_SQL}
                     WHERE sd.fixed_snapshot_element_id IS NOT NULL
+                        AND {self._FIXED_COND_SQL}
                         AND p.name = ANY(%s)
                 ),
                 last_triagers AS (
@@ -2776,6 +2971,7 @@ class CoverityMetrics:
                     JOIN users u ON ts.user_created_id = u.id
                     WHERE u.username NOT IN ('system', 'System User')  -- Exclude system-generated actions
                         AND ts.date_created >= '1971-01-01'::timestamp  -- Exclude sentinel/default timestamps
+                        AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
                     ORDER BY fd.defect_triage_id, ts.date_created DESC
                 ),
                 user_fixes AS (
@@ -2801,16 +2997,19 @@ class CoverityMetrics:
                 ORDER BY defects_fixed DESC, active_days DESC
                 LIMIT %s
             """
-            results = self.db.execute_query_dict(query, (self._project_names, limit))
+            results = self.db.execute_query_dict(query, (self._project_names, days, limit))
         else:
-            query = """
+            query = f"""
                 WITH fixed_defects AS (
                     -- Get all defects that were actually eliminated from code (not found in next snapshot)
                     SELECT 
                         sd.defect_triage_id,
                         sd.id as stream_defect_id
                     FROM stream_defect sd
+                    JOIN stream_element se ON sd.stream_element_id = se.id
+                    {self._ACTIVE_JOIN_SQL}
                     WHERE sd.fixed_snapshot_element_id IS NOT NULL
+                        AND {self._FIXED_COND_SQL}
                 ),
                 last_triagers AS (
                     -- For each fixed defect, find the last HUMAN user who triaged it
@@ -2823,6 +3022,7 @@ class CoverityMetrics:
                     JOIN users u ON ts.user_created_id = u.id
                     WHERE u.username NOT IN ('system', 'System User')  -- Exclude system-generated actions
                         AND ts.date_created >= '1971-01-01'::timestamp  -- Exclude sentinel/default timestamps
+                        AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
                     ORDER BY fd.defect_triage_id, ts.date_created DESC
                 ),
                 user_fixes AS (
@@ -2848,7 +3048,7 @@ class CoverityMetrics:
                 ORDER BY defects_fixed DESC, active_days DESC
                 LIMIT %s
             """
-            results = self.db.execute_query_dict(query, (limit,))
+            results = self.db.execute_query_dict(query, (days, limit))
         return pd.DataFrame(results)
     
     def get_top_triagers(self, days=30, limit=10):
@@ -3055,7 +3255,7 @@ class CoverityMetrics:
                     cwe_to_owasp[cwe_id] = []
                 cwe_to_owasp[cwe_id].append(category_id)
         
-        query = """
+        query = f"""
             SELECT 
                 cp.cwe,
                 de.name as severity,
@@ -3071,9 +3271,12 @@ class CoverityMetrics:
             LEFT JOIN checker_properties cp ON sd.checker_properties_id = cp.id
             LEFT JOIN dynamic_enum de ON dt.current_severity_id = de.id
             LEFT JOIN dynamic_enum act ON dt.current_action_id = act.id
+            LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
+            {self._ACTIVE_JOIN_SQL}
             WHERE p.name = ANY(%s)
                 AND cp.cwe IS NOT NULL
-                AND sd.fixed_snapshot_element_id IS NULL  -- Only outstanding defects
+                AND {self._ACTIVE_COND_SQL}
+                AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                 AND sd.merged_defect_id IS NOT NULL
             GROUP BY cp.cwe, de.name, dt.current_action_id, act.name
             ORDER BY cp.cwe, de.name
@@ -3170,13 +3373,16 @@ class CoverityMetrics:
             LEFT JOIN checker_properties cp ON sd.checker_properties_id = cp.id
             LEFT JOIN checker_type ct ON cp.checker_type_id = ct.id
             LEFT JOIN dynamic_enum de ON dt.current_severity_id = de.id
+            LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
             LEFT JOIN stream_defect_occurrence sdo ON sd.id = sdo.stream_defect_id
             LEFT JOIN stream_file sf ON sdo.stream_file_id = sf.id
             LEFT JOIN file_path fp ON sf.file_path_id = fp.id
             LEFT JOIN function func ON sdo.function_id = func.id
+            {self._ACTIVE_JOIN_SQL}
             WHERE p.name = ANY(%s)
                 AND cp.cwe IN ({cwe_placeholders})
-                AND sd.fixed_snapshot_element_id IS NULL
+                AND {self._ACTIVE_COND_SQL}
+                AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                 AND sd.merged_defect_id IS NOT NULL
             ORDER BY sd.merged_defect_id, cp.cwe, de.name DESC
         """
@@ -3256,7 +3462,7 @@ class CoverityMetrics:
         # Build set of Top 25 CWE IDs for filtering
         top25_cwe_ids = {data['cwe_id'] for data in CWE_TOP_25_2025.values()}
         
-        query = """
+        query = f"""
             SELECT 
                 cp.cwe,
                 de.name as severity,
@@ -3269,9 +3475,12 @@ class CoverityMetrics:
             JOIN defect_triage dt ON sd.defect_triage_id = dt.id
             LEFT JOIN checker_properties cp ON sd.checker_properties_id = cp.id
             LEFT JOIN dynamic_enum de ON dt.current_severity_id = de.id
+            LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
+            {self._ACTIVE_JOIN_SQL}
             WHERE p.name = ANY(%s)
                 AND cp.cwe IS NOT NULL
-                AND sd.fixed_snapshot_element_id IS NULL  -- Only outstanding defects
+                AND {self._ACTIVE_COND_SQL}
+                AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
             GROUP BY cp.cwe, de.name
             ORDER BY cp.cwe, de.name
         """
@@ -3335,7 +3544,7 @@ class CoverityMetrics:
             return {}
         
         # Get all defects with CID, file, and function for this CWE
-        defects_query = """
+        defects_query = f"""
             SELECT DISTINCT ON (sd.merged_defect_id)
                 sd.merged_defect_id as cid,
                 cp.cwe,
@@ -3352,13 +3561,16 @@ class CoverityMetrics:
             LEFT JOIN checker_properties cp ON sd.checker_properties_id = cp.id
             LEFT JOIN checker_type ct ON cp.checker_type_id = ct.id
             LEFT JOIN dynamic_enum de ON dt.current_severity_id = de.id
+            LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
             LEFT JOIN stream_defect_occurrence sdo ON sd.id = sdo.stream_defect_id
             LEFT JOIN stream_file sf ON sdo.stream_file_id = sf.id
             LEFT JOIN file_path fp ON sf.file_path_id = fp.id
             LEFT JOIN function func ON sdo.function_id = func.id
+            {self._ACTIVE_JOIN_SQL}
             WHERE p.name = ANY(%s)
                 AND cp.cwe = %s
-                AND sd.fixed_snapshot_element_id IS NULL
+                AND {self._ACTIVE_COND_SQL}
+                AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                 AND sd.merged_defect_id IS NOT NULL
             ORDER BY sd.merged_defect_id, de.name DESC
         """

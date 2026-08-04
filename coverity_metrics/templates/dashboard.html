@@ -190,6 +190,9 @@
                 {% if not current_project %}
                 <button class="tab-button" data-tab="performance">Performance & Analytics</button>
                 {% endif %}
+                {% if current_project and snapshot_commands and snapshot_commands|length > 0 %}
+                <button class="tab-button" data-tab="snapshots">📸 Snapshots</button>
+                {% endif %}
                 <button class="tab-button" data-tab="leaderboards">🏆 Leaderboards</button>
                 {% if current_project and owasp_metrics %}
                 <button class="tab-button" data-tab="owasp">🔒 OWASP Top 10</button>
@@ -1411,6 +1414,70 @@
         <!-- End Performance Tab -->
         {% endif %}
 
+        {% if current_project and snapshot_commands and snapshot_commands|length > 0 %}
+        <!-- Snapshots Tab (project-only) -->
+        <div id="snapshots-tab" class="tab-content">
+            <div class="section">
+                <h2 class="section-title">
+                    Recent Snapshot Analysis Commands
+                    <span class="info-icon">ℹ
+                            <span class="tooltip">The exact <code>cov-build</code> and <code>cov-analyze</code> invocations recorded for the most recent snapshots on this project. Read from the <code>snapshot_element</code> table. Useful for verifying enabled checkers, aggressiveness level, and analysis flags. Matches the "Command Line" data shown per snapshot in the Coverity Connect UI.</span>
+                    </span>
+                </h2>
+                <p style="color: #666; margin-bottom: 1.5rem;">
+                    Click any snapshot to expand its recorded command lines, invoker, host, and platform.
+                </p>
+                {% set ns = namespace(current_sid=None) %}
+                <div class="snapshot-commands">
+                    {% for row in snapshot_commands %}
+                        {% if row.snapshot_id != ns.current_sid %}
+                            {% if not loop.first %}</div></details>{% endif %}
+                            {% set ns.current_sid = row.snapshot_id %}
+                            <details style="margin-bottom: 0.75rem; border: 1px solid #e0e0e0; border-radius: 6px; background: #fafafa;">
+                                <summary style="cursor: pointer; padding: 0.75rem 1rem; font-weight: 500; user-select: none;">
+                                    <span style="color: #444;">Snapshot {{ row.snapshot_id }}</span>
+                                    <span style="color: #999; margin-left: 0.75rem; font-weight: normal;">
+                                        {{ (row.date_created if row.date_created is string else row.date_created.strftime('%Y-%m-%d %H:%M'))[:16] if row.date_created else 'N/A' }}
+                                    </span>
+                                    <span style="color: #666; margin-left: 0.75rem; font-weight: normal;">
+                                        Stream: {{ row.stream_name }}
+                                    </span>
+                                    {% if row.invoker %}
+                                    <span style="color: #666; margin-left: 0.75rem; font-weight: normal;">
+                                        User: {{ row.invoker }}
+                                    </span>
+                                    {% endif %}
+                                    {% if row.host %}
+                                    <span style="color: #666; margin-left: 0.75rem; font-weight: normal;">
+                                        Host: {{ row.host }}
+                                    </span>
+                                    {% endif %}
+                                </summary>
+                                <div style="padding: 0 1rem 1rem 1rem;">
+                        {% endif %}
+                        <div style="margin-top: 0.75rem;">
+                            <div style="font-size: 0.9rem; color: #555; margin-bottom: 0.25rem;">
+                                <strong>{{ row.command_type or row.dtype }}</strong>
+                                {% if row.run_time_seconds is not none and row.run_time_seconds > 0 %}
+                                    <span style="color: #999; margin-left: 0.5rem;">• {{ row.run_time_seconds }} sec</span>
+                                {% endif %}
+                                {% if row.success_count is not none %}
+                                    <span style="color: #999; margin-left: 0.5rem;">• {{ row.success_count|int }} ok / {{ (row.failure_count or 0)|int }} failed</span>
+                                {% endif %}
+                                {% if row.platform %}
+                                    <span style="color: #999; margin-left: 0.5rem;">• {{ row.platform }}</span>
+                                {% endif %}
+                            </div>
+                            <pre style="background: #ffffff; border: 1px solid #e5e5e5; border-radius: 4px; padding: 0.75rem; margin: 0; white-space: pre-wrap; word-break: break-all; font-size: 0.85rem; color: #222; overflow-x: auto;">{{ row.command }}</pre>
+                        </div>
+                        {% if loop.last %}</div></details>{% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <!-- End Snapshots Tab -->
+        {% endif %}
+
         <!-- Leaderboards Tab -->
         <div id="leaderboards-tab" class="tab-content">
 
@@ -1445,7 +1512,7 @@
                 <h3 style="margin: 2rem 0 1.5rem 0; color: var(--primary-color); border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem;">
                     📊 Project Performance
                     <span class="info-icon">ℹ
-                        <span class="tooltip">Project-level leaderboards showing top teams by fix velocity (last 30 days), improvement percentage (last 90 days), and triage completion. Rankings calculated from snapshot comparisons and triage activity metrics.</span>
+                        <span class="tooltip">Project-level leaderboards showing top teams by fix velocity ({{ trend_period_text|lower }}) and triage completion (current state). Rankings calculated from snapshot comparisons and triage activity metrics.</span>
                     </span>
                 </h3>
                 <div class="leaderboard-grid">
@@ -1539,7 +1606,7 @@
                 <h3 style="margin: 3rem 0 1.5rem 0; color: var(--primary-color); border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem;">
                     👥 Individual Contributors
                     <span class="info-icon">ℹ
-                        <span class="tooltip">User-level leaderboards showing top fixers (defect eliminations, last 30 days), top triagers (classification actions, last 30 days), and team champions (collaboration activity). Rankings based on actual code changes and triage submissions.</span>
+                        <span class="tooltip">User-level leaderboards showing top fixers (defect eliminations, {{ trend_period_text|lower }}), top triagers (classification actions, {{ trend_period_text|lower }}), and team champions (collaboration activity). Rankings based on actual code changes and triage submissions.</span>
                     </span>
                 </h3>
                 {% endif %}
@@ -1548,7 +1615,7 @@
                     {% if top_users_by_fixes and top_users_by_fixes|length > 0 %}
                     <div class="leaderboard-card">
                         <h4>🔧 Top Fixers</h4>
-                        <p class="leaderboard-subtitle">Users with most defect fixes submitted/released (Last 30 Days)</p>
+                        <p class="leaderboard-subtitle">Users with most defect fixes submitted/released ({{ trend_period_text }})</p>
                         <table class="leaderboard-table">
                             <thead>
                                 <tr>
@@ -1589,7 +1656,7 @@
                     {% if top_triagers and top_triagers|length > 0 %}
                     <div class="leaderboard-card">
                         <h4>⚖️ Top Triagers</h4>
-                        <p class="leaderboard-subtitle">Users with most classification and action assignments (Last 30 Days)</p>
+                        <p class="leaderboard-subtitle">Users with most classification and action assignments ({{ trend_period_text }})</p>
                         <table class="leaderboard-table">
                             <thead>
                                 <tr>
@@ -1630,7 +1697,7 @@
                     {% if most_collaborative_users and most_collaborative_users|length > 0 %}
                     <div class="leaderboard-card">
                         <h4>💬 Team Champions</h4>
-                        <p class="leaderboard-subtitle">Users with most collaborative comments and discussions (Last 30 Days)</p>
+                        <p class="leaderboard-subtitle">Users with most collaborative comments and discussions ({{ trend_period_text }})</p>
                         <table class="leaderboard-table">
                             <thead>
                                 <tr>
@@ -1894,17 +1961,22 @@
                 <strong>💡 Tip:</strong> Click on any FAILED row to view detailed defect information.
             </div>
             
-            <div class="grid-2col" style="margin-bottom: 2rem;">
+            {% set cwe_failed_count = cwe_top25_metrics|selectattr('status', 'equalto', 'FAILED')|list|length %}
+            {% set cwe_passed_count = cwe_top25_metrics|selectattr('status', 'equalto', 'PASS')|list|length %}
+            <div class="summary-grid" style="margin-bottom: 2rem;">
                 <div class="summary-card info">
                     <div class="label">Total CWE Top 25 Defects</div>
                     <div class="value">{{ cwe_top25_metrics|sum(attribute='total_defects') }}</div>
                 </div>
-                <div class="summary-card {% if cwe_top25_metrics|selectattr('status', 'equalto', 'FAILED')|list|length > 0 %}warning{% else %}success{% endif %}">
-                    <div class="label">{% if cwe_top25_metrics|selectattr('status', 'equalto', 'FAILED')|list|length > 0 %}Failed CWE Checks{% else %}All CWE Checks Passed{% endif %}</div>
-                    <div class="value">{{ cwe_top25_metrics|selectattr('status', 'equalto', 'FAILED')|list|length }}/25</div>
+                <div class="summary-card {% if cwe_failed_count > 0 %}danger{% else %}success{% endif %}">
+                    <div class="label">CWE Checks Failed</div>
+                    <div class="value">{{ cwe_failed_count }} / 25</div>
+                </div>
+                <div class="summary-card success">
+                    <div class="label">CWE Checks Passed</div>
+                    <div class="value">{{ cwe_passed_count }} / 25</div>
                 </div>
             </div>
-            
             <table class="data-table">
                 <thead>
                     <tr>

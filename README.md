@@ -164,7 +164,6 @@ The tool provides the following metric categories:
 
 ### 7. **Competitive Leaderboards** (NEW!)
 - **Top Projects by Fix Rate**: Projects ranked by defect elimination velocity
-- **Most Improved Projects**: Projects with best defect reduction trends
 - **Top Projects by Triage Activity**: Most active triage engagement
 - **Top Fixers (Users)**: Developers who eliminated the most defects
 - **Top Triagers (Users)**: Most active users in defect classification
@@ -1082,7 +1081,6 @@ All methods return pandas DataFrames for easy manipulation:
 3. **User Login Statistics** - Tool adoption
 4. **Weekly Trends** - Team velocity
 5. **Top Fixers and Triagers** - NEW! Team performance metrics
-6. **Most Improved Projects** - NEW! Progress recognition
 
 ## Project Structure
 
