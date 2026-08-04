@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.19] - 2026-08-04
+
+### Added
+- **Sortable columns on the instance-level "Defects by Project" table**
+  - Column headers (Project/Stream Name, Total Defects, Active, Fixed) are now clickable; click toggles ascending/descending order using the existing generic `sortTable()` helper
+  - Also applies to the "Defects by Stream" variant of the same table on project dashboards
+  - Numeric columns sort numerically (extracting digits from the badge text); the name column sorts as text via `localeCompare`
+
+### Fixed
+- **`release.ps1` post-install CLI verification failed with "not recognized as an internal or external command"**
+  - `Invoke-Step` runs its command via `cmd.exe /c $Command`. When the venv path had spaces or was on the fallback `.pkgtest_<timestamp>` path (used when the primary `.pkgtest` couldn't be deleted), cmd.exe's quote-stripping mangled `"C:\...\coverity-dashboard.exe" --help` and reported the whole quoted path as an unknown command
+  - The two CLI verification calls at the end of the script now bypass `Invoke-Step` and invoke the .exe directly with PowerShell's `&` operator, which handles paths with spaces natively. Exit codes are still checked and propagated as before
+  - Note: the rest of the release (build, upload, tag, GitHub release) had already completed before the old verify step failed, so 1.0.18 was actually published — this fix simply keeps the verification step from producing a spurious failure on subsequent releases
+
 ## [1.0.18] - 2026-08-04
 
 ### Fixed

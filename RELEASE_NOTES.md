@@ -2,6 +2,26 @@
 
 ## Version History
 
+### Version 1.0.19 - 2026-08-04
+
+**Sortable Instance-level Defects Table & Release Script CLI-verify Fix**
+
+#### Added
+
+##### ↕ Sortable Columns on the Instance-level "Defects by Project" Table
+- Column headers on the instance-level **Defects by Project** table (also **Defects by Stream** on project dashboards) are now clickable
+- Each header displays a `▲▼` glyph; clicking toggles ascending / descending order and re-appends the rows in place
+- Uses the existing generic `sortTable(columnIndex, tableId, dataType)` helper — Project/Stream Name sorts as text (`localeCompare`), Total Defects / Active / Fixed sort numerically (digits extracted from the badge text)
+- No re-export needed — the change is purely in the dashboard template
+
+#### Fixed
+
+##### 🛠 `release.ps1` — Post-Install CLI Verification No Longer Fails on Quoted Paths
+- Symptom: the final `Verifying coverity-dashboard CLI...` step in `release.ps1` failed with `'"...\coverity-dashboard.exe"' is not recognized as an internal or external command`, even though the venv was created and the .exe existed at that path
+- Root cause: `Invoke-Step` runs every command through `cmd.exe /c $Command`. When the command starts with a quoted path and has trailing arguments (`"C:\...\coverity-dashboard.exe" --help`), cmd.exe's quote-stripping rules can leave the outer quotes attached to the executable name, especially when the venv fell back to the timestamped `.pkgtest_<timestamp>` path (e.g. because the original `.pkgtest` was locked)
+- Fix: the two CLI verification calls at the end of `release.ps1` now invoke the .exe directly via PowerShell's `&` operator instead of routing through `cmd.exe`. Exit codes are still checked and any non-zero result throws with a clear message
+- Impact: no user-visible impact on the produced release (upload / tag / GitHub release all happen earlier in the script). This just keeps the verification step from producing a spurious failure at the end of an otherwise-successful publish
+
 ### Version 1.0.18 - 2026-08-04
 
 **Daily Fix Efficiency % Correctness Fix**

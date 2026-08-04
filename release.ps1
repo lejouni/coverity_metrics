@@ -535,11 +535,17 @@ if ((-not $NoInstallTest) -and (-not $DryRun)) {
   }
   
   # Verify CLI commands
+  # Invoke the .exe directly rather than through Invoke-Step/cmd.exe — cmd's quote-stripping
+  # rule mangles paths that contain spaces (e.g. .pkgtest_20260804153450 on retry).
   Write-Host "Verifying coverity-dashboard CLI..." -ForegroundColor Cyan
   $dashboardCli = Join-Path $venv 'Scripts/coverity-dashboard.exe'
-  Invoke-Step -Command "`"$dashboardCli`" --help"
+  Write-Host "[RUN] $dashboardCli --help" -ForegroundColor Cyan
+  & $dashboardCli --help
+  if ($LASTEXITCODE -ne 0) { throw "coverity-dashboard --help failed with exit code $LASTEXITCODE" }
   Write-Host "Verifying coverity-metrics CLI..." -ForegroundColor Cyan
-  Invoke-Step -Command "`"$testPy`" -c `"from coverity_metrics import __version__; print('Version:', __version__)`""
+  Write-Host "[RUN] $testPy -c `"from coverity_metrics import __version__; print('Version:', __version__)`"" -ForegroundColor Cyan
+  & $testPy -c "from coverity_metrics import __version__; print('Version:', __version__)"
+  if ($LASTEXITCODE -ne 0) { throw "coverity_metrics version check failed with exit code $LASTEXITCODE" }
 }
 
 Write-Host "Done." -ForegroundColor Green

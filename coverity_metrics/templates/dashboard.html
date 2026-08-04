@@ -393,13 +393,13 @@
                 </span>
             </h2>
             <div class="chart-container" id="project-chart"></div>
-            <table class="data-table">
+            <table class="data-table" id="defects-by-project-table">
                 <thead>
                     <tr>
-                        <th>{% if current_project %}Stream Name{% else %}Project Name{% endif %}</th>
-                        <th>Total Defects</th>
-                        <th>Active</th>
-                        <th>Fixed</th>
+                        <th class="sortable" onclick="sortTable(0, 'defects-by-project-table', 'text')">{% if current_project %}Stream Name{% else %}Project Name{% endif %} ▲▼</th>
+                        <th class="sortable" onclick="sortTable(1, 'defects-by-project-table', 'number')">Total Defects ▲▼</th>
+                        <th class="sortable" onclick="sortTable(2, 'defects-by-project-table', 'number')">Active ▲▼</th>
+                        <th class="sortable" onclick="sortTable(3, 'defects-by-project-table', 'number')">Fixed ▲▼</th>
                     </tr>
                 </thead>
                 <tbody>
