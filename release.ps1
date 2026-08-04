@@ -133,36 +133,28 @@ function Invoke-Step {
 
 function Get-ProjectVersion {
   param([string]$PyProjectPath)
-  $content = Get-Content -Raw -LiteralPath $PyProjectPath
-  $m = [regex]::Match($content, 'version\s*=\s*"(?<v>\d+\.\d+\.\d+)"')
-  if (-not $m.Success) { throw "Could not find version in $PyProjectPath" }
+  # pyproject.toml uses dynamic = ["version"]; the single source of truth is __version__.py.
+  $versionPath = Join-Path (Split-Path $PyProjectPath) 'coverity_metrics/__version__.py'
+  if (-not (Test-Path $versionPath)) { throw "Version file not found at $versionPath" }
+  $content = Get-Content -Raw -LiteralPath $versionPath
+  $m = [regex]::Match($content, '__version__\s*=\s*"(?<v>\d+\.\d+\.\d+)"')
+  if (-not $m.Success) { throw "Could not find __version__ in $versionPath" }
   return $m.Groups['v'].Value
 }
 
 function Set-ProjectVersion {
   param([string]$PyProjectPath, [string]$Version)
-  $content = Get-Content -Raw -LiteralPath $PyProjectPath -Encoding UTF8
-  # Use -replace and escape quotes for PowerShell with backticks
-  $new = $content -replace 'version\s*=\s*"\d+\.\d+\.\d+"', "version = `"$Version`""
-  if ($DryRun) {
-    Write-Host "[DRY-RUN] Would set version to $Version in $PyProjectPath (UTF-8 no BOM)" -ForegroundColor Yellow
-  } else {
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($PyProjectPath, $new, $utf8NoBom)
-    Write-Host "Set version to $Version in $PyProjectPath" -ForegroundColor Green
-  }
-
-  # Also update __version__ in coverity_metrics/__version__.py
+  # pyproject.toml has dynamic = ["version"] — only __version__.py needs updating.
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
   $versionPath = Join-Path (Split-Path $PyProjectPath) 'coverity_metrics/__version__.py'
-  if (Test-Path $versionPath) {
-    $versionContent = Get-Content -Raw -LiteralPath $versionPath -Encoding UTF8
-    $versionNew = $versionContent -replace '__version__\s*=\s*"\d+\.\d+\.\d+"', "__version__ = `"$Version`""
-    if ($DryRun) {
-      Write-Host "[DRY-RUN] Would set __version__ to $Version in $versionPath (UTF-8 no BOM)" -ForegroundColor Yellow
-    } else {
-      [System.IO.File]::WriteAllText($versionPath, $versionNew, $utf8NoBom)
-      Write-Host "Set __version__ to $Version in $versionPath" -ForegroundColor Green
-    }
+  if (-not (Test-Path $versionPath)) { throw "Version file not found at $versionPath" }
+  $versionContent = Get-Content -Raw -LiteralPath $versionPath -Encoding UTF8
+  $versionNew = $versionContent -replace '__version__\s*=\s*"\d+\.\d+\.\d+"', "__version__ = `"$Version`""
+  if ($DryRun) {
+    Write-Host "[DRY-RUN] Would set __version__ to $Version in $versionPath (UTF-8 no BOM)" -ForegroundColor Yellow
+  } else {
+    [System.IO.File]::WriteAllText($versionPath, $versionNew, $utf8NoBom)
+    Write-Host "Set __version__ to $Version in $versionPath" -ForegroundColor Green
   }
 }
 
