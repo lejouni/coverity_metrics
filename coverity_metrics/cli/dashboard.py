@@ -33,6 +33,26 @@ def _format_duration(seconds):
     minutes, secs = divmod(remainder, 60)
     return f"{int(hours)}h {int(minutes)}m {int(secs)}s"
 
+
+def _backfill_owasp_scores(owasp_metrics):
+    """Fill missing exploit/impact/priority fields on cached (pre-1.0.19) rows."""
+    if not owasp_metrics:
+        return owasp_metrics
+    from coverity_metrics.owasp_mapping import OWASP_TOP_10_2025
+    for item in owasp_metrics:
+        if 'exploit_score' in item and 'impact_score' in item and 'priority_score' in item:
+            continue
+        sd = OWASP_TOP_10_2025.get(item.get('category'), {}).get('score_data', {})
+        e = sd.get('exploit_score', 0.0)
+        i = sd.get('impact_score', 0.0)
+        item.setdefault('exploit_score', e)
+        item.setdefault('impact_score', i)
+        item.setdefault(
+            'priority_score',
+            round(item.get('total_defects', 0) * e * i / 100.0, 1),
+        )
+    return owasp_metrics
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -72,6 +92,26 @@ def assign_instance_colors(instance_names):
         # Cycle through colors if we have more instances than colors
         color_map[name] = INSTANCE_COLOR_PALETTE[i % len(INSTANCE_COLOR_PALETTE)]
     return color_map
+
+
+def _compute_avg_scans_per_week(scan_activity_trend, days):
+    """Average snapshots (scans) per week over the analysis window.
+
+    Works for any granularity because it sums scan_count and divides by
+    (days / 7). Returns 0.0 if inputs are missing.
+    """
+    if not scan_activity_trend or not days:
+        return 0.0
+    total = 0
+    for row in scan_activity_trend:
+        try:
+            total += int(row.get('scan_count', 0) or 0)
+        except (TypeError, ValueError):
+            continue
+    weeks = days / 7.0
+    if weeks <= 0:
+        return 0.0
+    return round(total / weeks, 1)
 
 def load_inline_css():
     """
@@ -223,7 +263,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             top_users_by_fixes = metrics_data.get('top_users_by_fixes', [])
             top_triagers = metrics_data.get('top_triagers', [])
             most_collaborative_users = metrics_data.get('most_collaborative_users', [])
-            owasp_metrics = metrics_data.get('owasp_metrics', [])
+            owasp_metrics = _backfill_owasp_scores(metrics_data.get('owasp_metrics', []))
             owasp_details = metrics_data.get('owasp_details', {})
             cwe_top25_metrics = metrics_data.get('cwe_top25_metrics', [])
             cwe_top25_details = metrics_data.get('cwe_top25_details', {})
@@ -268,7 +308,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
             top_users_by_fixes = metrics_data.get('top_users_by_fixes', [])
             top_triagers = metrics_data.get('top_triagers', [])
             most_collaborative_users = metrics_data.get('most_collaborative_users', [])
-            owasp_metrics = metrics_data.get('owasp_metrics', [])
+            owasp_metrics = _backfill_owasp_scores(metrics_data.get('owasp_metrics', []))
             owasp_details = metrics_data.get('owasp_details', {})
             cwe_top25_metrics = metrics_data.get('cwe_top25_metrics', [])
             cwe_top25_details = metrics_data.get('cwe_top25_details', {})
@@ -439,6 +479,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         cwe_top25_details=cwe_top25_details,
         # Scan / commit activity over time
         scan_activity_trend=scan_activity_trend,
+        avg_scans_per_week=_compute_avg_scans_per_week(scan_activity_trend, days),
         has_aggregated_dashboard=has_aggregated_dashboard,
         has_instance_dashboard=has_instance_dashboard
     )
@@ -634,6 +675,13 @@ def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_a
     commit_activity = multi_metrics.get_aggregated_commit_activity()
     aggregated_trends = multi_metrics.get_aggregated_trends(days=days)
     scan_activity_series = multi_metrics.get_aggregated_scan_activity(days=days, granularity='week')
+
+    # Enrich each per-instance series with average scans/week over the analysis window.
+    weeks = (days / 7.0) if days else 0
+    for series in scan_activity_series:
+        total_scans = sum(int(v or 0) for v in series.get('scan_counts', []))
+        series['total_scans'] = total_scans
+        series['avg_scans_per_week'] = round(total_scans / weeks, 1) if weeks > 0 else 0.0
     
     # Get instance names with colors
     instance_configs = []

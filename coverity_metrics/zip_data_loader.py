@@ -425,9 +425,26 @@ class ZipDataLoader:
     def get_owasp_top10_metrics(self):
         """Get OWASP Top 10 metrics (project-specific)"""
         filename = self._get_project_metric_file('owasp_top10_metrics')
-        if filename:
-            return self._read_json_from_zip(filename, as_dataframe=True)
-        return pd.DataFrame()
+        if not filename:
+            return pd.DataFrame()
+        df = self._read_json_from_zip(filename, as_dataframe=True)
+        if df.empty:
+            return df
+        # Backfill exploit_score/impact_score/priority_score for pre-1.0.19 ZIPs
+        # that were exported before OWASP score data was added.
+        if 'exploit_score' not in df.columns or 'impact_score' not in df.columns:
+            from .owasp_mapping import OWASP_TOP_10_2025
+            df['exploit_score'] = df['category'].map(
+                lambda c: OWASP_TOP_10_2025.get(c, {}).get('score_data', {}).get('exploit_score', 0.0)
+            )
+            df['impact_score'] = df['category'].map(
+                lambda c: OWASP_TOP_10_2025.get(c, {}).get('score_data', {}).get('impact_score', 0.0)
+            )
+        if 'priority_score' not in df.columns:
+            df['priority_score'] = (
+                df['total_defects'] * df['exploit_score'] * df['impact_score'] / 100.0
+            ).round(1)
+        return df
     
     def get_owasp_category_details(self, category_id):
         """Get OWASP category details"""

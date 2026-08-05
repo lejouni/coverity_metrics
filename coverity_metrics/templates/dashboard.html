@@ -355,6 +355,9 @@
                 </span>
             </h2>
             <div class="chart-container" id="severity-chart"></div>
+            {# Table percentages use the sum of defects_by_severity — same denominator as the pie chart above.
+               summary.total_defects excludes dismissed (FP/Intentional) and would produce mismatching totals. #}
+            {% set severity_total = defects_by_severity|sum(attribute='defect_count') %}
             <table class="data-table">
                 <thead>
                     <tr>
@@ -374,9 +377,9 @@
                         <td class="metric-number">{{ row.defect_count }}</td>
                         <td>
                             <div class="progress-bar">
-                                <div class="progress-fill" style="width: {{ (row.defect_count / (summary.total_defects|default(1)) * 100)|round(1) if summary.total_defects|default(0) > 0 else 0 }}%"></div>
+                                <div class="progress-fill" style="width: {{ (row.defect_count / severity_total * 100)|round(1) if severity_total > 0 else 0 }}%"></div>
                             </div>
-                            {{ (row.defect_count / (summary.total_defects|default(1)) * 100)|round(1) if summary.total_defects|default(0) > 0 else 0 }}%
+                            {{ (row.defect_count / severity_total * 100)|round(1) if severity_total > 0 else 0 }}%
                         </td>
                     </tr>
                     {% endfor %}
@@ -389,7 +392,7 @@
             <h2 class="section-title">
                 {% if current_project %}Defects by Stream{% else %}Defects by Project{% endif %}
                 <span class="info-icon">ℹ
-                        <span class="tooltip">{% if current_project %}Total defect count per stream within this project, showing both active defects and fixed defects.{% else %}Total defect count per project, showing both active defects and fixed defects. Calculated by counting all defects (including triaged ones) grouped by project name.{% endif %}</span>
+                        <span class="tooltip">{% if current_project %}Total defect count per stream within this project. Active, Fixed, and Dismissed columns are mutually exclusive and sum to Total Defects. Dismissed = defects classified as False Positive or Intentional.{% else %}Total defect count per project. Active, Fixed, and Dismissed columns are mutually exclusive and sum to Total Defects. Dismissed = defects classified as False Positive or Intentional.{% endif %}</span>
                 </span>
             </h2>
             <div class="chart-container" id="project-chart"></div>
@@ -400,6 +403,7 @@
                         <th class="sortable" onclick="sortTable(1, 'defects-by-project-table', 'number')">Total Defects ▲▼</th>
                         <th class="sortable" onclick="sortTable(2, 'defects-by-project-table', 'number')">Active ▲▼</th>
                         <th class="sortable" onclick="sortTable(3, 'defects-by-project-table', 'number')">Fixed ▲▼</th>
+                        <th class="sortable" onclick="sortTable(4, 'defects-by-project-table', 'number')">Dismissed ▲▼</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -409,6 +413,7 @@
                         <td class="metric-number">{{ row.defect_count }}</td>
                         <td><span class="severity-badge severity-high">{{ row.active_defects }}</span></td>
                         <td><span class="severity-badge severity-low">{{ row.fixed_defects }}</span></td>
+                        <td><span class="severity-badge severity-medium">{{ row.dismissed_defects|default(0) }}</span></td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -910,6 +915,20 @@
                         <span class="tooltip">Number of scans/commits (Coverity snapshots) submitted per {% if current_project %}day{% else %}week{% endif %}, plus the count of unique committers active in each bucket. Calculated from the snapshot table's date_created and committer_user_id fields. Helps visualize analysis cadence and team engagement over time.</span>
                 </span>
             </h2>
+            <div class="summary-grid" style="margin-bottom: 1.5rem;">
+                <div class="summary-card info">
+                    <div class="label">Avg Scans / Week</div>
+                    <div class="value" style="font-size: 2.5rem;">
+                        {{ avg_scans_per_week|default(0) }}
+                    </div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Total Scans ({{ trend_period_text|default('period') }})</div>
+                    <div class="value" style="font-size: 2.5rem;">
+                        {{ scan_activity_trend|sum(attribute='scan_count') }}
+                    </div>
+                </div>
+            </div>
             <div class="chart-container" id="scan-activity-chart"></div>
             <table class="data-table">
                 <thead>
@@ -1787,10 +1806,33 @@
                     <div class="value">{{ passed_count }} / 10</div>
                 </div>
             </div>
-            
+
+            {# Sort toolbar for the category cards below. Sorting is client-side
+               via data-* attrs so the Jinja render order stays A01→A10. #}
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                <span style="font-weight: 600;">Sort by:</span>
+                <button type="button" class="owasp-sort-btn active" data-sort="category" onclick="sortOwaspCards('category', this)"
+                        style="padding: 0.4rem 0.9rem; border: 1px solid var(--primary-color); background: var(--primary-color); color: #fff; border-radius: 4px; cursor: pointer; font-size: 0.9rem;">
+                    Category (A01 → A10)
+                </button>
+                <button type="button" class="owasp-sort-btn" data-sort="priority" onclick="sortOwaspCards('priority', this)"
+                        style="padding: 0.4rem 0.9rem; border: 1px solid var(--primary-color); background: transparent; color: var(--primary-color); border-radius: 4px; cursor: pointer; font-size: 0.9rem;">
+                    Priority Score (highest first)
+                </button>
+                <span style="font-size: 0.85rem; opacity: 0.7; margin-left: auto;">
+                    Priority = defects × Exploit × Impact ÷ 100 &nbsp;—&nbsp; source: <code>owasp.org/Top10/2025/</code>
+                </span>
+            </div>
+
             <!-- Display each OWASP category with PASS/FAIL status -->
+            <div id="owasp-cards-container">
             {% for item in owasp_metrics %}
-            <div style="margin-bottom: 1.5rem; border: 2px solid {% if item.status == 'FAILED' %}var(--danger-color){% else %}var(--success-color){% endif %}; border-radius: 8px; padding: 1rem; background: {% if item.status == 'FAILED' %}rgba(220, 53, 69, 0.05){% else %}rgba(40, 167, 69, 0.05){% endif %};">
+            <div class="owasp-category-card"
+                 data-category="{{ item.category.split(':')[0] }}"
+                 data-priority="{{ item.priority_score }}"
+                 data-defects="{{ item.total_defects }}"
+                 data-status="{{ item.status }}"
+                 style="margin-bottom: 1.5rem; border: 2px solid {% if item.status == 'FAILED' %}var(--danger-color){% else %}var(--success-color){% endif %}; border-radius: 8px; padding: 1rem; background: {% if item.status == 'FAILED' %}rgba(220, 53, 69, 0.05){% else %}rgba(40, 167, 69, 0.05){% endif %};">
                 <!-- Category Header -->
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                     <div style="flex: 1;">
@@ -1832,6 +1874,20 @@
                         {% if item.low > 0 %}
                         <div>
                             <span class="severity-badge severity-low" style="font-size: 1rem; padding: 0.4rem 0.8rem;">🟢 Low: {{ item.low }}</span>
+                        </div>
+                        {% endif %}
+                        {# OWASP empirical risk badges — helps compare across categories at a glance. #}
+                        {% if item.exploit_score is defined and item.exploit_score > 0 %}
+                        {% if item.exploit_score >= 7.5 %}{% set exp_cls = 'severity-high' %}{% elif item.exploit_score >= 5.0 %}{% set exp_cls = 'severity-medium' %}{% else %}{% set exp_cls = 'severity-low' %}{% endif %}
+                        {% if item.impact_score >= 4.5 %}{% set imp_cls = 'severity-high' %}{% elif item.impact_score >= 3.0 %}{% set imp_cls = 'severity-medium' %}{% else %}{% set imp_cls = 'severity-low' %}{% endif %}
+                        <div title="OWASP Avg Weighted Exploit score (0–10) — source: owasp.org/Top10/2025/">
+                            <span class="severity-badge {{ exp_cls }}" style="font-size: 0.9rem; padding: 0.35rem 0.7rem;">Exploit: {{ '%.2f'|format(item.exploit_score) }}</span>
+                        </div>
+                        <div title="OWASP Avg Weighted Impact score (0–10) — source: owasp.org/Top10/2025/">
+                            <span class="severity-badge {{ imp_cls }}" style="font-size: 0.9rem; padding: 0.35rem 0.7rem;">Impact: {{ '%.2f'|format(item.impact_score) }}</span>
+                        </div>
+                        <div title="Priority = defects × Exploit × Impact ÷ 100">
+                            <span class="severity-badge severity-high" style="font-size: 0.9rem; padding: 0.35rem 0.7rem;">Priority: {{ '%.1f'|format(item.priority_score) }}</span>
                         </div>
                         {% endif %}
                         <div style="margin-left: auto; font-size: 0.9rem; opacity: 0.7;">
@@ -1913,7 +1969,35 @@
                 {% endif %}
             </div>
             {% endfor %}
-            
+            </div>
+
+            <script>
+            function sortOwaspCards(mode, btn) {
+                const container = document.getElementById('owasp-cards-container');
+                if (!container) return;
+                const cards = Array.from(container.querySelectorAll(':scope > .owasp-category-card'));
+                cards.sort((a, b) => {
+                    if (mode === 'priority') {
+                        // Priority desc; A01→A10 as stable tie-break
+                        const pa = parseFloat(a.dataset.priority) || 0;
+                        const pb = parseFloat(b.dataset.priority) || 0;
+                        if (pb !== pa) return pb - pa;
+                        return (a.dataset.category || '').localeCompare(b.dataset.category || '');
+                    }
+                    // Default: A01 → A10
+                    return (a.dataset.category || '').localeCompare(b.dataset.category || '');
+                });
+                cards.forEach(c => container.appendChild(c));
+                document.querySelectorAll('.owasp-sort-btn').forEach(b => {
+                    const active = b === btn;
+                    b.classList.toggle('active', active);
+                    // Reflect active state in inline styling (no CSS class dependency)
+                    b.style.background = active ? 'var(--primary-color)' : 'transparent';
+                    b.style.color = active ? '#fff' : 'var(--primary-color)';
+                });
+            }
+            </script>
+
             <div class="alert alert-info" style="margin-top: 2rem;">
                 <strong>📚 About OWASP Top 10 2025:</strong>
                 <p style="margin: 0.5rem 0 0 0;">
@@ -1924,6 +2008,8 @@
                     <li><strong>PASS:</strong> No outstanding defects found in this OWASP category</li>
                     <li><strong>FAILED:</strong> Outstanding defects detected in this category requiring attention</li>
                     <li><strong>CWEs:</strong> Number of unique CWE codes contributing to this category</li>
+                    <li><strong>Exploit / Impact:</strong> Average weighted CVSS sub-scores published by OWASP for this category (higher = worse), sourced from the score tables at <a href="https://owasp.org/Top10/2025/" target="_blank" rel="noopener">owasp.org/Top10/2025/</a></li>
+                    <li><strong>Priority:</strong> Local ranking heuristic = outstanding defects &times; Exploit &times; Impact &divide; 100 &mdash; combines your defect volume with OWASP&rsquo;s severity signals so higher = fix first</li>
                 </ul>
             </div>
             {% else %}

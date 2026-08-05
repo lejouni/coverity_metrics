@@ -76,6 +76,7 @@ class CoverityMetrics:
 
         if multi_project:
             # Multiple projects: group by project name, filter to selected projects only
+            # active / fixed / dismissed are mutually exclusive and sum to defect_count.
             query = f"""
                 SELECT 
                     p.name as project_name,
@@ -87,9 +88,13 @@ class CoverityMetrics:
                     END) as active_defects,
                     COUNT(DISTINCT CASE 
                         WHEN {self._FIXED_COND_SQL}
-                            OR de_cls.name IN ('False Positive', 'Intentional')
+                            AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                         THEN sd.id 
-                    END) as fixed_defects
+                    END) as fixed_defects,
+                    COUNT(DISTINCT CASE 
+                        WHEN de_cls.name IN ('False Positive', 'Intentional')
+                        THEN sd.id 
+                    END) as dismissed_defects
                 FROM project p
                 JOIN project_stream ps ON p.id = ps.project_id
                 JOIN stream s ON ps.stream_id = s.id
@@ -105,7 +110,8 @@ class CoverityMetrics:
             """
             results = self.db.execute_query_dict(query, (self._project_names,))
         elif single_project:
-            # Single project: group by stream for drill-down view
+            # Single project: group by stream for drill-down view.
+            # active / fixed / dismissed are mutually exclusive and sum to defect_count.
             query = f"""
                 SELECT 
                     s.name as project_name,
@@ -117,9 +123,13 @@ class CoverityMetrics:
                     END) as active_defects,
                     COUNT(DISTINCT CASE 
                         WHEN {self._FIXED_COND_SQL}
-                            OR de_cls.name IN ('False Positive', 'Intentional')
+                            AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                         THEN sd.id 
-                    END) as fixed_defects
+                    END) as fixed_defects,
+                    COUNT(DISTINCT CASE 
+                        WHEN de_cls.name IN ('False Positive', 'Intentional')
+                        THEN sd.id 
+                    END) as dismissed_defects
                 FROM project p
                 JOIN project_stream ps ON p.id = ps.project_id
                 JOIN stream s ON ps.stream_id = s.id
@@ -135,6 +145,7 @@ class CoverityMetrics:
             """
             results = self.db.execute_query_dict(query, (self._project_names,))
         else:
+            # All projects: active / fixed / dismissed are mutually exclusive and sum to defect_count.
             query = f"""
                 SELECT 
                     p.name as project_name,
@@ -146,9 +157,13 @@ class CoverityMetrics:
                     END) as active_defects,
                     COUNT(DISTINCT CASE 
                         WHEN {self._FIXED_COND_SQL}
-                            OR de_cls.name IN ('False Positive', 'Intentional')
+                            AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                         THEN sd.id 
-                    END) as fixed_defects
+                    END) as fixed_defects,
+                    COUNT(DISTINCT CASE 
+                        WHEN de_cls.name IN ('False Positive', 'Intentional')
+                        THEN sd.id 
+                    END) as dismissed_defects
                 FROM project p
                 JOIN project_stream ps ON p.id = ps.project_id
                 JOIN stream s ON ps.stream_id = s.id
@@ -3316,7 +3331,20 @@ class CoverityMetrics:
         for category_id, data in owasp_data.items():
             # Convert CWE codes set to comma-separated string for display
             cwe_codes_str = ', '.join(sorted([f"CWE-{cwe}" for cwe in data['cwe_codes']])) if data['cwe_codes'] else ''
-            
+
+            # Empirical risk scores from owasp.org/Top10/2025/ Score tables.
+            # Priority formula: defects * exploit * impact / 100
+            #   -> "severity-adjusted defect equivalents", so a category with
+            #      few but very exploitable/high-impact defects can outrank
+            #      a category with many low-risk ones.
+            score = OWASP_TOP_10_2025[category_id].get('score_data', {})
+            exploit_score = score.get('exploit_score', 0.0)
+            impact_score = score.get('impact_score', 0.0)
+            priority_score = round(
+                data['total_defects'] * exploit_score * impact_score / 100.0,
+                1,
+            )
+
             df_data.append({
                 'category': data['category'],
                 'description': data['description'],
@@ -3327,7 +3355,10 @@ class CoverityMetrics:
                 'unspecified': data['unspecified'],
                 'cwe_count': len(data['cwe_codes']),
                 'cwe_codes_str': cwe_codes_str,
-                'status': data['status']
+                'status': data['status'],
+                'exploit_score': exploit_score,
+                'impact_score': impact_score,
+                'priority_score': priority_score,
             })
         
         df = pd.DataFrame(df_data)

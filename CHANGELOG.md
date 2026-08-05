@@ -5,15 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.19] - 2026-08-04
+## [1.0.19] - 2026-08-05
 
 ### Added
+- **Sort control on the OWASP Top 10:2025 category cards**
+  - New toolbar above the category cards on project dashboards lets you re-order the ten cards in-place: `Category (A01 → A10)` (default) or `Priority Score (highest first)`
+  - Sort is entirely client-side via `data-category` / `data-priority` attributes on each card and a small `sortOwaspCards()` function — no re-render, no server round-trip. Ties on priority fall back to A01→A10 for a stable order
+  - Priority Score = `defects × Exploit × Impact ÷ 100`, where `Exploit` and `Impact` are the **Avg Weighted Exploit** and **Avg Weighted Impact** columns from each category's Score table on <https://owasp.org/Top10/2025/> (CVSS-derived, 0–10). Attribution is shown to the right of the toolbar
+  - Interpretation: A03 (Software Supply Chain Failures) has the highest per-defect multiplier (0.427) because Exploit=8.17, Impact=5.23 — one supply-chain defect ≈ 2.2× the risk of one Broken-Access-Control defect (0.270). This gives teams evidence-based ordering rather than "fix A01 first because it's #1"
+
+- **Exploit / Impact / Priority mini-badges on every FAILED category card**
+  - Each FAILED card (A01…A10) now renders three additional inline badges next to the High/Medium/Low severity badges: `Exploit: X.XX`, `Impact: Y.YY`, `Priority: Z.Z`, styled with the existing `severity-badge severity-{high,medium,low}` classes (thresholds — Exploit: ≥7.5 high / 5.0–7.5 medium / else low; Impact: ≥4.5 / 3.0–4.5 / else)
+  - PASS cards (0 defects) intentionally omit these badges to keep the "everything green" view uncluttered
+
+### Changed
+- **`OWASP_TOP_10_2025` entries now carry a `score_data` sub-dict**
+  - Every category now has `"score_data": {"exploit_score": float, "impact_score": float}` alongside the existing `description` and `cwe_ids` fields. Values are copied verbatim from the "Avg Weighted Exploit" and "Avg Weighted Impact" columns of each category's Score table on owasp.org/Top10/2025/
+  - `get_owasp_top10_metrics()` in `metrics.py` now emits three new DataFrame columns (`exploit_score`, `impact_score`, `priority_score`); existing columns and the A01→A10 sort order are unchanged
+  - Public helpers `get_owasp_category_for_cwe()` and `get_all_owasp_categories()` untouched — no downstream call-sites needed to change
+
 - **Sortable columns on the instance-level "Defects by Project" table**
-  - Column headers (Project/Stream Name, Total Defects, Active, Fixed) are now clickable; click toggles ascending/descending order using the existing generic `sortTable()` helper
+  - Column headers (Project/Stream Name, Total Defects, Active, Fixed, Dismissed) are now clickable; click toggles ascending/descending order using the existing generic `sortTable()` helper
   - Also applies to the "Defects by Stream" variant of the same table on project dashboards
   - Numeric columns sort numerically (extracting digits from the badge text); the name column sorts as text via `localeCompare`
 
+- **Dismissed defects column on "Defects by Project / by Stream" table**
+  - New `Dismissed` badge column (styled `severity-medium`, sortable) added to both project and instance dashboards
+  - Backed by `dismissed_defects` in `CoverityMetrics.get_total_defects_by_project()` — counts rows whose classification is `False Positive` or `Intentional`
+  - Table tooltip updated to note that Active / Fixed / Dismissed are now mutually exclusive and sum to Total
+
+- **Avg Scans / Week on the "Scan Activity Over Time" section**
+  - Project and instance dashboards render two summary cards ("Avg Scans / Week", "Total Scans") above the chart. Computed by new `_compute_avg_scans_per_week(scan_activity_trend, days)` helper in the dashboard CLI as `total_scans / (days / 7.0)`
+  - Multi-instance aggregated dashboard adds a per-instance summary table (Instance / Total Scans / Avg Scans/Week) above `#agg-scan-activity-chart`, with a color swatch matching each instance's line in the chart. Enrichment done in `generate_aggregated_dashboard`
+
+### Changed
+- **`fixed_defects` no longer double-counts dismissed defects**
+  - `get_total_defects_by_project()` previously counted "False Positive" and "Intentional" as *both* fixed and dismissed, which broke the invariant `active + fixed + dismissed == total`
+  - `fixed_defects` is now strictly `defect_state = 'Fixed'` (excluding dismissed); dismissed lives only in the new `dismissed_defects` column
+
 ### Fixed
+- **`owasp_mapping.py` was OWASP Top 10:2021 spec mislabeled as 2025**
+  - Category strings claimed `A01:2025`–`A10:2025` but content matched the 2021 ranking — e.g. `A03:2025-Injection`, `A10:2025-Server-Side Request Forgery`, `A09:2025-Security Logging and Monitoring Failures`, none of which are correct for 2025
+  - Fully rewrote against https://owasp.org/Top10/2025/. All 10 categories now match the official 2025 ranking and CWE lists exactly (249 unique CWEs total; per-category counts verified against each page's Score table: 40/16/6/32/37/39/36/14/5/24)
+  - Key semantic corrections: **CWE-476 (NULL Pointer Dereference)** now correctly maps to `A10:2025-Mishandling of Exceptional Conditions` (new 2025 category) instead of being unmapped; **CWE-918 (SSRF)** now maps to `A01:2025-Broken Access Control` (SSRF folded into A01 for 2025); `A03` is now `Software Supply Chain Failures` (2021 A06 broadened); `A06` is now `Insecure Design` (moved down from 2021 A04); the 2021 categories `Vulnerable and Outdated Components` (was A06) and `SSRF` (was A10) are gone
+  - `OWASP_TOP_10_2025` variable name and public helpers `get_owasp_category_for_cwe()` / `get_all_owasp_categories()` preserved — no downstream callers in `metrics.py` had to change
+
 - **`release.ps1` post-install CLI verification failed with "not recognized as an internal or external command"**
   - `Invoke-Step` runs its command via `cmd.exe /c $Command`. When the venv path had spaces or was on the fallback `.pkgtest_<timestamp>` path (used when the primary `.pkgtest` couldn't be deleted), cmd.exe's quote-stripping mangled `"C:\...\coverity-dashboard.exe" --help` and reported the whole quoted path as an unknown command
   - The two CLI verification calls at the end of the script now bypass `Invoke-Step` and invoke the .exe directly with PowerShell's `&` operator, which handles paths with spaces natively. Exit codes are still checked and propagated as before

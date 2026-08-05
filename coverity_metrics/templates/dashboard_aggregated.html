@@ -542,6 +542,27 @@
             <h2 class="section-title">📊 Scan Activity Over Time - By Instance
                 <span class="info-icon">ℹ<span class="tooltip tooltip-right">Number of scans/commits (Coverity snapshots) submitted per week for each instance. Each colored line represents one instance. Calculated from the snapshot table's date_created field. Helps compare analysis cadence across instances.</span></span>
             </h2>
+            <table class="data-table" style="margin-bottom: 1.5rem;">
+                <thead>
+                    <tr>
+                        <th>Instance</th>
+                        <th>Total Scans ({{ trend_period_text|default('period') }})</th>
+                        <th>Avg Scans / Week</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for inst in scan_activity_series %}
+                    <tr>
+                        <td>
+                            <span style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: {{ inst.color }}; margin-right: 0.5rem; vertical-align: middle;"></span>
+                            <strong>{{ inst.instance_name }}</strong>
+                        </td>
+                        <td class="metric-number">{{ inst.total_scans|default(0) }}</td>
+                        <td class="metric-number"><strong>{{ inst.avg_scans_per_week|default(0) }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
             <div class="chart-container" id="agg-scan-activity-chart"></div>
         </div>
         {% else %}
