@@ -42,7 +42,18 @@ python -m coverity_metrics dashboard
 ## Features
 
 
-**🆕 Latest Enhancements (v1.0.17, 2026-08-03):**
+**🆕 Latest Enhancements (v1.0.19, 2026-08-05):**
+- **🔒 Anonymized Exports (`coverity-export --anonymize`)**: Replace every real project and stream name in the ZIP with sequential `project_NNN` / `stream_NNN` ids. The reverse mapping is written to a sibling `<zip>.mapping.json` (keep it private — the ZIP alone can't be de-anonymized). `--mapping-file <path>` keeps ids stable across re-exports. See [Sharing exports without disclosing project names](#sharing-exports-without-disclosing-project-names)
+- **🏆 Optional Leaderboards (`coverity-export --no-leaderboards`)**: Skip the five leaderboard metrics (top projects by fix rate / triage activity, top users by fixes, top triagers, most collaborative users). Dashboards rendered from the resulting ZIP auto-hide the 🏆 Leaderboards tab. Useful when user identities can't leave the environment
+- **📸 Optional Snapshots (`coverity-export --no-snapshots`)**: Skip the `snapshot_commands` metric (recorded `cov-build` / `cov-analyze` command lines, invoker, host, platform). Project dashboards from the resulting ZIP auto-hide the 📸 Snapshots tab
+- **🛡 OWASP Top 10:2025 Rewrite**: `owasp_mapping.py` was 2021 data mislabeled as 2025 — fully rewritten against <https://owasp.org/Top10/2025/> with all 10 categories and 249 CWEs verified against each category's Score table. CWE-476 (NULL Pointer Dereference) now correctly maps to the new A10 (Mishandling of Exceptional Conditions), CWE-918 (SSRF) folded into A01, and A03 is now Software Supply Chain Failures
+- **📊 OWASP Priority Sorting & Score Badges**: New toolbar re-orders the ten category cards by A01→A10 or by Priority Score (highest first). FAILED cards now render `Exploit / Impact / Priority` mini-badges alongside the severity badges. Priority Score = `defects × Exploit × Impact ÷ 100` using each category's Avg Weighted Exploit / Impact from owasp.org
+- **📋 Sortable "Defects by Project" Table**: Column headers (name, Total, Active, Fixed, Dismissed) are now clickable — ascending/descending toggle via the existing `sortTable()` helper. Applies to both instance and project dashboards
+- **🗂 Dismissed Defects Column**: New `Dismissed` badge column on the Defects by Project / by Stream table counts `False Positive` + `Intentional`. The `fixed_defects` count no longer double-counts these, restoring the invariant `active + fixed + dismissed == total`
+- **📈 Avg Scans / Week Fix**: The "Scan Activity Over Time" summary card now divides total scans by the span between the first and last observed scan bucket (floored at one week), instead of the full requested `--days` window. Sparse legacy projects with 9 scans in a ~9-day span used to round to 0 on `--days 3650` — they now correctly render 7.0
+- **🐛 Daily Fix Efficiency %**: `get_defect_velocity_trend` used `Fixed / New * 100`, which collapsed to 0% whenever fixes and introductions landed on different days (the common case). Formula now matches the tooltip: `Fixes / (Fixes + Introductions) × 100%`
+
+**Recent Enhancements (v1.0.17, 2026-08-03):**
 - **📊 Scan / Commit Activity Chart**: New Trends & Progress section on every project and instance dashboard shows snapshot counts over time (daily per-project, weekly instance-wide) with unique-committers overlay. Aggregated multi-instance dashboards get one line per instance for cadence comparison
 - **⚡ Parallel Generation (`--workers N`)**: Both `coverity-export` and `coverity-dashboard` now accept `--workers N` (default 1, max 8) to parallelize per-project generation. 4–6× speed-up on large database exports at `--workers 4`; ~2–3× on ZIP-based dashboards. Each worker owns its own Postgres connection / ZipDataLoader
 - **⏱ Execution Time Reporting**: Both CLIs print `Total execution time: 8.7s / 1m 23.4s / 2h 5m 12s` at the end, plus per-instance timing for the export command

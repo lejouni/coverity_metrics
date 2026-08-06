@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.0.19 - 2026-08-04
+### Version 1.0.19 - 2026-08-06
 
 **Sortable Instance-level Defects Table & Release Script CLI-verify Fix**
 
