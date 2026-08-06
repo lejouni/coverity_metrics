@@ -203,3 +203,5 @@ create_presentation.py
 _anon_full/*
 _lb_ctl/*
 _no_lb_verify/*
+_no_snap/*
+_snap_ctl/*

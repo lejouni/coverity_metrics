@@ -517,6 +517,7 @@ The tool:
 | `--anonymize` | - | flag | False | **NEW in 1.0.19!** Replace real project and stream names in the ZIP with sequential `project_NNN` / `stream_NNN` ids and write a sibling `<zip>.mapping.json` file that maps the ids back to real names. See [Sharing exports without disclosing project names](#sharing-exports-without-disclosing-project-names) below |
 | `--mapping-file` | - | string | None | Path to an anonymization mapping JSON. If it exists, it is loaded so ids stay stable across re-exports; the (possibly extended) mapping is written back to the same path. Only used with `--anonymize` |
 | `--no-leaderboards` | - | flag | False | **NEW in 1.0.19!** Skip the five Leaderboards metrics (`top_projects_by_fix_rate`, `top_projects_by_triage_activity`, `top_users_by_fixes`, `top_triagers`, `most_collaborative_users`). Dashboards generated from the resulting ZIP automatically hide the 🏆 Leaderboards tab |
+| `--no-snapshots` | - | flag | False | **NEW in 1.0.19!** Skip the `snapshot_commands` metric (recorded `cov-build`/`cov-analyze` command lines, invoker, host, platform). Project dashboards generated from the resulting ZIP automatically hide the 📸 Snapshots tab |
 | `--version` | - | flag | False | Print version and exit |
 
 The tool:

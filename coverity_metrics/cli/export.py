@@ -63,6 +63,11 @@ LEADERBOARD_METRICS = {
     'most_collaborative_users',
 }
 
+# Metric names that make up the Snapshots tab on the dashboard.
+SNAPSHOT_METRICS = {
+    'snapshot_commands',
+}
+
 
 def load_config(config_file='config.json'):
     """Load configuration with multi-instance support
@@ -92,7 +97,7 @@ def load_config(config_file='config.json'):
         print(f"ERROR: Failed to load configuration: {str(e)}")
         sys.exit(1)
 
-def export_instance_to_json(instance_name, connection_params, instance_dir, days=365, projects_filter=None, anonymizer=None, include_leaderboards=True):
+def export_instance_to_json(instance_name, connection_params, instance_dir, days=365, projects_filter=None, anonymizer=None, include_leaderboards=True, include_snapshots=True):
     """Export all metrics for a single instance to JSON files
     
     Args:
@@ -177,6 +182,9 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
     if not include_leaderboards:
         for m in LEADERBOARD_METRICS:
             metrics_config.pop(m, None)
+    if not include_snapshots:
+        for m in SNAPSHOT_METRICS:
+            metrics_config.pop(m, None)
 
     # Export each metric as JSON
     for metric_name, config in tqdm(metrics_config.items(), desc=f"  {instance_name}", unit="metric"):
@@ -225,7 +233,7 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
     return exported_files
 
 
-def export_project_specific_metrics(metrics, instance_name, project_dir, project_name, days=365, anonymizer=None, include_leaderboards=True):
+def export_project_specific_metrics(metrics, instance_name, project_dir, project_name, days=365, anonymizer=None, include_leaderboards=True, include_snapshots=True):
     """Export project-specific metrics (OWASP, CWE) for a single project
 
     Args:
@@ -288,6 +296,9 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
 
     if not include_leaderboards:
         for m in LEADERBOARD_METRICS:
+            project_metrics_config.pop(m, None)
+    if not include_snapshots:
+        for m in SNAPSHOT_METRICS:
             project_metrics_config.pop(m, None)
 
     # Export each project metric
@@ -395,7 +406,7 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
 
 
 def export_to_json(output_dir="exports", days=365, config_file='config.json', projects_filter=None, workers=1,
-                   anonymize=False, mapping_file=None, include_leaderboards=True):
+                   anonymize=False, mapping_file=None, include_leaderboards=True, include_snapshots=True):
     """Export all metrics to JSON files with multi-instance support
 
     Creates a separate ZIP file for each configured instance
@@ -494,6 +505,7 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
             projects_filter=projects_filter,
             anonymizer=anonymizer,
             include_leaderboards=include_leaderboards,
+            include_snapshots=include_snapshots,
         )
         
         metadata['instances'][instance_name] = {
@@ -551,6 +563,7 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
                             days,
                             anonymizer=anonymizer,
                             include_leaderboards=include_leaderboards,
+                            include_snapshots=include_snapshots,
                         )
                         if project_files:
                             project_specific[anon_project_map[project_name]] = project_files
@@ -579,6 +592,7 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
                             days,
                             anonymizer=anonymizer,
                             include_leaderboards=include_leaderboards,
+                            include_snapshots=include_snapshots,
                         )
                     finally:
                         worker_pool.put(m)
@@ -695,6 +709,8 @@ def main():
                         help='Path to an anonymization mapping JSON. If it exists it is loaded (so ids stay stable across re-exports); the (extended) mapping is written back to this path. Only used with --anonymize.')
     parser.add_argument('--no-leaderboards', action='store_true',
                         help='Skip the Leaderboards metrics (top projects by fix rate / triage, top users by fixes, top triagers, most collaborative users). Dashboards generated from the resulting ZIP will hide the Leaderboards tab.')
+    parser.add_argument('--no-snapshots', action='store_true',
+                        help='Skip the Snapshots metric (recorded cov-build/cov-analyze command lines, invoker, host). Dashboards generated from the resulting ZIP will hide the Snapshots tab.')
     parser.add_argument('--version', action='store_true', help='Print version and exit')
 
     args = parser.parse_args()
@@ -726,6 +742,7 @@ def main():
             anonymize=args.anonymize,
             mapping_file=args.mapping_file,
             include_leaderboards=not args.no_leaderboards,
+            include_snapshots=not args.no_snapshots,
         )
         # Note: export_to_json now returns a list of ZIP files (one per instance)
         return 0

@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.19] - 2026-08-05
 
 ### Added
+- **Optional Snapshots (`coverity-export --no-snapshots`)**
+  - New `--no-snapshots` opt-out flag on `coverity-export` skips the `snapshot_commands` metric (recorded `cov-build`/`cov-analyze` command lines, invoker, host, platform). Useful when build-machine hostnames, usernames, or filesystem paths embedded in command lines should not leave the environment
+  - Project dashboards rendered from the resulting ZIP auto-hide the 📸 Snapshots tab (button + content). No dashboard-side flag needed — the existing template guard on `snapshot_commands` handles it
+
 - **Optional Leaderboards (`coverity-export --no-leaderboards`)**
   - New `--no-leaderboards` opt-out flag on `coverity-export` skips the five leaderboard metrics — `top_projects_by_fix_rate`, `top_projects_by_triage_activity`, `top_users_by_fixes`, `top_triagers`, `most_collaborative_users` — at both instance and project scope. Useful when user identities (usernames, real names, committer info) must not leave the environment, or to shrink export size / runtime
   - `coverity-dashboard` auto-detects the absence of leaderboard data (either because `--no-leaderboards` was used or because the ZIP predates leaderboard export): the 🏆 Leaderboards tab button and its tab content are hidden via a new `has_leaderboards` template flag. No config knob to set on the dashboard side — it just works
