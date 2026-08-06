@@ -10,7 +10,7 @@ import argparse
 import logging
 import json
 import time
-from datetime import datetime
+from datetime import date, datetime
 from jinja2 import Environment, FileSystemLoader
 from coverity_metrics.metrics import CoverityMetrics
 from coverity_metrics.zip_data_loader import ZipDataLoader
@@ -95,22 +95,49 @@ def assign_instance_colors(instance_names):
 
 
 def _compute_avg_scans_per_week(scan_activity_trend, days):
-    """Average snapshots (scans) per week over the analysis window.
+    """Average snapshots (scans) per week over the observed activity span.
 
-    Works for any granularity because it sums scan_count and divides by
-    (days / 7). Returns 0.0 if inputs are missing.
+    Computed over the span from the first to the last dated bucket in the
+    data (floored at one week), not the full requested ``days`` window.
+    Otherwise projects with sparse but real activity — e.g. 9 scans across
+    a 10-year window — would round to 0.0. Falls back to ``days`` when no
+    parseable periods are available. Returns 0.0 when there is no activity.
     """
-    if not scan_activity_trend or not days:
+    if not scan_activity_trend:
         return 0.0
+
+    def _to_date(v):
+        if isinstance(v, datetime):
+            return v.date()
+        if isinstance(v, date):
+            return v
+        try:
+            return datetime.fromisoformat(str(v)[:10]).date()
+        except (TypeError, ValueError):
+            return None
+
     total = 0
+    dates = []
     for row in scan_activity_trend:
         try:
             total += int(row.get('scan_count', 0) or 0)
         except (TypeError, ValueError):
-            continue
-    weeks = days / 7.0
-    if weeks <= 0:
+            pass
+        d = _to_date(row.get('period'))
+        if d:
+            dates.append(d)
+
+    if total <= 0:
         return 0.0
+
+    if dates:
+        span_days = (max(dates) - min(dates)).days + 1
+        weeks = max(1.0, span_days / 7.0)
+    elif days:
+        weeks = max(1.0, days / 7.0)
+    else:
+        return 0.0
+
     return round(total / weeks, 1)
 
 def load_inline_css():
@@ -682,12 +709,16 @@ def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_a
     aggregated_trends = multi_metrics.get_aggregated_trends(days=days)
     scan_activity_series = multi_metrics.get_aggregated_scan_activity(days=days, granularity='week')
 
-    # Enrich each per-instance series with average scans/week over the analysis window.
-    weeks = (days / 7.0) if days else 0
+    # Enrich each per-instance series with total + average scans/week over the
+    # observed activity span (mirrors the per-project logic in
+    # _compute_avg_scans_per_week so sparse legacy data still surfaces a
+    # non-zero rate).
     for series in scan_activity_series:
-        total_scans = sum(int(v or 0) for v in series.get('scan_counts', []))
-        series['total_scans'] = total_scans
-        series['avg_scans_per_week'] = round(total_scans / weeks, 1) if weeks > 0 else 0.0
+        periods = series.get('periods', [])
+        scan_counts = series.get('scan_counts', [])
+        series['total_scans'] = sum(int(v or 0) for v in scan_counts)
+        trend_rows = [{'period': p, 'scan_count': c} for p, c in zip(periods, scan_counts)]
+        series['avg_scans_per_week'] = _compute_avg_scans_per_week(trend_rows, days)
     
     # Get instance names with colors
     instance_configs = []

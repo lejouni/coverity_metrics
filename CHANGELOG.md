@@ -52,8 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Table tooltip updated to note that Active / Fixed / Dismissed are now mutually exclusive and sum to Total
 
 - **Avg Scans / Week on the "Scan Activity Over Time" section**
-  - Project and instance dashboards render two summary cards ("Avg Scans / Week", "Total Scans") above the chart. Computed by new `_compute_avg_scans_per_week(scan_activity_trend, days)` helper in the dashboard CLI as `total_scans / (days / 7.0)`
-  - Multi-instance aggregated dashboard adds a per-instance summary table (Instance / Total Scans / Avg Scans/Week) above `#agg-scan-activity-chart`, with a color swatch matching each instance's line in the chart. Enrichment done in `generate_aggregated_dashboard`
+  - Project and instance dashboards render two summary cards ("Avg Scans / Week", "Total Scans") above the chart. Computed by new `_compute_avg_scans_per_week(scan_activity_trend, days)` helper in the dashboard CLI as `total_scans / span_weeks`, where `span_weeks` is the distance between the first and last observed scan bucket (floored at one week). Using the active span rather than the full `--days` window keeps sparse legacy projects from rounding to 0 (e.g. 9 scans across a ~9-day span with `--days 3650` now renders 7.0, not 0.0). Falls back to `days / 7` when `period` values are missing or unparseable
+  - Multi-instance aggregated dashboard adds a per-instance summary table (Instance / Total Scans / Avg Scans/Week) above `#agg-scan-activity-chart`, with a color swatch matching each instance's line in the chart. Enrichment done in `generate_aggregated_dashboard` (reuses the same helper)
 
 ### Changed
 - **`fixed_defects` no longer double-counts dismissed defects**

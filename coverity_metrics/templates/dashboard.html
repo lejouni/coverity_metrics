@@ -919,7 +919,9 @@
             </h2>
             <div class="summary-grid" style="margin-bottom: 1.5rem;">
                 <div class="summary-card info">
-                    <div class="label">Avg Scans / Week</div>
+                    <div class="label">Avg Scans / Week
+                        <span class="info-icon">ℹ<span class="tooltip">Total scans divided by the span (in weeks) between the first and last observed scan bucket, floored at one week. Reflects the average rate during the period the project was actually active rather than diluting by the full analysis window.</span></span>
+                    </div>
                     <div class="value" style="font-size: 2.5rem;">
                         {{ avg_scans_per_week|default(0) }}
                     </div>
