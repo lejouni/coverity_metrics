@@ -128,6 +128,9 @@ dmypy.json
 config.json
 db_config.ini
 
+# Anonymization mapping files (contain real project/stream names)
+*.mapping.json
+
 # Output directories
 output/
 output_*/
@@ -197,3 +200,6 @@ final_scan.py
 inspect_bytes.py
 Coverity_Metrics_Presentation.pptx
 create_presentation.py
+_anon_full/*
+_lb_ctl/*
+_no_lb_verify/*

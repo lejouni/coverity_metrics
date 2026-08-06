@@ -514,6 +514,9 @@ The tool:
 | `--config` | `-c` | string | `config.json` | Path to configuration file |
 | `--project` | `-p` | string | None | Comma-separated list of project names to export (default: all projects) |
 | `--workers` | `-w` | integer | `1` | **NEW!** Number of parallel workers for per-project export. Clamped to 1–8. Each worker uses its own Postgres connection. Recommended: `--workers 4` for large deployments (645+ projects) |
+| `--anonymize` | - | flag | False | **NEW in 1.0.19!** Replace real project and stream names in the ZIP with sequential `project_NNN` / `stream_NNN` ids and write a sibling `<zip>.mapping.json` file that maps the ids back to real names. See [Sharing exports without disclosing project names](#sharing-exports-without-disclosing-project-names) below |
+| `--mapping-file` | - | string | None | Path to an anonymization mapping JSON. If it exists, it is loaded so ids stay stable across re-exports; the (possibly extended) mapping is written back to the same path. Only used with `--anonymize` |
+| `--no-leaderboards` | - | flag | False | **NEW in 1.0.19!** Skip the five Leaderboards metrics (`top_projects_by_fix_rate`, `top_projects_by_triage_activity`, `top_users_by_fixes`, `top_triagers`, `most_collaborative_users`). Dashboards generated from the resulting ZIP automatically hide the 🏆 Leaderboards tab |
 | `--version` | - | flag | False | Print version and exit |
 
 The tool:
@@ -545,6 +548,37 @@ coverity-export --workers 4
 # 4 workers → ~4× faster on 645-project instances vs. sequential.
 # Each worker keeps its own Postgres connection; cap is 8.
 ```
+
+##### Sharing exports without disclosing project names
+
+**New in 1.0.19.** If you want to send a Coverity export to someone outside your organization
+(a consultant, an auditor, a support engineer) but the real project and stream names are
+sensitive, add `--anonymize`:
+
+```bash
+coverity-export --anonymize
+# → exports/coverity_export_Production_20260805_130613.zip           (safe to share)
+# → exports/coverity_export_Production_20260805_130613.mapping.json  (keep private)
+```
+
+Inside the ZIP, every real project name is replaced with `project_001`, `project_002`, …
+and every real stream name with `stream_001`, `stream_002`, … — in the directory layout, in
+`metadata.json`, and in every `project_name` / `stream_name` column of every exported JSON.
+The sibling `.mapping.json` file lists the mapping so **you** can decode it later; the ZIP
+alone cannot be reverse-mapped.
+
+To keep ids stable across re-exports (so `project_001` always means the same real project),
+point `--mapping-file` at a persistent path:
+
+```bash
+coverity-export --anonymize --mapping-file .\anon-map.json
+# First run creates .\anon-map.json.
+# Later runs load it, assign next-available ids to any new projects, and save back.
+```
+
+`*.mapping.json` is included in `.gitignore` so it won't be committed accidentally.
+Instance names, host, database, and user/committer names are **not** anonymized in this
+release; only project and stream names are.
 
 ---
 

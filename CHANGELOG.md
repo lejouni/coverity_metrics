@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.19] - 2026-08-05
 
 ### Added
+- **Optional Leaderboards (`coverity-export --no-leaderboards`)**
+  - New `--no-leaderboards` opt-out flag on `coverity-export` skips the five leaderboard metrics — `top_projects_by_fix_rate`, `top_projects_by_triage_activity`, `top_users_by_fixes`, `top_triagers`, `most_collaborative_users` — at both instance and project scope. Useful when user identities (usernames, real names, committer info) must not leave the environment, or to shrink export size / runtime
+  - `coverity-dashboard` auto-detects the absence of leaderboard data (either because `--no-leaderboards` was used or because the ZIP predates leaderboard export): the 🏆 Leaderboards tab button and its tab content are hidden via a new `has_leaderboards` template flag. No config knob to set on the dashboard side — it just works
+  - Individual `--project` dashboards inherit the same behavior; nothing else on the page changes
+
+- **Anonymized exports for safe sharing (`coverity-export --anonymize`)**
+  - New `--anonymize` opt-in flag on `coverity-export` replaces every real project name with a sequential `project_NNN` id and every real stream name with `stream_NNN` inside the produced ZIP — directory names, `metadata.json` (`projects` list + `project_specific_exports` keys), and every `project_name`/`stream_name` column in the exported JSON files are all rewritten in one pass
+  - The reverse mapping is written to a **sibling** file next to the ZIP: `coverity_export_<instance>_<timestamp>.mapping.json`. The ZIP alone cannot be de-anonymized — keep the mapping file private
+  - Optional `--mapping-file <path>` loads an existing mapping so ids stay stable across re-exports (same project always gets the same `project_NNN`). New projects get the next available id and the (extended) mapping is written back to the same path
+  - New `coverity_metrics.anonymizer.Anonymizer` module provides the underlying `project_id()` / `stream_id()` / `apply_to_dataframe()` / `save()` / `load()` primitives (unit tests in `test_anonymizer.py`)
+  - Instance names, host, database, and user/committer names are **not** anonymized (out of scope for this release)
+  - Dashboard side is untouched: an anonymized ZIP is just a ZIP with cryptic names, and `coverity-dashboard` renders `project_001`, `stream_001`, … as-is
+
 - **Sort control on the OWASP Top 10:2025 category cards**
   - New toolbar above the category cards on project dashboards lets you re-order the ten cards in-place: `Category (A01 → A10)` (default) or `Priority Score (highest first)`
   - Sort is entirely client-side via `data-category` / `data-priority` attributes on each card and a small `sortOwaspCards()` function — no re-render, no server round-trip. Ties on priority fall back to A01→A10 for a stable order
@@ -44,6 +57,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `fixed_defects` is now strictly `defect_state = 'Fixed'` (excluding dismissed); dismissed lives only in the new `dismissed_defects` column
 
 ### Fixed
+- **`--anonymize` mapping file contained phantom `project_NNN` entries for stream names**
+  - `get_total_defects_by_project()` re-uses the alias `SELECT s.name AS project_name` when scoped to a single project — the `project_name` column then holds *stream* names, not project names. The anonymizer was routing those values through `project_id()` and creating a new `project_NNN` entry per stream, inflating the mapping (e.g. 645 real projects grew into 1,652 project entries in a full production export)
+  - `Anonymizer.apply_to_dataframe` now accepts a per-metric `_EXTRA_COLUMNS` override: at single-project scope, `total_defects_by_project`'s `project_name` column is treated as a stream, so those names map to `stream_NNN` and the projects map contains only real projects
+  - `export_instance_to_json` also switches to single-project semantics when `--project X` selects exactly one project (that mode causes several metrics — `total_defects_by_project`, `top_projects_by_classification` — to emit stream-per-row data under project-column aliases even at instance scope)
+  - `pip install -e .` is required to pick this up if you had previously done `pip install .`. Existing `.mapping.json` files carrying phantom entries are unusable as `--mapping-file` inputs — delete them so a fresh mapping is built
+
 - **`owasp_mapping.py` was OWASP Top 10:2021 spec mislabeled as 2025**
   - Category strings claimed `A01:2025`–`A10:2025` but content matched the 2021 ranking — e.g. `A03:2025-Injection`, `A10:2025-Server-Side Request Forgery`, `A09:2025-Security Logging and Monitoring Failures`, none of which are correct for 2025
   - Fully rewrote against https://owasp.org/Top10/2025/. All 10 categories now match the official 2025 ranking and CWE lists exactly (249 unique CWEs total; per-category counts verified against each page's Score table: 40/16/6/32/37/39/36/14/5/24)

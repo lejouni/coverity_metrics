@@ -193,7 +193,9 @@
                 {% if current_project and snapshot_commands and snapshot_commands|length > 0 %}
                 <button class="tab-button" data-tab="snapshots">📸 Snapshots</button>
                 {% endif %}
+                {% if has_leaderboards %}
                 <button class="tab-button" data-tab="leaderboards">🏆 Leaderboards</button>
+                {% endif %}
                 {% if current_project and owasp_metrics %}
                 <button class="tab-button" data-tab="owasp">🔒 OWASP Top 10</button>
                 {% endif %}
@@ -1498,6 +1500,7 @@
         {% endif %}
 
         <!-- Leaderboards Tab -->
+        {% if has_leaderboards %}
         <div id="leaderboards-tab" class="tab-content">
 
         <!-- Team Leaderboards -->
@@ -1775,6 +1778,7 @@
 
         </div>
         <!-- End Leaderboards Tab -->
+        {% endif %}
 
         <!-- OWASP Top 10 2025 Tab (Project-level only) -->
         {% if current_project %}

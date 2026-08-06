@@ -424,6 +424,11 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
     # Load Jinja template (module-cached — Environment created once)
     template = _get_template('dashboard.html')
 
+    has_leaderboards = bool(
+        top_projects_by_fix_rate or top_projects_by_triage
+        or top_users_by_fixes or top_triagers or most_collaborative_users
+    )
+
     # Render template with data
     html_content = template.render(
         inline_css=inline_css,
@@ -471,6 +476,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         top_users_by_fixes=top_users_by_fixes,
         top_triagers=top_triagers,
         most_collaborative_users=most_collaborative_users,
+        has_leaderboards=has_leaderboards,
         # OWASP Top 10 2025 (project-level only)
         owasp_metrics=owasp_metrics,
         owasp_details=owasp_details,

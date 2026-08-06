@@ -11,6 +11,7 @@ import zipfile
 from datetime import datetime, date
 from decimal import Decimal
 from coverity_metrics.metrics import CoverityMetrics
+from coverity_metrics.anonymizer import Anonymizer, default_mapping_path
 import pandas as pd
 from tqdm import tqdm
 import argparse
@@ -53,6 +54,16 @@ def json_serializer(obj):
         return None
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
+# Metric names that make up the Leaderboards tab on the dashboard.
+LEADERBOARD_METRICS = {
+    'top_projects_by_fix_rate',
+    'top_projects_by_triage_activity',
+    'top_users_by_fixes',
+    'top_triagers',
+    'most_collaborative_users',
+}
+
+
 def load_config(config_file='config.json'):
     """Load configuration with multi-instance support
     
@@ -81,7 +92,7 @@ def load_config(config_file='config.json'):
         print(f"ERROR: Failed to load configuration: {str(e)}")
         sys.exit(1)
 
-def export_instance_to_json(instance_name, connection_params, instance_dir, days=365, projects_filter=None):
+def export_instance_to_json(instance_name, connection_params, instance_dir, days=365, projects_filter=None, anonymizer=None, include_leaderboards=True):
     """Export all metrics for a single instance to JSON files
     
     Args:
@@ -90,6 +101,8 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
         instance_dir: Instance-specific directory to save JSON files
         days: Number of days for trend analysis
         projects_filter: Optional list of project names to filter metrics
+        anonymizer: Optional :class:`Anonymizer` used to swap real project/stream
+            names for anonymized ids just before serialization.
         
     Returns:
         dict: Metadata about exported files
@@ -99,7 +112,13 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
         print(f"  Project filter: {', '.join(projects_filter)}")
     
     metrics = CoverityMetrics(connection_params=connection_params, project_name=projects_filter if projects_filter else None)
-    
+
+    # When exactly one project is active, several metrics (e.g. total_defects_by_project,
+    # top_projects_by_classification) switch to stream-per-row mode and emit stream names
+    # under a ``project_name`` / ``name`` alias. Treat that as project-scope for the
+    # anonymizer so those stream values are mapped as streams instead of new projects.
+    single_project_context = bool(projects_filter) and len(projects_filter) == 1
+
     # Dictionary to store export metadata
     exported_files = {}
     
@@ -154,7 +173,11 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
         'checker_classification_breakdown': {'method': 'get_checker_classification_breakdown', 'kwargs': {'limit': 15}},
         'top_projects_by_classification': {'method': 'get_top_projects_by_classification', 'kwargs': {'limit': 10}},
     }
-    
+
+    if not include_leaderboards:
+        for m in LEADERBOARD_METRICS:
+            metrics_config.pop(m, None)
+
     # Export each metric as JSON
     for metric_name, config in tqdm(metrics_config.items(), desc=f"  {instance_name}", unit="metric"):
         try:
@@ -169,6 +192,8 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
             
             # Convert result to JSON-serializable format
             if isinstance(result, pd.DataFrame):
+                if anonymizer is not None:
+                    result = anonymizer.apply_to_dataframe(result, metric_name=metric_name, is_project_scope=single_project_context)
                 # Convert DataFrame to list of dictionaries
                 data = result.to_dict(orient='records')
             elif isinstance(result, dict):
@@ -200,7 +225,7 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
     return exported_files
 
 
-def export_project_specific_metrics(metrics, instance_name, project_dir, project_name, days=365):
+def export_project_specific_metrics(metrics, instance_name, project_dir, project_name, days=365, anonymizer=None, include_leaderboards=True):
     """Export project-specific metrics (OWASP, CWE) for a single project
 
     Args:
@@ -212,6 +237,8 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
         project_dir: Project-specific directory to save JSON files
         project_name: Name of the project
         days: Number of days for trend analysis
+        anonymizer: Optional :class:`Anonymizer` used to swap real project/stream
+            names for anonymized ids just before serialization.
 
     Returns:
         dict: Metadata about exported files
@@ -258,7 +285,11 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
         'top_triagers': {'method': 'get_top_triagers', 'kwargs': {'days': days, 'limit': 100}},
         'most_collaborative_users': {'method': 'get_most_collaborative_users', 'kwargs': {'days': days, 'limit': 100}},
     }
-    
+
+    if not include_leaderboards:
+        for m in LEADERBOARD_METRICS:
+            project_metrics_config.pop(m, None)
+
     # Export each project metric
     for metric_name, config in project_metrics_config.items():
         try:
@@ -273,6 +304,8 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
             
             # Convert result to JSON-serializable format
             if isinstance(result, pd.DataFrame):
+                if anonymizer is not None:
+                    result = anonymizer.apply_to_dataframe(result, metric_name=metric_name, is_project_scope=True)
                 data = result.to_dict(orient='records')
             elif isinstance(result, dict):
                 data = result
@@ -301,6 +334,8 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
     try:
         owasp_metrics = metrics.get_owasp_top10_metrics()
         if not owasp_metrics.empty:
+            if anonymizer is not None:
+                owasp_metrics = anonymizer.apply_to_dataframe(owasp_metrics, metric_name='owasp_top10_metrics', is_project_scope=True)
             filename = "owasp_top10_metrics.json"
             filepath = os.path.join(project_dir, filename)
             data = owasp_metrics.to_dict(orient='records')
@@ -330,6 +365,8 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
     try:
         cwe_metrics = metrics.get_cwe_top25_metrics()
         if not cwe_metrics.empty:
+            if anonymizer is not None:
+                cwe_metrics = anonymizer.apply_to_dataframe(cwe_metrics, metric_name='cwe_top25_metrics', is_project_scope=True)
             filename = "cwe_top25_metrics.json"
             filepath = os.path.join(project_dir, filename)
             data = cwe_metrics.to_dict(orient='records')
@@ -357,7 +394,8 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
     return exported_files
 
 
-def export_to_json(output_dir="exports", days=365, config_file='config.json', projects_filter=None, workers=1):
+def export_to_json(output_dir="exports", days=365, config_file='config.json', projects_filter=None, workers=1,
+                   anonymize=False, mapping_file=None, include_leaderboards=True):
     """Export all metrics to JSON files with multi-instance support
 
     Creates a separate ZIP file for each configured instance
@@ -369,6 +407,15 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
         projects_filter: Optional list of project names to restrict export
         workers: Number of parallel workers per instance for per-project export
             (each worker uses its own Postgres connection).
+        anonymize: When True, replace real project and stream names in the ZIP
+            with sequential ``project_NNN`` / ``stream_NNN`` ids and write the
+            reverse mapping to a sibling ``.mapping.json`` file (or to
+            ``mapping_file`` if supplied). The mapping file is intended to stay
+            private; the ZIP itself becomes safely shareable.
+        mapping_file: Optional path to a mapping JSON. If it exists it is
+            loaded so ids stay stable across re-exports; regardless of whether
+            it existed, the (extended) mapping is written back to this path.
+            Only used when ``anonymize`` is True.
 
     Returns:
         list: List of paths to created ZIP files (one per instance)
@@ -431,13 +478,22 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
             }
         }
         
+        # Set up per-instance anonymizer (one mapping file per ZIP).
+        anonymizer = None
+        instance_mapping_path = None
+        if anonymize:
+            anonymizer = Anonymizer.load_or_new(mapping_file)
+            anonymizer.set_instance(instance_name)
+
         # Export instance-level metrics
         exported_files = export_instance_to_json(
             instance_name, 
             connection_params, 
             instance_dir,
             days,
-            projects_filter=projects_filter
+            projects_filter=projects_filter,
+            anonymizer=anonymizer,
+            include_leaderboards=include_leaderboards,
         )
         
         metadata['instances'][instance_name] = {
@@ -461,13 +517,20 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
                 projects_df = shared_metrics.get_available_projects()
                 projects = projects_df['project_name'].tolist() if not projects_df.empty else []
 
-            metadata['instances'][instance_name]['projects'] = projects
+            # Map real project names to anonymized ids up front so directory names,
+            # metadata keys and downstream logging stay consistent.
+            if anonymizer is not None:
+                anon_project_map = anonymizer.preload_projects(projects)
+            else:
+                anon_project_map = {p: p for p in projects}
+
+            metadata['instances'][instance_name]['projects'] = [anon_project_map[p] for p in projects]
 
             # Pre-create the project directories on the main thread so worker
             # threads don't race on os.makedirs.
             project_dirs = {}
             for project_name in projects:
-                pdir = os.path.join(instance_dir, project_name)
+                pdir = os.path.join(instance_dir, anon_project_map[project_name])
                 os.makedirs(pdir, exist_ok=True)
                 project_dirs[project_name] = pdir
 
@@ -486,9 +549,11 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
                             project_dirs[project_name],
                             project_name,
                             days,
+                            anonymizer=anonymizer,
+                            include_leaderboards=include_leaderboards,
                         )
                         if project_files:
-                            project_specific[project_name] = project_files
+                            project_specific[anon_project_map[project_name]] = project_files
                     except Exception as exc:
                         tqdm.write(f"  [ERROR] {project_name}: {exc}")
             else:
@@ -512,6 +577,8 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
                             project_dirs[project_name],
                             project_name,
                             days,
+                            anonymizer=anonymizer,
+                            include_leaderboards=include_leaderboards,
                         )
                     finally:
                         worker_pool.put(m)
@@ -525,7 +592,7 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
                             try:
                                 project_name, project_files = future.result()
                                 if project_files:
-                                    project_specific[project_name] = project_files
+                                    project_specific[anon_project_map[project_name]] = project_files
                             except Exception as exc:
                                 tqdm.write(f"  [ERROR] {exc}")
                     except KeyboardInterrupt:
@@ -581,7 +648,14 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
         # Clean up temporary directory for this instance
         import shutil
         shutil.rmtree(temp_dir)
-        
+
+        # Write (or refresh) the sibling anonymization mapping.
+        if anonymizer is not None:
+            instance_mapping_path = mapping_file or default_mapping_path(zip_path)
+            anonymizer.save(instance_mapping_path)
+            print(f"[OK] Anonymization mapping written: {os.path.basename(instance_mapping_path)}")
+            print(f"     Keep this file private \u2014 it maps anonymized ids back to real names.")
+
         zip_size_mb = os.path.getsize(zip_path) / 1024 / 1024
         instance_elapsed = time.perf_counter() - instance_t0
         project_count = len(metadata['instances'][instance_name].get('projects', []) or [])
@@ -615,6 +689,12 @@ def main():
     parser.add_argument('--project', '-p', type=str, default=None, help='Comma-separated list of project names to export (default: all projects)')
     parser.add_argument('--workers', '-w', type=int, default=1,
                         help='Number of parallel workers for per-project export (default: 1, capped at 8). Each worker uses its own Postgres connection.')
+    parser.add_argument('--anonymize', action='store_true',
+                        help='Replace real project and stream names in the ZIP with sequential project_NNN/stream_NNN ids and write a sibling <zip>.mapping.json file.')
+    parser.add_argument('--mapping-file', type=str, default=None,
+                        help='Path to an anonymization mapping JSON. If it exists it is loaded (so ids stay stable across re-exports); the (extended) mapping is written back to this path. Only used with --anonymize.')
+    parser.add_argument('--no-leaderboards', action='store_true',
+                        help='Skip the Leaderboards metrics (top projects by fix rate / triage, top users by fixes, top triagers, most collaborative users). Dashboards generated from the resulting ZIP will hide the Leaderboards tab.')
     parser.add_argument('--version', action='store_true', help='Print version and exit')
 
     args = parser.parse_args()
@@ -635,12 +715,17 @@ def main():
         workers = max(1, min(args.workers, 8))
         if workers != args.workers:
             print(f"[INFO] --workers clamped to {workers} (allowed range: 1..8)")
+        if args.mapping_file and not args.anonymize:
+            print("[INFO] --mapping-file ignored because --anonymize was not specified.")
         zip_files = export_to_json(
             output_dir=args.output,
             days=args.days,
             config_file=args.config,
             projects_filter=args.project if args.project else None,
             workers=workers,
+            anonymize=args.anonymize,
+            mapping_file=args.mapping_file,
+            include_leaderboards=not args.no_leaderboards,
         )
         # Note: export_to_json now returns a list of ZIP files (one per instance)
         return 0
