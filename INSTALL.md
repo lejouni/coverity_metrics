@@ -26,11 +26,63 @@ python -m build
 pip install dist/coverity_metrics-1.0.0-py3-none-any.whl
 ```
 
-### From PyPI (when published)
+### From PyPI
 
 ```bash
 pip install coverity-metrics
 ```
+
+### Installing without admin or root rights
+
+If you don't have permission to install into the system Python (typical on
+locked-down corporate machines), use one of the two options below. Both
+work the same on Linux, macOS, and Windows, and both use the same package
+you already have access to on PyPI.
+
+**Option 1 — User install (simplest, same command + one flag):**
+
+```bash
+# Fresh install
+python3 -m pip install --user coverity-metrics
+
+# Upgrade an existing user install
+python3 -m pip install --user --upgrade coverity-metrics
+```
+
+On Windows use `python` (or `py -3`) instead of `python3`. If the CLI
+commands aren't found after install, `pip` will print the user-scripts
+directory to add to your `PATH`:
+
+- Linux / macOS (bash/zsh, add to `~/.bashrc` or `~/.zshrc`):
+  ```bash
+  export PATH="$(python3 -m site --user-base)/bin:$PATH"
+  ```
+- Windows: run `python -m site --user-base` to see the base directory, then
+  add its `Scripts` subfolder to your user `PATH` (System Properties →
+  Environment Variables → user `Path` → Edit). No admin required.
+
+You can also skip `PATH` entirely and invoke the tool as a module:
+
+```bash
+python3 -m coverity_metrics dashboard  # or: report, export
+```
+
+**Option 2 — `pipx` (isolated, recommended if you use several Python CLIs):**
+
+```bash
+# One-time pipx bootstrap (no admin needed)
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+
+# Then install coverity-metrics into its own venv
+pipx install coverity-metrics
+
+# Upgrade later
+pipx upgrade coverity-metrics
+```
+
+`pipx` gives each CLI its own virtual environment, so `coverity-metrics`
+never conflicts with other packages in your Python setup.
 
 ## Usage
 

@@ -199,7 +199,21 @@ The tool provides the following metric categories:
 
 ## Installation
 
-### From Source (Recommended)
+### From PyPI (Recommended)
+
+```bash
+pip install coverity-metrics
+```
+
+This installs the CLI commands (`coverity-dashboard`, `coverity-metrics`,
+`coverity-export`) and enables running as a Python module
+(`python -m coverity_metrics`).
+
+**No admin or root rights?** Use `pip install --user coverity-metrics` or
+`pipx install coverity-metrics` — no privileges required. See
+[INSTALL.md](INSTALL.md#installing-without-admin-or-root-rights) for details.
+
+### From Source
 
 ```bash
 # Clone or download this repository
@@ -210,14 +224,7 @@ cd coverity_metrics
 pip install -e .
 ```
 
-This installs the package in editable mode, making the CLI commands (`coverity-dashboard`, `coverity-metrics`, `coverity-export`) available system-wide, and enables running as a Python module (`python -m coverity_metrics`).
-
-### From PyPI (Future)
-
-```bash
-# When published to PyPI
-pip install coverity-metrics
-```
+Editable mode is useful when you want to modify the source.
 
 ### Requirements
 
