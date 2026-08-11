@@ -2,6 +2,18 @@
 
 ## Version History
 
+### Version 1.0.20 - 2026-08-11
+
+**Release Update**
+
+#### Features
+- Added `fetch_all` parameter to metrics methods for complete data retrieval
+- Enhanced documentation with CLI parameter reference tables
+
+#### Improvements
+- Updated README with comprehensive parameter documentation
+- Improved Python library usage examples
+
 ### Version 1.0.19 - 2026-08-06
 
 **Sortable Instance-level Defects Table & Release Script CLI-verify Fix**

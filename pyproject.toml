@@ -52,6 +52,9 @@ dev = [
     "flake8>=6.0.0",
     "mypy>=1.0.0",
 ]
+build = [
+    "pyinstaller>=6.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/lejouni/coverity_metrics"

@@ -30,6 +30,8 @@ MANIFEST
 # PyInstaller
 *.manifest
 *.spec
+# Track the checked-in build spec.
+!packaging/coverity-metrics.spec
 
 # Installer logs
 pip-log.txt

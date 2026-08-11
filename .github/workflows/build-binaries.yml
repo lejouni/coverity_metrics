@@ -1,0 +1,95 @@
+name: Build binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact_os: windows
+            binary_name: coverity-metrics.exe
+            build_cmd: pwsh -File packaging/build_binary.ps1
+          - os: ubuntu-latest
+            artifact_os: linux
+            binary_name: coverity-metrics
+            build_cmd: bash packaging/build_binary.sh
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install project + build deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .[build]
+
+      - name: Build binary
+        shell: bash
+        run: ${{ matrix.build_cmd }}
+
+      - name: Determine artifact name
+        id: name
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="${GITHUB_SHA::7}"
+          fi
+          echo "artifact=coverity-metrics-${{ matrix.artifact_os }}-${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.artifact }}
+          path: dist/${{ matrix.binary_name }}
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Attach binaries to release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage release files
+        run: |
+          mkdir -p release
+          # Rename OS-specific binaries into predictable filenames for the release page.
+          cp artifacts/coverity-metrics-windows-*/coverity-metrics.exe release/coverity-metrics-windows-${GITHUB_REF_NAME}.exe
+          cp artifacts/coverity-metrics-linux-*/coverity-metrics       release/coverity-metrics-linux-${GITHUB_REF_NAME}
+          chmod +x release/coverity-metrics-linux-${GITHUB_REF_NAME}
+          cp config.json.example release/
+          cp README.md release/
+          ls -la release/
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
