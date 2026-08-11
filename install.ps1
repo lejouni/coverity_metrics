@@ -49,7 +49,7 @@ try {
     $pythonVersion = python --version 2>&1
     Write-Success "[OK] $pythonVersion"
 } catch {
-    Write-Error "[ERROR] Python not found. Please install Python 3.8+ and add it to PATH."
+    Write-Error "[ERROR] Python not found. Please install Python 3.10+ and add it to PATH."
     exit 1
 }
 
@@ -58,8 +58,8 @@ $versionMatch = $pythonVersion -match "Python (\d+)\.(\d+)"
 if ($versionMatch) {
     $major = [int]$matches[1]
     $minor = [int]$matches[2]
-    if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 8)) {
-        Write-Error "[ERROR] Python 3.8+ is required. Found Python $major.$minor"
+    if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 10)) {
+        Write-Error "[ERROR] Python 3.10+ is required (pandas>=3.0 and matplotlib>=3.10 need it). Found Python $major.$minor"
         exit 1
     }
 }

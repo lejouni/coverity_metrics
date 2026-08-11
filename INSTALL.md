@@ -185,7 +185,7 @@ Create `config.json` in your working directory:
 
 ## Requirements
 
-- Python >= 3.8
+- Python >= 3.10 (required by `pandas` >=3.0 and `matplotlib` >=3.10)
 - PostgreSQL access to Coverity database
 - Dependencies (automatically installed):
   - psycopg2-binary

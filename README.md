@@ -228,6 +228,8 @@ Editable mode is useful when you want to modify the source.
 
 ### Requirements
 
+- **Python >= 3.10** (required by `pandas` >=3.0 and `matplotlib` >=3.10)
+
 The package includes these dependencies (automatically installed):
 - `psycopg2-binary` - PostgreSQL database adapter
 - `pandas` - Data analysis and manipulation

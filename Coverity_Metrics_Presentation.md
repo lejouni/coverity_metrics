@@ -451,7 +451,7 @@ coverity-dashboard --config config.json --days 180
 ## Built on Proven Technologies
 
 ### Backend
-- **Python 3.8+**: Modern, maintainable code
+- **Python 3.10+**: Modern, maintainable code
 - **PostgreSQL**: Direct Coverity database queries
 - **Pandas**: Powerful data analysis
 - **Jinja2**: Professional HTML templates
@@ -697,7 +697,7 @@ A: No, this is an OSS tool.
 
 ## Your First Dashboard in 10 Minutes
 
-- [ ] Install Python 3.8+
+- [ ] Install Python 3.10+
 - [ ] Clone/download repository
 - [ ] Install package: `pip install -e .`
 - [ ] Copy `config.json.example` to `config.json`
