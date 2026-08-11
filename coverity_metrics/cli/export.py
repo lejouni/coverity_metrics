@@ -323,6 +323,7 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
             elif isinstance(result, list):
                 data = result
             else:
+                tqdm.write(f"    [SKIP] {project_name}/{metric_name}: unsupported type {type(result).__name__}")
                 continue
             
             # Export as JSON if data exists
@@ -337,9 +338,10 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
                     'format': 'json',
                     'record_count': len(data) if isinstance(data, list) else 1
                 }
+            else:
+                tqdm.write(f"    [SKIP] {project_name}/{metric_name}: No data")
         except Exception as e:
-            # Silently skip metrics that fail - they may not be applicable for all projects
-            pass
+            tqdm.write(f"    [ERROR] {project_name}/{metric_name}: {e}")
     
     # OWASP Top 10 Metrics
     try:

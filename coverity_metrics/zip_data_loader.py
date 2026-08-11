@@ -142,13 +142,32 @@ class ZipDataLoader:
                             return self._read_json_from_zip(project_file, as_dataframe=as_dataframe)
                 except Exception:
                     pass
-            # Project-specific file not found (stream has no snapshots / no data exported).
-            # Return empty data instead of falling back to instance-level metrics.
+            # Per-project file absent. Fall back to the instance-level file only
+            # when the export was scoped to exactly this one project — in that
+            # case the aggregate file was written with the same single-project
+            # filter, so it is safe to use. Guards against showing all-projects
+            # data when the export covered multiple projects.
+            if self._is_single_project_export(self.project_name):
+                instance_file = self._get_metric_file(metric_name)
+                return self._read_json_from_zip(instance_file, as_dataframe=as_dataframe)
+            # Stream has no snapshots / no data exported for this project.
             return pd.DataFrame() if as_dataframe else {}
         
         # No project filter - use instance-level file
         instance_file = self._get_metric_file(metric_name)
         return self._read_json_from_zip(instance_file, as_dataframe=as_dataframe)
+
+    def _is_single_project_export(self, project_name):
+        """Return True when the ZIP was exported for exactly this one project.
+
+        Reads the instance metadata (populated by export_to_json) to check that
+        only one project was exported and that it matches the requested one.
+        """
+        if not self.metadata or not self.instance_name:
+            return False
+        instance_meta = self.metadata.get('instances', {}).get(self.instance_name, {})
+        exported_projects = instance_meta.get('projects') or []
+        return len(exported_projects) == 1 and exported_projects[0] == project_name
 
     def _aggregate_projects_metric(self, projects, metric_name, as_dataframe=False):
         """Aggregate a metric across multiple projects by reading each project's file.
