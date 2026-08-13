@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# coverity-export.sh — quickstart for coverity-export on Linux.
+#
+# Downloads the coverity-metrics standalone binary for the given release tag
+# (or the latest release), sets the required connection environment variables,
+# and runs `coverity-metrics export`. No Python install required on the host.
+#
+# EDIT the "EDIT THESE VALUES" block below to match your environment, or export
+# the same variable names from your shell before running this script — the ':='
+# fallbacks will not overwrite already-set values.
+
+set -euo pipefail
+
+# --------------------------------------------------------------------------- #
+# EDIT THESE VALUES to point at your Coverity Postgres database.
+# --------------------------------------------------------------------------- #
+: "${COVERITY_DB_HOST:=coverity-prod.company.com}"
+: "${COVERITY_DB_PORT:=5432}"
+: "${COVERITY_DB_NAME:=cim}"
+: "${COVERITY_DB_USER:=coverity_ro}"
+: "${COVERITY_DB_PASSWORD:=change-me}"
+: "${COVERITY_INSTANCE_NAME:=Production}"
+# --------------------------------------------------------------------------- #
+
+export COVERITY_DB_HOST COVERITY_DB_PORT COVERITY_DB_NAME
+export COVERITY_DB_USER COVERITY_DB_PASSWORD COVERITY_INSTANCE_NAME
+
+REPO="lejouni/coverity_metrics"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN_DIR="${BIN_DIR:-${SCRIPT_DIR}/bin}"
+
+TAG=""
+OUTPUT="exports"
+DAYS=365
+PROJECT=""
+ANONYMIZE=0
+NO_SNAPSHOTS=0
+NO_LEADERBOARDS=0
+
+usage() {
+  cat <<EOF
+Usage: $0 [--tag vX.Y.Z] [--output DIR] [--days N] [--project NAMES]
+          [--anonymize] [--no-snapshots] [--no-leaderboards] [-h|--help]
+
+Downloads the coverity-metrics binary for the given release tag (or the
+latest release when --tag is omitted) and runs 'coverity-metrics export'
+using the environment variables configured at the top of this script.
+
+Options:
+  --tag vX.Y.Z          Release tag to download (default: latest)
+  --output DIR          Output directory (default: exports)
+  --days N              Trend analysis window in days (default: 365)
+  --project NAMES       Comma-separated project filter (default: all)
+  --anonymize           Replace real project/stream names with sequential ids
+                        and write a sibling <zip>.mapping.json file
+  --no-snapshots        Skip the Snapshots metric (privacy)
+  --no-leaderboards     Skip the Leaderboards metrics (privacy)
+  -h, --help            Show this help
+
+Environment overrides (set before running):
+  COVERITY_DB_HOST, COVERITY_DB_PORT, COVERITY_DB_NAME,
+  COVERITY_DB_USER, COVERITY_DB_PASSWORD, COVERITY_INSTANCE_NAME
+  BIN_DIR (where to cache the downloaded binary; default: ./bin next to script)
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tag)              TAG="${2:?--tag requires a value}"; shift 2 ;;
+    --output)           OUTPUT="${2:?--output requires a value}"; shift 2 ;;
+    --days)             DAYS="${2:?--days requires a value}"; shift 2 ;;
+    --project)          PROJECT="${2:?--project requires a value}"; shift 2 ;;
+    --anonymize)        ANONYMIZE=1; shift ;;
+    --no-snapshots)     NO_SNAPSHOTS=1; shift ;;
+    --no-leaderboards)  NO_LEADERBOARDS=1; shift ;;
+    -h|--help)          usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+command -v curl >/dev/null || { echo "ERROR: 'curl' is required." >&2; exit 1; }
+
+BIN_PATH=""
+
+# When --tag is not supplied, prefer a cached binary from a previous run so
+# we don't hit the GitHub API (or the network at all) unnecessarily.
+if [[ -z "$TAG" && -d "$BIN_DIR" ]]; then
+  cached=$(ls -1t "$BIN_DIR"/coverity-metrics-linux-* 2>/dev/null | head -n1 || true)
+  if [[ -n "$cached" && -x "$cached" ]]; then
+    BIN_PATH="$cached"
+    TAG="${cached##*/coverity-metrics-linux-}"
+    echo "Using cached binary: ${BIN_PATH} (tag ${TAG})"
+  fi
+fi
+
+# Resolve latest tag from the GitHub API only if we still don't know one.
+if [[ -z "$TAG" ]]; then
+  echo "Resolving latest release tag from GitHub..."
+  api_url="https://api.github.com/repos/${REPO}/releases/latest"
+  TAG=$(curl -fsSL "$api_url" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
+  if [[ -z "$TAG" ]]; then
+    echo "ERROR: Could not resolve latest tag from ${api_url}" >&2
+    exit 1
+  fi
+  echo "Latest tag: ${TAG}"
+fi
+
+BIN_NAME="coverity-metrics-linux-${TAG}"
+if [[ -z "$BIN_PATH" ]]; then
+  BIN_PATH="${BIN_DIR}/${BIN_NAME}"
+fi
+URL="https://github.com/${REPO}/releases/download/${TAG}/${BIN_NAME}"
+
+if [[ -x "$BIN_PATH" ]]; then
+  echo "Using cached binary: ${BIN_PATH}"
+else
+  echo "Downloading ${URL}"
+  mkdir -p "$BIN_DIR"
+  if ! curl -fL --retry 3 --output "$BIN_PATH" "$URL"; then
+    rm -f "$BIN_PATH"
+    echo "ERROR: Failed to download ${URL}" >&2
+    exit 1
+  fi
+  chmod +x "$BIN_PATH"
+fi
+
+# Refuse to run with the placeholder password so nobody triggers a real export
+# with an unedited copy of this script.
+if [[ "$COVERITY_DB_PASSWORD" == "change-me" ]]; then
+  echo "ERROR: COVERITY_DB_PASSWORD is still the placeholder value 'change-me'." >&2
+  echo "Edit this script (or export COVERITY_DB_PASSWORD) before running." >&2
+  exit 1
+fi
+
+cmd=("$BIN_PATH" export --output "$OUTPUT" --days "$DAYS")
+[[ -n "$PROJECT" ]] && cmd+=(--project "$PROJECT")
+(( ANONYMIZE == 1 )) && cmd+=(--anonymize)
+(( NO_SNAPSHOTS == 1 )) && cmd+=(--no-snapshots)
+(( NO_LEADERBOARDS == 1 )) && cmd+=(--no-leaderboards)
+
+cat <<INFO
+
+Instance : ${COVERITY_INSTANCE_NAME}
+Host     : ${COVERITY_DB_HOST}
+Database : ${COVERITY_DB_NAME}
+User     : ${COVERITY_DB_USER}
+Output   : ${OUTPUT}
+Days     : ${DAYS}
+Binary   : ${BIN_PATH}
+
+Running: ${cmd[*]}
+
+INFO
+
+"${cmd[@]}"

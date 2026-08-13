@@ -207,6 +207,66 @@ cp config.json.example config.json
 - For multi-instance mode: Configure 2+ instances (auto-detected)
 - Add `config.json` to `.gitignore` to protect credentials
 
+### Configuring `coverity-export` / `coverity-dashboard` from environment variables
+
+Both `coverity-export` and `coverity-dashboard` (in database mode) can also be run against a
+single instance without a `config.json`, by providing the connection details through environment
+variables. This is convenient in CI pipelines and containers where you'd rather not ship a config
+file. No extra flag is needed — just set the variables and omit `--config`.
+
+**Even simpler for end users** — pre-built quickstart scripts under
+[scripts/](scripts/) ([coverity-export.sh](scripts/coverity-export.sh) for Linux,
+[coverity-export.ps1](scripts/coverity-export.ps1) for Windows) download the
+standalone binary for the latest (or a pinned) GitHub release, set these
+variables from a block you edit at the top of the script, and run
+`coverity-metrics export` in one shot. They forward `--tag`, `--output`,
+`--days`, `--project`, `--anonymize`, `--no-snapshots`, and `--no-leaderboards`.
+
+For `coverity-dashboard`, the env-var check only applies to **database mode**; when `--zip-file`
+is given the tool reads from the ZIP and does not need a config or env vars.
+
+| Variable | Required | Default | Description |
+| -------- | -------- | ------- | ----------- |
+| `COVERITY_DB_HOST` | yes | — | Hostname of the Coverity Postgres database |
+| `COVERITY_DB_NAME` | yes | — | Database name (e.g. `cim`) |
+| `COVERITY_DB_USER` | yes | — | Database user |
+| `COVERITY_DB_PASSWORD` | yes | — | Database password |
+| `COVERITY_DB_PORT` | no | `5432` | Database port |
+| `COVERITY_INSTANCE_NAME` | no | `Coverity` | Instance name used in the ZIP filename / dashboard label |
+
+Precedence used at startup (both tools):
+
+1. `--config <file>` explicitly passed — load that JSON (fails if the file is missing). Multi-instance is supported here.
+2. All required env vars set — single-instance env-var mode with an `[INFO]` message.
+3. A `config.json` in the current directory — loaded automatically (backward compatible).
+4. None of the above — the tool exits with a clear error listing both options.
+
+Example (PowerShell):
+
+```powershell
+$env:COVERITY_DB_HOST     = "coverity-prod.company.com"
+$env:COVERITY_DB_NAME     = "cim"
+$env:COVERITY_DB_USER     = "coverity_ro"
+$env:COVERITY_DB_PASSWORD = "***"
+$env:COVERITY_INSTANCE_NAME = "Production"
+coverity-export    --output exports --days 365
+coverity-dashboard --output output  --days 365 --no-browser
+```
+
+Example (bash):
+
+```bash
+export COVERITY_DB_HOST=coverity-prod.company.com
+export COVERITY_DB_NAME=cim
+export COVERITY_DB_USER=coverity_ro
+export COVERITY_DB_PASSWORD=***
+export COVERITY_INSTANCE_NAME=Production
+coverity-export    --output exports --days 365
+coverity-dashboard --output output  --days 365 --no-browser
+```
+
+`coverity-metrics` still requires `config.json`; env-var mode is currently `coverity-export` and `coverity-dashboard`–only.
+
 ## Database Schema
 
 The tool works with the following key Coverity database tables:

@@ -196,9 +196,9 @@ def detect_multi_instance_config(config_file='config.json'):
     Returns:
         tuple: (is_multi_instance, instance_count, config_data)
     """
-    if not os.path.exists(config_file):
+    if not config_file or not os.path.exists(config_file):
         return False, 0, None
-    
+
     try:
         with open(config_file, 'r') as f:
             config_data = json.load(f)
@@ -211,6 +211,43 @@ def detect_multi_instance_config(config_file='config.json'):
     except Exception as e:
         tqdm.write(f"[WARNING] Failed to read config file {config_file}: {e}")
         return False, 0, None
+
+
+def _resolve_dashboard_config(config_file):
+    """Resolve the DB-mode configuration for coverity-dashboard.
+
+    Precedence (mirrors coverity-export):
+      1. Explicit ``config_file`` (from ``--config``) -> load JSON, fail if missing.
+      2. All required env vars set -> single-instance env-var mode (with an [INFO] line).
+      3. ``config.json`` in the current directory -> load JSON.
+      4. Otherwise -> exit with guidance listing both options.
+
+    Returns:
+        tuple: ``(config_data, enabled_instances, effective_path)``. ``effective_path``
+        is the JSON file that was actually loaded (needed for MultiInstanceMetrics),
+        or ``None`` when env-var mode was used (which is single-instance only).
+    """
+    from coverity_metrics.cli.export import (
+        load_config, load_config_from_env, _env_vars_present,
+        ENV_HOST, ENV_PORT, ENV_INSTANCE_NAME, _ENV_REQUIRED,
+    )
+
+    if config_file:
+        cfg, insts = load_config(config_file)
+        return cfg, insts, config_file
+    if _env_vars_present():
+        tqdm.write(f"[INFO] Using {ENV_HOST}/... environment variables for single-instance configuration.")
+        cfg, insts = load_config_from_env()
+        return cfg, insts, None
+    if os.path.exists('config.json'):
+        cfg, insts = load_config('config.json')
+        return cfg, insts, 'config.json'
+    tqdm.write("[ERROR] No configuration provided.")
+    tqdm.write("Pass --config <file> pointing at a config.json (see config.json.example),")
+    tqdm.write("or set the following environment variables for single-instance mode:")
+    tqdm.write(f"  Required: {', '.join(_ENV_REQUIRED)}")
+    tqdm.write(f"  Optional: {ENV_PORT} (default 5432), {ENV_INSTANCE_NAME} (default 'Coverity')")
+    sys.exit(1)
 
 def generate_html_dashboard(output_file="output/dashboard.html", project_name=None, 
                            instance_name=None, metrics_instance=None, cache=None, use_cache=True, days=90,
@@ -1387,8 +1424,11 @@ def main():
                        help='Use exported ZIP file(s) as data source instead of database (supports multiple files for aggregation)')
     
     # Multi-instance arguments (mostly for backward compatibility and override)
-    parser.add_argument('--config', '-c', type=str, default='config.json',
-                       help='Path to configuration file (default: config.json)')
+    parser.add_argument('--config', '-c', type=str, default=None,
+                       help=('Path to configuration file. If omitted (and --zip-file is also omitted), the following are '
+                             'tried in order: the environment variables COVERITY_DB_HOST / COVERITY_DB_NAME / '
+                             'COVERITY_DB_USER / COVERITY_DB_PASSWORD (optional: COVERITY_DB_PORT, '
+                             'COVERITY_INSTANCE_NAME), then a config.json in the current directory.'))
     parser.add_argument('--instance', '-i', type=str,
                        help='Generate dashboard for specific instance only')
     parser.add_argument('--single-instance-mode', action='store_true',
@@ -1865,9 +1905,12 @@ def _run_main(args):
     # ========================================================================
     # DATABASE MODE - Continue with normal database logic
     # ========================================================================
-    
-    # Auto-detect multi-instance configuration
-    is_multi_instance, instance_count, config_data = detect_multi_instance_config(args.config)
+
+    # Resolve DB-mode config (explicit --config -> env vars -> default config.json -> guidance).
+    config_data, enabled_instances, effective_config_path = _resolve_dashboard_config(args.config)
+    instance_count = len(enabled_instances)
+    is_multi_instance = instance_count > 1
+    config_source_label = effective_config_path or 'environment variables'
 
     # Determine whether an aggregated dashboard will be generated.
     # It is only shown when config explicitly has aggregated_view.enabled = true.
@@ -1879,9 +1922,9 @@ def _run_main(args):
         is_multi_instance = False
         tqdm.write("\n[Single-Instance Mode] Forced by --single-instance-mode flag")
     elif is_multi_instance:
-        tqdm.write(f"\n[Multi-Instance Mode] Auto-detected {instance_count} instances in {args.config}")
+        tqdm.write(f"\n[Multi-Instance Mode] Auto-detected {instance_count} instances in {config_source_label}")
     else:
-        tqdm.write("\n[Single-Instance Mode] Using first instance from {args.config}")
+        tqdm.write(f"\n[Single-Instance Mode] Using first instance from {config_source_label}")
     
     # Handle cache stats request
     if args.cache_stats:
@@ -1936,7 +1979,7 @@ def _run_main(args):
         if is_multi_instance and not args.single_instance_mode:
             from coverity_metrics.multi_instance_metrics import MultiInstanceMetrics
             
-            multi_metrics = MultiInstanceMetrics(args.config)
+            multi_metrics = MultiInstanceMetrics(effective_config_path)
             instance_names = multi_metrics.get_instance_names()
             tqdm.write(f"  Instances: {', '.join(instance_names)}")
             
@@ -2350,8 +2393,8 @@ def _run_main(args):
                 tqdm.write(f"  Using instance: {instance_name}")
         
         if not connection_params:
-            tqdm.write("\n[ERROR] No database configuration found in config.json")
-            tqdm.write("Please configure at least one instance in config.json")
+            tqdm.write(f"\n[ERROR] No database configuration found in {config_source_label}")
+            tqdm.write("Please configure at least one instance, or set the COVERITY_DB_* environment variables")
             sys.exit(1)
         
         # Create metrics instance with connection params from config.json

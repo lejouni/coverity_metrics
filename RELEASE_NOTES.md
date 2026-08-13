@@ -2,6 +2,27 @@
 
 ## Version History
 
+### Version 1.0.22 - 2026-08-13
+
+**Quickstart Scripts and Env-Var Config for `coverity-export` and `coverity-dashboard`**
+
+#### Added
+
+##### 🚀 Quickstart Scripts for Linux and Windows End Users
+- New [scripts/coverity-export.sh](scripts/coverity-export.sh) (bash) and [scripts/coverity-export.ps1](scripts/coverity-export.ps1) (PowerShell) turn "run an export" into a one-shot command for users who don't want to install Python.
+- The scripts download the coverity-metrics standalone binary for the requested (or latest) release from GitHub, set the `COVERITY_DB_*` environment variables — with placeholder values users edit at the top of each script — and then run `coverity-metrics export`.
+- Flags mirror the underlying CLI: `--tag vX.Y.Z` (default: latest, resolved from the GitHub API), `--output`, `--days`, `--project`, `--anonymize`, `--no-snapshots`, `--no-leaderboards`.
+- A guardrail refuses to run while `COVERITY_DB_PASSWORD` is still the placeholder value `change-me`, so nobody triggers a real export with an unedited copy of the script.
+- The downloaded binary is cached under `./bin/` next to the script (override with `BIN_DIR` / `-BinDir`), so repeat runs skip the download.
+
+##### 🔐 `coverity-export` and `coverity-dashboard` Read Single-Instance Config from Environment Variables
+- When `--config` is not passed (and `--zip-file` is not passed for the dashboard), both tools now look for the connection details in environment variables and run against that instance — no config file, no extra flag needed. Handy for CI pipelines and containers.
+- Required env vars: `COVERITY_DB_HOST`, `COVERITY_DB_NAME`, `COVERITY_DB_USER`, `COVERITY_DB_PASSWORD`. Optional: `COVERITY_DB_PORT` (default `5432`), `COVERITY_INSTANCE_NAME` (default `Coverity`).
+- Precedence at startup: (1) explicit `--config <file>`; (2) env vars if all required are set (single-instance, prints an `[INFO]` line); (3) a `config.json` in the current directory (backward-compatible auto-fallback); (4) otherwise exits with guidance listing both options.
+- Multi-instance configuration is still supported via `--config`; env-var mode is single-instance only.
+- ZIP mode (`--zip-file`) for `coverity-dashboard` is unchanged — it never required DB credentials.
+- `coverity-metrics` (the console report CLI) is unchanged — it still requires `config.json`.
+
 ### Version 1.0.21 - 2026-08-13
 
 **Release Automation — PyPI + GitHub Release from a Single Tag Push**

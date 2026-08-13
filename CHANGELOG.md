@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.22] - 2026-08-13
+
+### Added
+- **Quickstart scripts for end users (Linux + Windows)**
+  - New [scripts/coverity-export.sh](scripts/coverity-export.sh) (bash) and [scripts/coverity-export.ps1](scripts/coverity-export.ps1) (PowerShell) download the coverity-metrics standalone binary for the given release tag from GitHub Releases, set the required `COVERITY_DB_*` environment variables (with placeholder values users edit at the top of each script), and run `coverity-metrics export` — no Python install needed on the host
+  - Flags mirror the underlying CLI: `--tag vX.Y.Z` (default: latest, resolved via the GitHub API), `--output`, `--days`, `--project`, `--anonymize`, `--no-snapshots`, `--no-leaderboards`
+  - Refuses to run while `COVERITY_DB_PASSWORD` is still the placeholder value so an unedited copy can't accidentally trigger a real export
+  - Downloaded binary is cached under `./bin/` next to the script (override with `BIN_DIR` env var / `-BinDir` parameter) so subsequent runs skip the download
+
+- **`coverity-export` and `coverity-dashboard` single-instance configuration via environment variables**
+  - When `--config` is not passed (and `--zip-file` is not passed for the dashboard), both tools now look for `COVERITY_DB_HOST`, `COVERITY_DB_NAME`, `COVERITY_DB_USER`, and `COVERITY_DB_PASSWORD` in the environment and run against that instance — no config file needed. Optional: `COVERITY_DB_PORT` (default `5432`), `COVERITY_INSTANCE_NAME` (default `Coverity`)
+  - Precedence at startup: (1) explicit `--config <file>`; (2) env vars if all required are set (single-instance, prints an `[INFO]` line); (3) a `config.json` in the current directory (backward-compatible auto-fallback); (4) otherwise exits with an error listing both options
+  - Multi-instance configuration is still supported via `--config`; env-var mode is single-instance only
+  - For `coverity-dashboard`, ZIP mode (`--zip-file`) is unchanged — it never required DB credentials
+  - `coverity-metrics` (the console report CLI) is unchanged and still requires `config.json`
+
 ## [1.0.21] - 2026-08-13
 
 ### Added

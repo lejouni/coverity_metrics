@@ -97,6 +97,86 @@ def load_config(config_file='config.json'):
         print(f"ERROR: Failed to load configuration: {str(e)}")
         sys.exit(1)
 
+
+# Environment-variable names for single-instance config (see load_config_from_env()).
+ENV_HOST = 'COVERITY_DB_HOST'
+ENV_PORT = 'COVERITY_DB_PORT'
+ENV_DATABASE = 'COVERITY_DB_NAME'
+ENV_USER = 'COVERITY_DB_USER'
+ENV_PASSWORD = 'COVERITY_DB_PASSWORD'
+ENV_INSTANCE_NAME = 'COVERITY_INSTANCE_NAME'
+
+_ENV_REQUIRED = (ENV_HOST, ENV_DATABASE, ENV_USER, ENV_PASSWORD)
+
+
+def _env_vars_present():
+    """Return True when every required Coverity DB env var is set to a non-empty value."""
+    return all(os.environ.get(v) for v in _ENV_REQUIRED)
+
+
+def load_config_from_env():
+    """Build a single-instance config dict from environment variables.
+
+    Required: ``COVERITY_DB_HOST``, ``COVERITY_DB_NAME``, ``COVERITY_DB_USER``,
+    ``COVERITY_DB_PASSWORD``.
+    Optional: ``COVERITY_DB_PORT`` (default ``5432``), ``COVERITY_INSTANCE_NAME``
+    (default ``"Coverity"``).
+
+    Returns:
+        tuple: ``(config_data, enabled_instances)`` matching ``load_config()``.
+    """
+    missing = [v for v in _ENV_REQUIRED if not os.environ.get(v)]
+    if missing:
+        print("ERROR: Missing required environment variables: " + ", ".join(missing))
+        print(f"Required: {', '.join(_ENV_REQUIRED)}")
+        print(f"Optional: {ENV_PORT} (default 5432), {ENV_INSTANCE_NAME} (default 'Coverity')")
+        sys.exit(1)
+
+    port_raw = os.environ.get(ENV_PORT, '5432')
+    try:
+        port = int(port_raw)
+    except ValueError:
+        print(f"ERROR: {ENV_PORT} must be an integer, got: {port_raw!r}")
+        sys.exit(1)
+
+    instance = {
+        'name': os.environ.get(ENV_INSTANCE_NAME) or 'Coverity',
+        'enabled': True,
+        'database': {
+            'host': os.environ[ENV_HOST],
+            'port': port,
+            'database': os.environ[ENV_DATABASE],
+            'user': os.environ[ENV_USER],
+            'password': os.environ[ENV_PASSWORD],
+        },
+    }
+    config_data = {'instances': [instance]}
+    return config_data, [instance]
+
+
+def resolve_config(config_file=None):
+    """Resolve export configuration from a JSON file or environment variables.
+
+    Precedence:
+      1. Explicit ``config_file`` (from ``--config``) -> load from JSON, fail if missing.
+      2. All required env vars set -> single-instance env-var mode with an [INFO] message.
+      3. Default ``config.json`` exists in the current directory -> load from JSON.
+      4. Otherwise -> error out listing both configuration options.
+    """
+    if config_file:
+        return load_config(config_file)
+    if _env_vars_present():
+        print(f"[INFO] Using {ENV_HOST}/... environment variables for single-instance configuration.")
+        return load_config_from_env()
+    if os.path.exists('config.json'):
+        return load_config('config.json')
+    print("ERROR: No configuration provided.")
+    print("Pass --config <file> pointing at a config.json (see config.json.example),")
+    print("or set the following environment variables for single-instance mode:")
+    print(f"  Required: {', '.join(_ENV_REQUIRED)}")
+    print(f"  Optional: {ENV_PORT} (default 5432), {ENV_INSTANCE_NAME} (default 'Coverity')")
+    sys.exit(1)
+
 def export_instance_to_json(instance_name, connection_params, instance_dir, days=365, projects_filter=None, anonymizer=None, include_leaderboards=True, include_snapshots=True):
     """Export all metrics for a single instance to JSON files
     
@@ -407,7 +487,7 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
     return exported_files
 
 
-def export_to_json(output_dir="exports", days=365, config_file='config.json', projects_filter=None, workers=1,
+def export_to_json(output_dir="exports", days=365, config_file=None, projects_filter=None, workers=1,
                    anonymize=False, mapping_file=None, include_leaderboards=True, include_snapshots=True):
     """Export all metrics to JSON files with multi-instance support
 
@@ -441,8 +521,8 @@ def export_to_json(output_dir="exports", days=365, config_file='config.json', pr
     print(f"Output directory: {output_dir}/")
     print(f"Trend analysis period: {days} days")
     
-    # Load configuration
-    config_data, enabled_instances = load_config(config_file)
+    # Load configuration (config file, environment variables, or default config.json)
+    config_data, enabled_instances = resolve_config(config_file)
     
     print(f"Instances to export: {len(enabled_instances)}")
     for inst in enabled_instances:
@@ -701,7 +781,12 @@ def main():
     parser = argparse.ArgumentParser(description='Export Coverity metrics to JSON and ZIP (separate file per instance)')
     parser.add_argument('--output', '-o', default='exports', help='Output directory (default: exports)')
     parser.add_argument('--days', '-d', type=int, default=365, help='Number of days for trend analysis (default: 365)')
-    parser.add_argument('--config', '-c', default='config.json', help='Path to configuration file (default: config.json)')
+    parser.add_argument('--config', '-c', default=None,
+                        help=(
+                            'Path to configuration file. If omitted, the following are tried in order: '
+                            'the environment variables COVERITY_DB_HOST / COVERITY_DB_NAME / COVERITY_DB_USER / COVERITY_DB_PASSWORD '
+                            '(optional: COVERITY_DB_PORT, COVERITY_INSTANCE_NAME), then a config.json in the current directory.'
+                        ))
     parser.add_argument('--project', '-p', type=str, default=None, help='Comma-separated list of project names to export (default: all projects)')
     parser.add_argument('--workers', '-w', type=int, default=1,
                         help='Number of parallel workers for per-project export (default: 1, capped at 8). Each worker uses its own Postgres connection.')
