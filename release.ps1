@@ -1,12 +1,15 @@
 <#
 .SYNOPSIS
-  Build and publish the coverity-metrics package, with version bumping and optional install verification.
+  Bump the coverity-metrics package version, refresh release documentation, commit,
+  and push a version tag that triggers the GitHub Actions release workflow.
 
 .DESCRIPTION
-  - Bumps the version in pyproject.toml (major/minor/patch or explicit version).
-  - Builds wheel and sdist into dist/ using `python -m build`.
-  - Uploads to TestPyPI by default via `twine upload` (or to PyPI if selected).
-  - Optionally creates a temporary venv to pip install from the target index and verifies the CLI.
+  - Bumps the version in coverity_metrics/__version__.py (major/minor/patch or explicit version).
+  - Refreshes release dates in CHANGELOG.md and RELEASE_NOTES.md.
+  - Commits the changes and pushes the branch to the git remote.
+  - Creates an annotated git tag ('v<version>' by default) and pushes it.
+  - The tag push triggers .github/workflows/build-binaries.yml, which builds the
+    Windows/Linux binaries, publishes the package to PyPI, and creates the GitHub Release.
 
 .PARAMETER Part
   Which part of the version to bump: patch (default), minor, or major. Ignored if -NewVersion is supplied.
@@ -14,65 +17,42 @@
 .PARAMETER NewVersion
   Explicit version string to set (e.g. 1.0.1). Overrides -Part.
 
-.PARAMETER Repository
-  Target repository: testpypi (default) or pypi.
-
-.PARAMETER NoInstallTest
-  Skip the post-upload install verification step.
-
-.PARAMETER SkipBuild
-  Skip the build step (use existing artifacts in dist/).
-
 .PARAMETER DryRun
   Print what would be done without executing commands.
 
-.PARAMETER NoUpload
-  Skip uploading artifacts; useful for local-only sharing. If install test is enabled, it will install from local dist/.
+.PARAMETER Remote
+  Git remote name to push to. Default: 'origin'.
 
-.PARAMETER SkipToolsUpgrade
-  Skip upgrading pip and installing build/twine tools. Use if that step is slow or managed externally.
+.PARAMETER Branch
+  Git branch to push. Default: current branch (HEAD).
 
-.PARAMETER PipArgs
-  Extra arguments to pass to pip install commands (e.g., "--timeout 30 --retries 1 --index-url https://... --trusted-host ...").
-
-.PARAMETER NoIsolation
-  Run `python -m build` with `--no-isolation` to avoid creating a temporary isolated env (use current venv). Useful in restricted networks.
-
-.PARAMETER Offline
-  Use offline mode for install verification (adds --no-index and --find-links). Requires dependency wheels to be present locally.
-
-.PARAMETER FindLinks
-  Additional folder path for --find-links when -Offline is used (e.g., a cache of dependency wheels).
-
-.PARAMETER CreateGitHubRelease
-  Create a GitHub release after successful upload.
-
-.PARAMETER GitHubRepo
-  GitHub repository in owner/repo format. Default: yourusername/coverity-metrics
-
-.PARAMETER GitHubToken
-  GitHub personal access token for creating releases. If not provided, uses GITHUB_TOKEN environment variable.
-
-.PARAMETER SkipGitTag
-  Skip creating and pushing git tag.
+.PARAMETER CommitMessage
+  Commit message for the version-bump commit. Default: 'Release v<version>'.
 
 .PARAMETER TagPrefix
-  Prefix for git tags. Default: 'v'
+  Prefix for the git tag. Default: 'v'.
 
-.PARAMETER ReleaseNotesPath
-  Path to a file containing release notes to include in the GitHub release.
+.PARAMETER SkipCommit
+  Skip staging, committing, and pushing the branch (only bump files locally).
+
+.PARAMETER SkipTag
+  Skip creating and pushing the tag. The GitHub Actions release workflow will NOT be triggered.
+
+.PARAMETER AllowDirty
+  Allow running with unrelated uncommitted changes in the working tree.
+  By default the script aborts if the working tree is dirty before it starts.
 
 .EXAMPLE
-  # Bump patch, build, upload to TestPyPI, and verify install
-  ./release.ps1 -Part patch -Repository testpypi
+  # Bump patch, commit, push branch and tag — CI publishes to PyPI and GitHub Release
+  ./release.ps1 -Part patch
 
 .EXAMPLE
-  # Set an explicit version and publish to PyPI without install test
-  ./release.ps1 -NewVersion 1.0.1 -Repository pypi -NoInstallTest
+  # Set an explicit version
+  ./release.ps1 -NewVersion 1.1.0
 
 .EXAMPLE
-  # Create a GitHub release
-  ./release.ps1 -NewVersion 1.1.0 -Repository pypi -CreateGitHubRelease -GitHubToken "ghp_..."
+  # Preview all steps without executing anything
+  ./release.ps1 -Part minor -DryRun
 #>
 
 [CmdletBinding()]
@@ -82,28 +62,16 @@ param(
 
   [string]$NewVersion,
 
-  [ValidateSet('testpypi','pypi')]
-  [string]$Repository = 'pypi',
-
-  [switch]$NoInstallTest,
-  [switch]$SkipBuild,
   [switch]$DryRun,
-  [switch]$NoUpload,
-  [switch]$SkipToolsUpgrade,
-  [string]$PipArgs,
-  [switch]$NoIsolation,
-  [switch]$Offline,
-  [string]$FindLinks,
-  [string]$TwineUsername,
-  [string]$TwinePassword,
 
-  # Git/GitHub release options
-  [switch]$CreateGitHubRelease,
-  [string]$GitHubRepo = 'lejouni/coverity_metrics',
-  [string]$GitHubToken,
-  [switch]$SkipGitTag,
+  [string]$Remote = 'origin',
+  [string]$Branch,
+  [string]$CommitMessage,
   [string]$TagPrefix = 'v',
-  [string]$ReleaseNotesPath
+
+  [switch]$SkipCommit,
+  [switch]$SkipTag,
+  [switch]$AllowDirty
 )
 
 set-strictmode -version latest
@@ -262,73 +230,37 @@ function Update-ReleaseDates {
   }
 }
 
-function New-GitTagAndPush {
-  param(
-    [Parameter(Mandatory=$true)][string]$Tag,
-    [string]$Message = $("Release $Tag")
-  )
-  # Ensure git exists
-  Invoke-Step -Command "git --version"
-  # Create annotated tag and push
-  Invoke-Step -Command "git tag -a $Tag -m `"$Message`""
-  Invoke-Step -Command "git push origin $Tag"
-}
-
-function New-GitHubRelease {
-  param(
-    [Parameter(Mandatory=$true)][string]$Repo,
-    [Parameter(Mandatory=$true)][string]$Tag,
-    [string]$Name,
-    [string]$Body,
-    [string]$Token
-  )
-  $tokenToUse = if ($Token) { $Token } elseif ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { $null }
-  if (-not $tokenToUse) { throw "GitHub token not provided. Use -GitHubToken or set GITHUB_TOKEN env var." }
-
-  $headers = @{
-    Authorization = "Bearer $tokenToUse";
-    Accept        = 'application/vnd.github+json';
-    'User-Agent'  = 'coverity-metrics-release-script'
-  }
-  # Build JSON payload
-  $releaseName = if ($Name) { $Name } else { $Tag }
-  $releaseBody = if ($Body) { $Body } else { "Release $Tag" }
-  $payloadObj = [ordered]@{
-    tag_name   = $Tag
-    name       = $releaseName
-    body       = $releaseBody
-    draft      = $false
-    prerelease = $false
-  }
-  $payload = $payloadObj | ConvertTo-Json -Depth 5
-
-  $url = "https://api.github.com/repos/$Repo/releases"
-  if ($DryRun) {
-    Write-Host "[DRY-RUN] Would create GitHub Release: $url tag=$Tag name=$Name" -ForegroundColor Yellow
-    return
-  }
-  Write-Host "Creating GitHub Release $Tag in $Repo..." -ForegroundColor Green
-  $resp = Invoke-RestMethod -Method Post -Uri $url -Headers $headers -Body $payload -ContentType 'application/json'
-  if (-not $resp.id) { throw "Failed to create GitHub Release for tag $Tag" }
-  Write-Host "GitHub Release created: $($resp.html_url)" -ForegroundColor Green
-}
-
 $root = Resolve-Path .
 $pyproj = Join-Path $root 'pyproject.toml'
 if (-not (Test-Path $pyproj)) { throw "pyproject.toml not found at $pyproj" }
 
-# Ensure Python is available
-Invoke-Step -Command "python --version"
-if (-not $SkipToolsUpgrade) {
-  $pipArgsText = $PipArgs
-  if ($pipArgsText) { Write-Host "Using pip extra args: $pipArgsText" -ForegroundColor DarkCyan }
-  Invoke-Step -Command "python -m pip install $pipArgsText --upgrade pip"
-  Invoke-Step -Command "python -m pip install $pipArgsText --upgrade build twine"
-} else {
-  Write-Host "Skipping pip/build/twine upgrade (SkipToolsUpgrade set)." -ForegroundColor Yellow
+# Ensure git is available.
+Invoke-Step -Command "git --version"
+
+# Refuse to run on a dirty working tree so the release commit stays clean.
+if (-not $AllowDirty -and -not $DryRun) {
+  $status = & git status --porcelain
+  if ($LASTEXITCODE -ne 0) { throw "git status failed with exit code $LASTEXITCODE" }
+  if ($status) {
+    Write-Host "Working tree has uncommitted changes:" -ForegroundColor Red
+    Write-Host $status
+    throw "Refusing to run with a dirty working tree. Commit/stash first or pass -AllowDirty."
+  }
 }
 
-# Compute new version
+# Resolve the branch to push (default: current HEAD).
+if (-not $Branch) {
+  if ($DryRun) {
+    $Branch = '<current-branch>'
+  } else {
+    $Branch = (& git rev-parse --abbrev-ref HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $Branch -or $Branch -eq 'HEAD') {
+      throw "Could not determine current git branch. Pass -Branch explicitly."
+    }
+  }
+}
+
+# Compute new version.
 $currentVersion = Get-ProjectVersion -PyProjectPath $pyproj
 if ($NewVersion) {
   $nextVersion = $NewVersion
@@ -337,215 +269,43 @@ if ($NewVersion) {
 }
 Write-Host "Current version: $currentVersion -> Next version: $nextVersion" -ForegroundColor Magenta
 
-# Update version in pyproject.toml and __version__.py
+# Update the single source of truth for the package version.
 Set-ProjectVersion -PyProjectPath $pyproj -Version $nextVersion
 
-# Update release dates in CHANGELOG.md and RELEASE_NOTES.md
+# Update release dates in CHANGELOG.md and RELEASE_NOTES.md.
 Update-ReleaseDates -Version $nextVersion -RootPath $root
 
-if (-not $SkipBuild) {
-  # Clean existing artifacts
-  foreach ($p in @('dist','build')) {
-    if (Test-Path $p) {
-      if ($DryRun) { Write-Host "[DRY-RUN] Would remove $p" -ForegroundColor Yellow }
-      else { Remove-Item -Recurse -Force $p }
-    }
-  }
-  Get-ChildItem -Filter '*.egg-info' | ForEach-Object {
-    if ($DryRun) { Write-Host "[DRY-RUN] Would remove $($_.FullName)" -ForegroundColor Yellow }
-    else { Remove-Item -Recurse -Force $_.FullName }
-  }
-  # Build
-  $buildCmd = "python -m build"
-  if ($NoIsolation) { $buildCmd += " --no-isolation" }
-  Invoke-Step -Command $buildCmd
-}
+$tag = "$TagPrefix$nextVersion"
+$message = if ($CommitMessage) { $CommitMessage } else { "Release $tag" }
 
-if (-not $NoUpload) {
-  # Upload
-  $cleanuppw = $false
-  try {
-    if ($TwineUsername) {
-      if ($DryRun) { Write-Host "[DRY-RUN] Would set TWINE_USERNAME for upload" -ForegroundColor Yellow } else { $env:TWINE_USERNAME = $TwineUsername }     
-    }
-    if ($TwinePassword) {
-      if ($DryRun) { Write-Host "[DRY-RUN] Would set TWINE_PASSWORD for upload" -ForegroundColor Yellow } else { $env:TWINE_PASSWORD = $TwinePassword }     
-      $cleanuppw = $true
-    }
-    if ($Repository -eq 'testpypi') {
-      Write-Host "Uploading to TestPyPI..." -ForegroundColor Green
-      Invoke-Step -Command "python -m twine upload --repository testpypi dist/*"
-    } else {
-      Write-Host "Uploading to PyPI..." -ForegroundColor Green
-      Invoke-Step -Command "python -m twine upload dist/*"
+if (-not $SkipCommit) {
+  Invoke-Step -Command "git add coverity_metrics/__version__.py CHANGELOG.md RELEASE_NOTES.md"
+  if ($DryRun) {
+    Write-Host "[DRY-RUN] git commit -m `"$message`"" -ForegroundColor Yellow
+  } else {
+    Write-Host "[RUN] git commit -m `"$message`"" -ForegroundColor Cyan
+    & git commit -m $message
+    if ($LASTEXITCODE -ne 0) {
+      # Tolerate "nothing to commit" (e.g. re-running for the same version); anything else is fatal.
+      $remaining = & git status --porcelain
+      if ($remaining) { throw "git commit failed with exit code $LASTEXITCODE" }
+      Write-Host "Nothing to commit; continuing." -ForegroundColor Yellow
     }
   }
-  finally {
-    if (-not $DryRun) {
-      if ($TwineUsername) { Remove-Item Env:TWINE_USERNAME -ErrorAction SilentlyContinue }
-      if ($cleanuppw) { Remove-Item Env:TWINE_PASSWORD -ErrorAction SilentlyContinue }
-    }
-  }
+  Invoke-Step -Command "git push $Remote $Branch"
 } else {
-  Write-Host "Skipping upload (NoUpload set)." -ForegroundColor Yellow
+  Write-Host "Skipping commit/push of branch (SkipCommit set)." -ForegroundColor Yellow
 }
 
-# Optionally tag and create a GitHub Release
-try {
-  if ($CreateGitHubRelease) {
-    $tag = "$TagPrefix$nextVersion"
-    $relBody = $null
-    if ($ReleaseNotesPath -and (Test-Path $ReleaseNotesPath)) {
-      $relBody = Get-Content -Raw -LiteralPath $ReleaseNotesPath -Encoding UTF8
-    } else {
-      $relBody = "Release $tag`n`nPublished to $Repository as coverity-metrics $nextVersion."
-    }
-
-    if (-not $SkipGitTag) {
-      New-GitTagAndPush -Tag $tag -Message "Release $tag"
-    } else {
-      Write-Host "Skipping git tag creation/push (SkipGitTag set)." -ForegroundColor Yellow
-    }
-
-    New-GitHubRelease -Repo $GitHubRepo -Tag $tag -Name $tag -Body $relBody -Token $GitHubToken
-  }
-} catch {
-  Write-Host "GitHub release step failed: $($_.Exception.Message)" -ForegroundColor Red
-  throw
-}
-
-if ((-not $NoInstallTest) -and (-not $DryRun)) {
-  # Wait for PyPI/TestPyPI to index the new version and for the wheel file to be downloadable
-  if (-not $NoUpload) {
-    $maxWait = 180
-    $interval = 5
-    $waited = 0
-    $pypiUrl = "https://pypi.org/pypi/coverity-metrics/json"
-    Write-Host "Checking PyPI for version $nextVersion..." -ForegroundColor Yellow
-    $wheelFound = $false
-    while ($true) {
-      try {
-        $resp = Invoke-WebRequest -Uri $pypiUrl -UseBasicParsing -ErrorAction Stop
-        $json = $resp.Content | ConvertFrom-Json
-        if ($json.releases.PSObject.Properties.Name -contains $nextVersion) {
-          # Check for wheel file
-          $releaseFiles = $json.releases.$nextVersion
-          foreach ($file in $releaseFiles) {
-            if ($file.filename -like "*.whl") {
-              $wheelFileUrl = $file.url
-              try {
-                $wheelResp = Invoke-WebRequest -Uri $wheelFileUrl -Method Head -UseBasicParsing -ErrorAction Stop
-                if ($wheelResp.StatusCode -eq 200) {
-                  Write-Host "Wheel file for $nextVersion is downloadable!" -ForegroundColor Green
-                  $wheelFound = $true
-                  break
-                }
-              } catch {
-                Write-Host "Wheel file not yet downloadable. Waiting $interval seconds..." -ForegroundColor Yellow
-              }
-            }
-          }
-          if ($wheelFound) { break }
-          Write-Host "Version $nextVersion listed, but wheel file not yet downloadable. Waiting $interval seconds..." -ForegroundColor Yellow
-        } else {
-          Write-Host "Version $nextVersion not yet listed. Waiting $interval seconds..." -ForegroundColor Yellow
-        }
-      } catch {
-        Write-Host "Error checking PyPI: $($_.Exception.Message)" -ForegroundColor Red
-      }
-      Start-Sleep -Seconds $interval
-      $waited += $interval
-      if ($waited -ge $maxWait) {
-        Write-Host "Timeout waiting for PyPI to list and serve wheel for version $nextVersion. Proceeding anyway." -ForegroundColor Red
-        break
-      }
-    }
-  }
-
-  if ($NoUpload) {
-    Write-Host "Verifying local install from dist/ (NoUpload set)..." -ForegroundColor Green
-  } else {
-    Write-Host "Verifying install from $Repository..." -ForegroundColor Green
-  }
-  $venv = Join-Path $root '.pkgtest'
-  if (-not $DryRun) {
-    if (Test-Path $venv) {
-      # Windows: Try to remove, retry if locked
-      $retries = 3
-      for ($i = 1; $i -le $retries; $i++) {
-        try {
-          Remove-Item -Recurse -Force $venv -ErrorAction Stop
-          break
-        } catch {
-          if ($i -lt $retries) {
-            Write-Host "Failed to remove $venv (attempt $i/$retries), retrying..." -ForegroundColor Yellow
-            Start-Sleep -Seconds 2
-          } else {
-            Write-Host "Warning: Could not remove $venv, using a new directory instead" -ForegroundColor Yellow
-            $venv = Join-Path $root ".pkgtest_$(Get-Date -Format 'yyyyMMddHHmmss')"
-          }
-        }
-      }
-    }
-  } else {
-    Write-Host "[DRY-RUN] Would create temp venv at $venv" -ForegroundColor Yellow
-  }
-  Invoke-Step -Command "python -m venv `"$venv`""
-  $testPy = Join-Path $venv 'Scripts/python.exe'
-  Invoke-Step -Command "`"$testPy`" -m pip install --upgrade pip"
-  
-  if ($NoUpload) {
-    # Install from local dist wheel
-    $wheel = Get-ChildItem -Path (Join-Path $root 'dist') -Filter "*-$nextVersion-*.whl" | Select-Object -First 1
-    if (-not $wheel) { throw "No wheel for version $nextVersion found in dist/." }
-    if ($Offline) {
-      # Fully offline: require local dependency wheels via --find-links
-      $cmd = "$testPy -m pip install --no-index --find-links dist"
-      if ($FindLinks) { $cmd += " --find-links `"$FindLinks`"" }
-      $cmd += " `"$($wheel.FullName)`""
-      Invoke-Step -Command $cmd
-    } else {
-      # Normal local install: dependencies resolved from PyPI as needed
-      Invoke-Step -Command "$testPy -m pip install `"$($wheel.FullName)`""
-    }
-  } else {
-    if ($Repository -eq 'testpypi') {
-      $installCmd = "$testPy -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple coverity-metrics==$nextVersion"
-    } else {
-      $installCmd = "$testPy -m pip install --index-url https://pypi.org/simple/ coverity-metrics==$nextVersion"
-    }
-    
-    $maxInstallWait = 180
-    $installInterval = 5
-    $installWaited = 0
-    while ($true) {
-      try {
-        Invoke-Step -Command $installCmd
-        break
-      } catch {
-        Write-Host "pip install failed, retrying in $installInterval seconds..." -ForegroundColor Yellow
-      }
-      Start-Sleep -Seconds $installInterval
-      $installWaited += $installInterval
-      if ($installWaited -ge $maxInstallWait) {
-        Write-Host "Timeout waiting for pip install to succeed. Proceeding anyway." -ForegroundColor Red
-        break
-      }
-    }
-  }
-  
-  # Verify CLI commands
-  # Invoke the .exe directly rather than through Invoke-Step/cmd.exe — cmd's quote-stripping
-  # rule mangles paths that contain spaces (e.g. .pkgtest_20260804153450 on retry).
-  Write-Host "Verifying coverity-dashboard CLI..." -ForegroundColor Cyan
-  $dashboardCli = Join-Path $venv 'Scripts/coverity-dashboard.exe'
-  Write-Host "[RUN] $dashboardCli --help" -ForegroundColor Cyan
-  & $dashboardCli --help
-  if ($LASTEXITCODE -ne 0) { throw "coverity-dashboard --help failed with exit code $LASTEXITCODE" }
-  Write-Host "Verifying coverity-metrics CLI..." -ForegroundColor Cyan
-  Write-Host "[RUN] $testPy -c `"from coverity_metrics import __version__; print('Version:', __version__)`"" -ForegroundColor Cyan
-  & $testPy -c "from coverity_metrics import __version__; print('Version:', __version__)"
-  if ($LASTEXITCODE -ne 0) { throw "coverity_metrics version check failed with exit code $LASTEXITCODE" }
+if (-not $SkipTag) {
+  Invoke-Step -Command "git tag -a $tag -m `"$message`""
+  Invoke-Step -Command "git push $Remote $tag"
+  Write-Host "" -ForegroundColor Green
+  Write-Host "Tag $tag pushed to $Remote." -ForegroundColor Green
+  Write-Host "GitHub Actions will now build the Windows/Linux binaries, publish to PyPI," -ForegroundColor Green
+  Write-Host "and create the GitHub Release for $tag." -ForegroundColor Green
+} else {
+  Write-Host "Skipping tag creation/push (SkipTag set). Release workflow NOT triggered." -ForegroundColor Yellow
 }
 
 Write-Host "Done." -ForegroundColor Green

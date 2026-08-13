@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.21] - 2026-08-13
+
+### Added
+- **PyPI publishing from GitHub Actions on tag push**
+  - New `publish-pypi` job in `.github/workflows/build-binaries.yml` builds `sdist` + `wheel` and uploads to PyPI whenever a `v*` tag is pushed, so the PyPI release and the GitHub Release land at the same version at the same time
+  - Uses PyPI **Trusted Publishing (OIDC)** by default (no long-lived token in the repo); automatically falls back to a `PYPI_API_TOKEN` repository secret if one is set (job-level `HAS_PYPI_TOKEN` flag decides which publish step runs)
+  - Runs under a GitHub `pypi` environment so you can gate the publish behind required reviewers if desired
+  - Guardrail step verifies that the pushed tag (`v1.2.3`) matches `coverity_metrics/__version__.py` (`1.2.3`) and fails the workflow if they diverge
+
+- **CHANGELOG-driven GitHub Release body**
+  - New "Extract CHANGELOG section for this version" step in the `release` job uses `awk` to slice the section for `${GITHUB_REF_NAME#v}` from `CHANGELOG.md` (from `## [<ver>]` up to the next `## [` heading) into `release-notes.md`
+  - The GitHub Release now uses that file as `body_path`, so release notes always mirror the CHANGELOG. Auto-generated "What's Changed" (PR/commit list) is still appended below via `generate_release_notes: true`
+  - Falls back to a generic `Release <tag>.` body with a workflow warning if no matching CHANGELOG entry is found
+
+### Changed
+- **`release.ps1` simplified to "bump + docs + tag" only**
+  - The script no longer builds wheels, uploads to PyPI, verifies installs in a temp venv, or calls the GitHub Releases API — all of that is now done by GitHub Actions on tag push
+  - New responsibilities: bump `coverity_metrics/__version__.py`, refresh dates in `CHANGELOG.md` / `RELEASE_NOTES.md`, `git add` those files, commit with `Release v<version>`, push the current branch, then create and push the annotated `v<version>` tag that triggers the CI release workflow
+  - Aborts by default if the working tree is dirty (`-AllowDirty` overrides). Tolerates "nothing to commit" so re-runs for the same version don't error out
+  - New / renamed flags: `-Remote` (default `origin`), `-Branch` (default = current HEAD), `-CommitMessage`, `-SkipCommit`, `-SkipTag`, `-AllowDirty`. Removed all PyPI / twine / install-verify / GitHub-API / TestPyPI flags
+  - `-DryRun` now previews every git command as well, without running any of them
+
+- **`release` job now waits on PyPI publish**
+  - The `release` job depends on both `build` and `publish-pypi` (`needs: [build, publish-pypi]`), so the GitHub Release page (with attached Windows/Linux binaries) only appears after PyPI has accepted the upload. Same tag → same version live on PyPI and GitHub simultaneously
+
 ## [1.0.20] - 2026-08-11
 
 ### Added

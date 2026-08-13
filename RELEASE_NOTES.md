@@ -2,6 +2,38 @@
 
 ## Version History
 
+### Version 1.0.21 - 2026-08-13
+
+**Release Automation — PyPI + GitHub Release from a Single Tag Push**
+
+#### Added
+
+##### 📦 PyPI Publishing from GitHub Actions
+- New `publish-pypi` job in `.github/workflows/build-binaries.yml` builds `sdist` + `wheel` and uploads to PyPI whenever a `v*` tag is pushed. PyPI and the GitHub Release now go live at the same version at the same time.
+- Uses PyPI **Trusted Publishing (OIDC)** by default — no long-lived token stored in the repo. Falls back automatically to a `PYPI_API_TOKEN` repository secret if one is configured. Runs under a GitHub `pypi` environment so the publish can optionally be gated behind required reviewers.
+- A guardrail step verifies that the pushed tag (`v1.2.3`) matches `coverity_metrics/__version__.py` (`1.2.3`) and fails the workflow if they diverge.
+
+##### 📝 CHANGELOG-driven GitHub Release Body
+- The `release` job now slices the `## [<version>]` section out of `CHANGELOG.md` with `awk` and passes it as `body_path` to `softprops/action-gh-release`. Release notes always mirror the CHANGELOG.
+- Auto-generated "What's Changed" (PR / commit list since the previous tag) is still appended below the CHANGELOG excerpt via `generate_release_notes: true`.
+- Falls back to a generic body with a workflow warning if no matching CHANGELOG entry is found.
+
+#### Changed
+
+##### 🪚 `release.ps1` — Simplified to "Bump + Docs + Tag"
+- The local script no longer builds wheels, uploads to PyPI, verifies installs in a temp venv, or calls the GitHub Releases API. All of that is now done by GitHub Actions on tag push.
+- New responsibilities:
+  1. Bump `coverity_metrics/__version__.py` (`-Part patch|minor|major` or explicit `-NewVersion`).
+  2. Refresh dates in `CHANGELOG.md` / `RELEASE_NOTES.md`.
+  3. `git add` those files, commit with `Release v<version>`, push the current branch.
+  4. Create and push the annotated `v<version>` tag that triggers the CI release workflow.
+- Aborts by default if the working tree is dirty (`-AllowDirty` overrides). Tolerates "nothing to commit" so re-runs for the same version don't error out. `-DryRun` previews every git command as well.
+- New / renamed flags: `-Remote` (default `origin`), `-Branch` (default = current HEAD), `-CommitMessage`, `-SkipCommit`, `-SkipTag`, `-AllowDirty`.
+- Removed flags (no longer needed): `-Repository`, `-NoUpload`, `-NoInstallTest`, `-SkipBuild`, `-SkipToolsUpgrade`, `-PipArgs`, `-NoIsolation`, `-Offline`, `-FindLinks`, `-TwineUsername`, `-TwinePassword`, `-CreateGitHubRelease`, `-GitHubRepo`, `-GitHubToken`, `-SkipGitTag`, `-ReleaseNotesPath`.
+
+##### ⏱ `release` Job Now Waits on PyPI Publish
+- The GitHub Release job depends on both `build` and `publish-pypi` (`needs: [build, publish-pypi]`), so the GitHub Release page (with attached Windows / Linux binaries) only appears after PyPI has accepted the upload. Same tag → same version live on PyPI and GitHub simultaneously.
+
 ### Version 1.0.20 - 2026-08-11
 
 **Release Update**
