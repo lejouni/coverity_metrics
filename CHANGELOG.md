@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.24] - 2026-08-13
+
+### Added
+- **TLS escape hatches on the quickstart scripts**
+  - Fixes `curl: (60) SSL certificate problem: unable to get local issuer certificate` on hosts behind SSL-inspection proxies or with an outdated CA bundle
+  - [scripts/coverity-export.sh](scripts/coverity-export.sh): new `--cacert PATH` flag (or `CURL_CA_BUNDLE` / `SSL_CERT_FILE` env var) forwards a trusted CA bundle to every curl call. New `--insecure` flag adds `curl -k` as a last-resort escape hatch, with a warning
+  - [scripts/coverity-export.ps1](scripts/coverity-export.ps1): new `-Insecure` switch installs a per-run `ServerCertificateValidationCallback` for the script's `Invoke-RestMethod` / `Invoke-WebRequest` calls, with a warning; nothing outside the script is affected
+  - Both TLS options apply only to the GitHub API tag lookup and the binary download — they don't affect the Postgres connection or anything downstream
+
+- **`--workers` / `-Workers` passthrough on the quickstart scripts**
+  - [scripts/coverity-export.sh](scripts/coverity-export.sh) gains a `--workers N` flag; [scripts/coverity-export.ps1](scripts/coverity-export.ps1) gains a `-Workers N` parameter
+  - Both default to `1` (matching the underlying `coverity-metrics export` default) and are forwarded verbatim as `--workers N` to the binary. The binary still clamps to 1..8; each worker opens its own Postgres connection
+  - The banner printed before the run now includes a `Workers : N` line so it's clear what was passed
+
 ## [1.0.23] - 2026-08-13
 
 ### Added

@@ -23,6 +23,10 @@
 .PARAMETER Project
   Comma-separated project filter (default: all projects).
 
+.PARAMETER Workers
+  Number of parallel workers for per-project export (default: 1, capped at 8
+  by the binary). Each worker opens its own Postgres connection.
+
 .PARAMETER Anonymize
   Replace real project/stream names with sequential ids and write a sibling
   <zip>.mapping.json file.
@@ -32,6 +36,12 @@
 
 .PARAMETER NoLeaderboards
   Skip the Leaderboards metrics (privacy).
+
+.PARAMETER Insecure
+  Skip TLS certificate verification for the GitHub API call and binary
+  download. Use only when your environment presents a broken TLS chain
+  (e.g. corporate SSL-inspection proxies with an untrusted root). Last-resort
+  escape hatch — you're on your own to verify the downloaded binary.
 
 .PARAMETER BinDir
   Where to cache the downloaded binary (default: .\bin next to this script).
@@ -51,9 +61,11 @@ param(
     [string]$Output = 'exports',
     [int]   $Days = 365,
     [string]$Project = '',
+    [int]   $Workers = 1,
     [switch]$Anonymize,
     [switch]$NoSnapshots,
     [switch]$NoLeaderboards,
+    [switch]$Insecure,
     [string]$BinDir = ''
 )
 
@@ -74,6 +86,25 @@ if (-not $env:COVERITY_INSTANCE_NAME) { $env:COVERITY_INSTANCE_NAME = 'Productio
 $Repo = 'lejouni/coverity_metrics'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $BinDir) { $BinDir = Join-Path $ScriptDir 'bin' }
+
+# Last-resort escape hatch for corporate SSL-inspection proxies with an
+# untrusted MITM root. Only affects Invoke-WebRequest / Invoke-RestMethod
+# inside this script; nothing else in the session is changed.
+if ($Insecure) {
+    Write-Host 'WARNING: -Insecure set - skipping TLS certificate verification on GitHub downloads.' -ForegroundColor Yellow
+    Add-Type -TypeDefinition @'
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+public static class _CoverityQuickstartInsecure {
+    public static void Enable() {
+        ServicePointManager.ServerCertificateValidationCallback =
+            delegate { return true; };
+    }
+}
+'@ -ErrorAction SilentlyContinue
+    [_CoverityQuickstartInsecure]::Enable()
+}
 
 $BinPath = $null
 
@@ -127,7 +158,7 @@ if ($env:COVERITY_DB_PASSWORD -eq 'change-me') {
     throw "COVERITY_DB_PASSWORD is still the placeholder value 'change-me'. Edit this script (or set `$env:COVERITY_DB_PASSWORD`) before running."
 }
 
-$argsList = @('export', '--output', $Output, '--days', $Days.ToString())
+$argsList = @('export', '--output', $Output, '--days', $Days.ToString(), '--workers', $Workers.ToString())
 if ($Project)        { $argsList += @('--project', $Project) }
 if ($Anonymize)      { $argsList += '--anonymize' }
 if ($NoSnapshots)    { $argsList += '--no-snapshots' }
@@ -142,6 +173,7 @@ Write-Host ("Database : {0}" -f $env:COVERITY_DB_NAME)
 Write-Host ("User     : {0}" -f $env:COVERITY_DB_USER)
 Write-Host ("Output   : {0}" -f $Output)
 Write-Host ("Days     : {0}" -f $Days)
+Write-Host ("Workers  : {0}" -f $Workers)
 Write-Host ("Binary   : {0}" -f $BinPath)
 Write-Host ""
 Write-Host ("Running: `"{0}`" {1}" -f $BinPath, ($argsList -join ' ')) -ForegroundColor Cyan

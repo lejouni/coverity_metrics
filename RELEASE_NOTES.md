@@ -2,6 +2,23 @@
 
 ## Version History
 
+### Version 1.0.24 - 2026-08-13
+
+**TLS Escape Hatches and `--workers` Passthrough on the Quickstart Scripts**
+
+#### Added
+
+##### 🔒 TLS Escape Hatches on the Quickstart Scripts
+- Fixes the common `curl: (60) SSL certificate problem: unable to get local issuer certificate` error on hosts behind SSL-inspection proxies or with an outdated CA bundle.
+- [scripts/coverity-export.sh](scripts/coverity-export.sh): new `--cacert PATH` flag (or `CURL_CA_BUNDLE` / `SSL_CERT_FILE` environment variable) forwards a trusted CA bundle to every curl call. New `--insecure` flag adds `curl -k` as a last-resort escape hatch, with a warning printed at startup.
+- [scripts/coverity-export.ps1](scripts/coverity-export.ps1): new `-Insecure` switch installs a per-run `ServerCertificateValidationCallback` for the script's `Invoke-RestMethod` / `Invoke-WebRequest` calls, with a warning; nothing outside the script is affected.
+- Both TLS options apply only to the GitHub API tag lookup and the binary download — they don't touch the Postgres connection or anything downstream.
+
+##### ⚡ `--workers` / `-Workers` Passthrough on the Quickstart Scripts
+- [scripts/coverity-export.sh](scripts/coverity-export.sh) gains a `--workers N` flag; [scripts/coverity-export.ps1](scripts/coverity-export.ps1) gains a `-Workers N` parameter. Both default to `1` (matching the underlying tool) and are forwarded verbatim as `--workers N` to the binary.
+- The binary still clamps to 1..8; each worker opens its own Postgres connection so 4–6 typically gives a 4–6× speed-up on large exports.
+- The banner printed before the run now includes a `Workers : N` line so it's clear what was passed.
+
 ### Version 1.0.23 - 2026-08-13
 
 **Quiet-by-Default Output for `coverity-export`**

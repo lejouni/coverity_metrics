@@ -33,15 +33,19 @@ TAG=""
 OUTPUT="exports"
 DAYS=365
 PROJECT=""
+WORKERS=1
 ANONYMIZE=0
 NO_SNAPSHOTS=0
 NO_LEADERBOARDS=0
 VERBOSE=0
+CACERT="${CURL_CA_BUNDLE:-${SSL_CERT_FILE:-}}"
+INSECURE=0
 
 usage() {
   cat <<EOF
 Usage: $0 [--tag vX.Y.Z] [--output DIR] [--days N] [--project NAMES]
-          [--anonymize] [--no-snapshots] [--no-leaderboards] [-h|--help]
+          [--workers N] [--anonymize] [--no-snapshots] [--no-leaderboards]
+          [-v|--verbose] [-h|--help]
 
 Downloads the coverity-metrics binary for the given release tag (or the
 latest release when --tag is omitted) and runs 'coverity-metrics export'
@@ -52,10 +56,20 @@ Options:
   --output DIR          Output directory (default: exports)
   --days N              Trend analysis window in days (default: 365)
   --project NAMES       Comma-separated project filter (default: all)
+  --workers N           Number of parallel workers for per-project export
+                        (default: 1, capped at 8 by the binary). Each worker
+                        opens its own Postgres connection.
   --anonymize           Replace real project/stream names with sequential ids
                         and write a sibling <zip>.mapping.json file
   --no-snapshots        Skip the Snapshots metric (privacy)
   --no-leaderboards     Skip the Leaderboards metrics (privacy)
+  --cacert PATH         Path to a CA bundle for curl to trust (e.g. your
+                        corporate root CA). Also picks up CURL_CA_BUNDLE or
+                        SSL_CERT_FILE from the environment.
+  --insecure            Skip TLS certificate verification when downloading the
+                        binary (curl -k). Use only if you've already validated
+                        the download by other means — last-resort escape hatch
+                        for environments with broken TLS chains.
   -v, --verbose         Show per-metric '[SKIP] project/metric: No data' lines
                         (off by default; a summary count is always printed).
   -h, --help            Show this help
@@ -73,9 +87,12 @@ while [[ $# -gt 0 ]]; do
     --output)           OUTPUT="${2:?--output requires a value}"; shift 2 ;;
     --days)             DAYS="${2:?--days requires a value}"; shift 2 ;;
     --project)          PROJECT="${2:?--project requires a value}"; shift 2 ;;
+    --workers)          WORKERS="${2:?--workers requires a value}"; shift 2 ;;
     --anonymize)        ANONYMIZE=1; shift ;;
     --no-snapshots)     NO_SNAPSHOTS=1; shift ;;
     --no-leaderboards)  NO_LEADERBOARDS=1; shift ;;
+    --cacert)           CACERT="${2:?--cacert requires a value}"; shift 2 ;;
+    --insecure)         INSECURE=1; shift ;;
     -v|--verbose)       VERBOSE=1; shift ;;
     -h|--help)          usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -83,6 +100,20 @@ while [[ $# -gt 0 ]]; do
 done
 
 command -v curl >/dev/null || { echo "ERROR: 'curl' is required." >&2; exit 1; }
+
+# Build the shared TLS options for every curl call in this script.
+CURL_TLS_OPTS=()
+if (( INSECURE == 1 )); then
+  echo "WARNING: --insecure set — skipping TLS certificate verification on GitHub downloads." >&2
+  CURL_TLS_OPTS+=(-k)
+elif [[ -n "$CACERT" ]]; then
+  if [[ ! -r "$CACERT" ]]; then
+    echo "ERROR: CA bundle not readable: $CACERT" >&2
+    exit 1
+  fi
+  echo "Using CA bundle: $CACERT"
+  CURL_TLS_OPTS+=(--cacert "$CACERT")
+fi
 
 BIN_PATH=""
 
@@ -101,7 +132,7 @@ fi
 if [[ -z "$TAG" ]]; then
   echo "Resolving latest release tag from GitHub..."
   api_url="https://api.github.com/repos/${REPO}/releases/latest"
-  TAG=$(curl -fsSL "$api_url" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
+  TAG=$(curl "${CURL_TLS_OPTS[@]}" -fsSL "$api_url" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
   if [[ -z "$TAG" ]]; then
     echo "ERROR: Could not resolve latest tag from ${api_url}" >&2
     exit 1
@@ -120,7 +151,7 @@ if [[ -x "$BIN_PATH" ]]; then
 else
   echo "Downloading ${URL}"
   mkdir -p "$BIN_DIR"
-  if ! curl -fL --retry 3 --output "$BIN_PATH" "$URL"; then
+  if ! curl "${CURL_TLS_OPTS[@]}" -fL --retry 3 --output "$BIN_PATH" "$URL"; then
     rm -f "$BIN_PATH"
     echo "ERROR: Failed to download ${URL}" >&2
     exit 1
@@ -136,7 +167,7 @@ if [[ "$COVERITY_DB_PASSWORD" == "change-me" ]]; then
   exit 1
 fi
 
-cmd=("$BIN_PATH" export --output "$OUTPUT" --days "$DAYS")
+cmd=("$BIN_PATH" export --output "$OUTPUT" --days "$DAYS" --workers "$WORKERS")
 [[ -n "$PROJECT" ]] && cmd+=(--project "$PROJECT")
 (( ANONYMIZE == 1 )) && cmd+=(--anonymize)
 (( NO_SNAPSHOTS == 1 )) && cmd+=(--no-snapshots)
@@ -151,6 +182,7 @@ Database : ${COVERITY_DB_NAME}
 User     : ${COVERITY_DB_USER}
 Output   : ${OUTPUT}
 Days     : ${DAYS}
+Workers  : ${WORKERS}
 Binary   : ${BIN_PATH}
 
 Running: ${cmd[*]}
