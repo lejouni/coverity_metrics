@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.23] - 2026-08-13
+
+### Added
+- **Quiet-by-default output for `coverity-export`**
+  - The per-metric `[SKIP] project/metric: No data` lines are no longer printed by default — on large instances they were burying the useful log output under thousands of lines of noise
+  - A one-line summary is printed at the end: `[INFO] Skipped N metrics with no data across M project(s). Pass --verbose to see per-metric details.`
+  - New `--verbose` / `-v` flag restores the previous per-metric logging when you actually want it
+  - `[ERROR]` and `[WARNING]` lines are always shown, so real problems remain visible
+  - Quickstart scripts pass through: `--verbose` on `coverity-export.sh`, PowerShell's built-in `-Verbose` common parameter on `coverity-export.ps1`
+
 ## [1.0.22] - 2026-08-13
 
 ### Added

@@ -2,6 +2,19 @@
 
 ## Version History
 
+### Version 1.0.23 - 2026-08-13
+
+**Quiet-by-Default Output for `coverity-export`**
+
+#### Added
+
+##### 🔇 Suppress Per-Metric `[SKIP] … No data` Lines by Default
+- On large deployments (hundreds of projects) the per-metric `[SKIP] project/metric: No data` lines were burying the useful log output under thousands of lines of noise. Those lines are now suppressed by default.
+- A one-line summary is printed at the end of the run instead: `[INFO] Skipped N metrics with no data across M project(s). Pass --verbose to see per-metric details.`
+- New `--verbose` / `-v` flag on `coverity-export` restores the previous per-metric logging when you actually want it.
+- `[ERROR]` and `[WARNING]` lines are always shown so real problems remain visible.
+- Quickstart scripts pass through: `--verbose` on `coverity-export.sh`, and PowerShell's built-in `-Verbose` common parameter on `coverity-export.ps1`.
+
 ### Version 1.0.22 - 2026-08-13
 
 **Quickstart Scripts and Env-Var Config for `coverity-export` and `coverity-dashboard`**

@@ -132,6 +132,8 @@ if ($Project)        { $argsList += @('--project', $Project) }
 if ($Anonymize)      { $argsList += '--anonymize' }
 if ($NoSnapshots)    { $argsList += '--no-snapshots' }
 if ($NoLeaderboards) { $argsList += '--no-leaderboards' }
+# Forward PowerShell's built-in -Verbose common parameter to the binary's --verbose flag.
+if ($VerbosePreference -ne 'SilentlyContinue') { $argsList += '--verbose' }
 
 Write-Host ""
 Write-Host ("Instance : {0}" -f $env:COVERITY_INSTANCE_NAME)

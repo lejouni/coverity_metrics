@@ -36,6 +36,7 @@ PROJECT=""
 ANONYMIZE=0
 NO_SNAPSHOTS=0
 NO_LEADERBOARDS=0
+VERBOSE=0
 
 usage() {
   cat <<EOF
@@ -55,6 +56,8 @@ Options:
                         and write a sibling <zip>.mapping.json file
   --no-snapshots        Skip the Snapshots metric (privacy)
   --no-leaderboards     Skip the Leaderboards metrics (privacy)
+  -v, --verbose         Show per-metric '[SKIP] project/metric: No data' lines
+                        (off by default; a summary count is always printed).
   -h, --help            Show this help
 
 Environment overrides (set before running):
@@ -73,6 +76,7 @@ while [[ $# -gt 0 ]]; do
     --anonymize)        ANONYMIZE=1; shift ;;
     --no-snapshots)     NO_SNAPSHOTS=1; shift ;;
     --no-leaderboards)  NO_LEADERBOARDS=1; shift ;;
+    -v|--verbose)       VERBOSE=1; shift ;;
     -h|--help)          usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -137,6 +141,7 @@ cmd=("$BIN_PATH" export --output "$OUTPUT" --days "$DAYS")
 (( ANONYMIZE == 1 )) && cmd+=(--anonymize)
 (( NO_SNAPSHOTS == 1 )) && cmd+=(--no-snapshots)
 (( NO_LEADERBOARDS == 1 )) && cmd+=(--no-leaderboards)
+(( VERBOSE == 1 )) && cmd+=(--verbose)
 
 cat <<INFO
 

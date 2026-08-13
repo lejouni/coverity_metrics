@@ -177,7 +177,7 @@ def resolve_config(config_file=None):
     print(f"  Optional: {ENV_PORT} (default 5432), {ENV_INSTANCE_NAME} (default 'Coverity')")
     sys.exit(1)
 
-def export_instance_to_json(instance_name, connection_params, instance_dir, days=365, projects_filter=None, anonymizer=None, include_leaderboards=True, include_snapshots=True):
+def export_instance_to_json(instance_name, connection_params, instance_dir, days=365, projects_filter=None, anonymizer=None, include_leaderboards=True, include_snapshots=True, verbose=False):
     """Export all metrics for a single instance to JSON files
     
     Args:
@@ -188,9 +188,13 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
         projects_filter: Optional list of project names to filter metrics
         anonymizer: Optional :class:`Anonymizer` used to swap real project/stream
             names for anonymized ids just before serialization.
-        
+        verbose: When True, log a per-metric ``[SKIP] ... No data`` line for
+            every empty metric. When False (default), those lines are
+            suppressed and the count is returned via the second tuple element.
+
     Returns:
-        dict: Metadata about exported files
+        tuple: ``(exported_files, skipped_count)`` where ``skipped_count`` is
+        the number of metrics that produced no data (or unsupported types).
     """
     print(f"\n[{instance_name}] Exporting metrics...")
     if projects_filter:
@@ -267,6 +271,7 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
             metrics_config.pop(m, None)
 
     # Export each metric as JSON
+    skipped = 0
     for metric_name, config in tqdm(metrics_config.items(), desc=f"  {instance_name}", unit="metric"):
         try:
             method_name = config['method']
@@ -289,7 +294,9 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
             elif isinstance(result, list):
                 data = result
             else:
-                tqdm.write(f"    [SKIP] {metric_name}: Unsupported type {type(result)}")
+                skipped += 1
+                if verbose:
+                    tqdm.write(f"    [SKIP] {metric_name}: Unsupported type {type(result)}")
                 continue
             
             # Export as JSON
@@ -305,15 +312,17 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
                     'record_count': len(data) if isinstance(data, list) else 1
                 }
             else:
-                tqdm.write(f"    [SKIP] {metric_name}: No data")
+                skipped += 1
+                if verbose:
+                    tqdm.write(f"    [SKIP] {metric_name}: No data")
         
         except Exception as e:
             tqdm.write(f"    [ERROR] {metric_name}: {str(e)}")
     
-    return exported_files
+    return exported_files, skipped
 
 
-def export_project_specific_metrics(metrics, instance_name, project_dir, project_name, days=365, anonymizer=None, include_leaderboards=True, include_snapshots=True):
+def export_project_specific_metrics(metrics, instance_name, project_dir, project_name, days=365, anonymizer=None, include_leaderboards=True, include_snapshots=True, verbose=False):
     """Export project-specific metrics (OWASP, CWE) for a single project
 
     Args:
@@ -327,9 +336,12 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
         days: Number of days for trend analysis
         anonymizer: Optional :class:`Anonymizer` used to swap real project/stream
             names for anonymized ids just before serialization.
+        verbose: When True, log a per-metric ``[SKIP] ... No data`` line for
+            every empty metric. When False (default), those lines are
+            suppressed and the count is returned via the second tuple element.
 
     Returns:
-        dict: Metadata about exported files
+        tuple: ``(exported_files, skipped_count)``.
     """
     # Reuse the shared connection — just re-scope the metrics object.
     metrics.project_name = project_name
@@ -382,6 +394,7 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
             project_metrics_config.pop(m, None)
 
     # Export each project metric
+    skipped = 0
     for metric_name, config in project_metrics_config.items():
         try:
             method_name = config['method']
@@ -403,7 +416,9 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
             elif isinstance(result, list):
                 data = result
             else:
-                tqdm.write(f"    [SKIP] {project_name}/{metric_name}: unsupported type {type(result).__name__}")
+                skipped += 1
+                if verbose:
+                    tqdm.write(f"    [SKIP] {project_name}/{metric_name}: unsupported type {type(result).__name__}")
                 continue
             
             # Export as JSON if data exists
@@ -419,7 +434,9 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
                     'record_count': len(data) if isinstance(data, list) else 1
                 }
             else:
-                tqdm.write(f"    [SKIP] {project_name}/{metric_name}: No data")
+                skipped += 1
+                if verbose:
+                    tqdm.write(f"    [SKIP] {project_name}/{metric_name}: No data")
         except Exception as e:
             tqdm.write(f"    [ERROR] {project_name}/{metric_name}: {e}")
     
@@ -484,11 +501,12 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
     except Exception as e:
         tqdm.write(f"    [WARNING] CWE metrics failed for {project_name}: {str(e)}")
     
-    return exported_files
+    return exported_files, skipped
 
 
 def export_to_json(output_dir="exports", days=365, config_file=None, projects_filter=None, workers=1,
-                   anonymize=False, mapping_file=None, include_leaderboards=True, include_snapshots=True):
+                   anonymize=False, mapping_file=None, include_leaderboards=True, include_snapshots=True,
+                   verbose=False):
     """Export all metrics to JSON files with multi-instance support
 
     Creates a separate ZIP file for each configured instance
@@ -531,6 +549,10 @@ def export_to_json(output_dir="exports", days=365, config_file=None, projects_fi
         print(f"Project filter: {', '.join(projects_filter)}") 
     
     zip_files = []
+
+    # Aggregate skip counts across every instance/project for the end-of-run summary.
+    total_skipped_metrics = 0
+    projects_with_skipped = 0
     
     # Export metrics for each instance separately
     for instance in enabled_instances:
@@ -579,7 +601,7 @@ def export_to_json(output_dir="exports", days=365, config_file=None, projects_fi
             anonymizer.set_instance(instance_name)
 
         # Export instance-level metrics
-        exported_files = export_instance_to_json(
+        exported_files, instance_skipped = export_instance_to_json(
             instance_name, 
             connection_params, 
             instance_dir,
@@ -588,7 +610,9 @@ def export_to_json(output_dir="exports", days=365, config_file=None, projects_fi
             anonymizer=anonymizer,
             include_leaderboards=include_leaderboards,
             include_snapshots=include_snapshots,
+            verbose=verbose,
         )
+        total_skipped_metrics += instance_skipped
         
         metadata['instances'][instance_name] = {
             'exported_files': exported_files,
@@ -637,7 +661,7 @@ def export_to_json(output_dir="exports", days=365, config_file=None, projects_fi
                 # Sequential path — one shared metrics instance for all projects.
                 for project_name in tqdm(projects, desc=f"  {instance_name} Projects", unit="project"):
                     try:
-                        project_files = export_project_specific_metrics(
+                        project_files, proj_skipped = export_project_specific_metrics(
                             shared_metrics,
                             instance_name,
                             project_dirs[project_name],
@@ -646,9 +670,13 @@ def export_to_json(output_dir="exports", days=365, config_file=None, projects_fi
                             anonymizer=anonymizer,
                             include_leaderboards=include_leaderboards,
                             include_snapshots=include_snapshots,
+                            verbose=verbose,
                         )
                         if project_files:
                             project_specific[anon_project_map[project_name]] = project_files
+                        total_skipped_metrics += proj_skipped
+                        if proj_skipped > 0:
+                            projects_with_skipped += 1
                     except Exception as exc:
                         tqdm.write(f"  [ERROR] {project_name}: {exc}")
             else:
@@ -666,7 +694,7 @@ def export_to_json(output_dir="exports", days=365, config_file=None, projects_fi
                 def _process(project_name):
                     m = worker_pool.get()
                     try:
-                        return project_name, export_project_specific_metrics(
+                        pf, ps = export_project_specific_metrics(
                             m,
                             instance_name,
                             project_dirs[project_name],
@@ -675,7 +703,9 @@ def export_to_json(output_dir="exports", days=365, config_file=None, projects_fi
                             anonymizer=anonymizer,
                             include_leaderboards=include_leaderboards,
                             include_snapshots=include_snapshots,
+                            verbose=verbose,
                         )
+                        return project_name, pf, ps
                     finally:
                         worker_pool.put(m)
 
@@ -686,9 +716,12 @@ def export_to_json(output_dir="exports", days=365, config_file=None, projects_fi
                         for future in tqdm(as_completed(futures), total=len(futures),
                                             desc=f"  {instance_name} Projects", unit="project"):
                             try:
-                                project_name, project_files = future.result()
+                                project_name, project_files, proj_skipped = future.result()
                                 if project_files:
                                     project_specific[anon_project_map[project_name]] = project_files
+                                total_skipped_metrics += proj_skipped
+                                if proj_skipped > 0:
+                                    projects_with_skipped += 1
                             except Exception as exc:
                                 tqdm.write(f"  [ERROR] {exc}")
                     except KeyboardInterrupt:
@@ -771,6 +804,10 @@ def export_to_json(output_dir="exports", days=365, config_file=None, projects_fi
     print(f"Total ZIP files created: {len(zip_files)}")
     for zip_path in zip_files:
         print(f"  - {os.path.basename(zip_path)}")
+    if total_skipped_metrics > 0 and not verbose:
+        print(f"[INFO] Skipped {total_skipped_metrics} metrics with no data across {projects_with_skipped} project(s). Pass --verbose to see per-metric details.")
+    elif total_skipped_metrics > 0 and verbose:
+        print(f"[INFO] Total metrics skipped with no data: {total_skipped_metrics} across {projects_with_skipped} project(s).")
     print(f"{'=' * 80}")
     
     return zip_files
@@ -798,6 +835,8 @@ def main():
                         help='Skip the Leaderboards metrics (top projects by fix rate / triage, top users by fixes, top triagers, most collaborative users). Dashboards generated from the resulting ZIP will hide the Leaderboards tab.')
     parser.add_argument('--no-snapshots', action='store_true',
                         help='Skip the Snapshots metric (recorded cov-build/cov-analyze command lines, invoker, host). Dashboards generated from the resulting ZIP will hide the Snapshots tab.')
+    parser.add_argument('--verbose', '-v', action='store_true',
+                        help='Show per-metric "[SKIP] project/metric: No data" lines. Off by default; a summary count is printed at the end of the run.')
     parser.add_argument('--version', action='store_true', help='Print version and exit')
 
     args = parser.parse_args()
@@ -830,6 +869,7 @@ def main():
             mapping_file=args.mapping_file,
             include_leaderboards=not args.no_leaderboards,
             include_snapshots=not args.no_snapshots,
+            verbose=args.verbose,
         )
         # Note: export_to_json now returns a list of ZIP files (one per instance)
         return 0
