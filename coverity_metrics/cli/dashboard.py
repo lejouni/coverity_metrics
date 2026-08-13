@@ -2469,31 +2469,39 @@ def _run_main(args):
             # All projects (AUTO MODE) - same as multi-instance
             tqdm.write(f"\nGenerating all dashboards for instance: {instance_name}")
             projects = metrics.get_available_projects()
-            
-            # Calculate total work: aggregated + instance + projects
-            total_dashboards = 1 + 1 + (len(projects) if not projects.empty else 0)  # 1 aggregated + 1 instance + N projects
-            tqdm.write(f"  Total dashboards to generate: {total_dashboards} (1 aggregated + 1 instance + {len(projects) if not projects.empty else 0} projects)")
-            
+
+            # The aggregated cross-instance dashboard only makes sense when we
+            # actually have a config file (so MultiInstanceMetrics has something
+            # to load) and aggregated_view is opted in. Env-var mode always skips.
+            generate_aggregated = bool(effective_config_path) and aggregated_view_enabled
+            agg_count = 1 if generate_aggregated else 0
+
+            # Calculate total work: [aggregated] + instance + projects
+            project_count = len(projects) if not projects.empty else 0
+            total_dashboards = agg_count + 1 + project_count
+            tqdm.write(f"  Total dashboards to generate: {total_dashboards} ({agg_count} aggregated + 1 instance + {project_count} projects)")
+
             if progress_tracker and not session_id:
                 session_id = progress_tracker.create_session(total_dashboards)
                 tqdm.write(f"  [Progress] Session ID: {session_id}  (use --resume {session_id} to resume if interrupted)")
-            
+
             with tqdm(total=total_dashboards, desc=f"{instance_name}", unit="dashboard") as pbar:
-                # Generate aggregated dashboard (even for single instance, for consistency)
-                pbar.set_description("Aggregated View")
-                multi_metrics = MultiInstanceMetrics(args.config)
-                os.makedirs(args.output, exist_ok=True)
-                output_file = f"{args.output}/dashboard_aggregated.html"
-                _agg_label = "Aggregated View"
-                if _agg_label not in completed_names:
-                    dashboard_path = generate_aggregated_dashboard(multi_metrics, output_file, args.days)
-                    generated_files.append((_agg_label, dashboard_path))
-                    if progress_tracker and session_id:
-                        progress_tracker.update_progress(session_id, _agg_label)
-                else:
-                    tqdm.write(f"  [SKIP] {_agg_label}")
-                    generated_files.append((_agg_label, output_file))
-                pbar.update(1)
+                # Generate aggregated dashboard (only when opted in via config)
+                if generate_aggregated:
+                    pbar.set_description("Aggregated View")
+                    multi_metrics = MultiInstanceMetrics(effective_config_path)
+                    os.makedirs(args.output, exist_ok=True)
+                    output_file = f"{args.output}/dashboard_aggregated.html"
+                    _agg_label = "Aggregated View"
+                    if _agg_label not in completed_names:
+                        dashboard_path = generate_aggregated_dashboard(multi_metrics, output_file, args.days)
+                        generated_files.append((_agg_label, dashboard_path))
+                        if progress_tracker and session_id:
+                            progress_tracker.update_progress(session_id, _agg_label)
+                    else:
+                        tqdm.write(f"  [SKIP] {_agg_label}")
+                        generated_files.append((_agg_label, output_file))
+                    pbar.update(1)
                 
                 # Generate instance-level dashboard (all projects)
                 instance_folder = f"{args.output}/{instance_name.replace(' ', '_')}"

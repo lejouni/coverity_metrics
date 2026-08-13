@@ -4,7 +4,13 @@
 
 ### Version 1.0.24 - 2026-08-13
 
-**`--config` Passthrough, TLS Escape Hatches, and `--workers` Passthrough on the Quickstart Scripts**
+**`--config` Passthrough, TLS Escape Hatches, `--workers` Passthrough, and a Single-Instance Auto-Mode Fix**
+
+#### Fixed
+
+##### 🐞 `coverity-dashboard` Single-Instance Auto Mode No Longer Crashes on `None` Config Path
+- When `--config` was not passed (default `config.json` auto-fallback or env-var mode) and a single instance was configured, the auto-generated aggregated dashboard step called `MultiInstanceMetrics(args.config)` with `args.config = None`, which crashed inside `os.path.exists` with `TypeError: _path_exists: path should be string, bytes, os.PathLike or integer, not NoneType`.
+- The single-instance auto-mode path now uses the resolved config path (same one used by the multi-instance branch). The aggregated cross-instance dashboard is also correctly skipped when `aggregated_view.enabled` is `false` (or the section is absent), and is always skipped in env-var mode. The dashboard count line no longer promises `1 aggregated` when none will actually be generated.
 
 #### Added
 

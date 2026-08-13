@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - When `--config` is passed the placeholder-password guard is skipped (since credentials come from the file), and the path is forwarded to the binary as `--config <path>`. Multi-instance configuration is supported this way
   - The pre-run banner now includes a `Config : <path>` (or `Config : <env vars>`) line so the mode is unambiguous
 
+### Fixed
+- **`coverity-dashboard` single-instance auto mode crashed with `_path_exists: path should be string, bytes, os.PathLike or integer, not NoneType`**
+  - When `--config` was not passed (default `config.json` auto-fallback or env-var mode) and a single instance was configured, the auto-generated aggregated dashboard step called `MultiInstanceMetrics(args.config)` with `args.config = None`, which crashed inside `os.path.exists`
+  - Now uses the resolved config path (same one used by the multi-instance branch). The aggregated cross-instance dashboard is also correctly skipped when `aggregated_view.enabled` is `false` or absent, and always skipped in env-var mode (which has no file to hand to `MultiInstanceMetrics`)
+  - The dashboard count line no longer promises `1 aggregated` when none will be generated
+
 - **TLS escape hatches on the quickstart scripts**
   - Fixes `curl: (60) SSL certificate problem: unable to get local issuer certificate` on hosts behind SSL-inspection proxies or with an outdated CA bundle
   - [scripts/coverity-export.sh](scripts/coverity-export.sh): new `--cacert PATH` flag (or `CURL_CA_BUNDLE` / `SSL_CERT_FILE` env var) forwards a trusted CA bundle to every curl call. New `--insecure` flag adds `curl -k` as a last-resort escape hatch, with a warning
