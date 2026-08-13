@@ -207,6 +207,54 @@ cp config.json.example config.json
 - For multi-instance mode: Configure 2+ instances (auto-detected)
 - Add `config.json` to `.gitignore` to protect credentials
 
+### Finding the database credentials in your Coverity Connect installation
+
+The database host, port, name, user, and password live in `cim.properties`
+under the Coverity Connect installation directory. On the box that runs
+Coverity Connect, look for the file at:
+
+| OS | Typical path |
+| -- | ------------ |
+| Linux | `<coverity-install-dir>/config/cim.properties` (e.g. `/opt/coverity/connect/config/cim.properties`) |
+| Windows | `<coverity-install-dir>\config\cim.properties` (e.g. `C:\Program Files\Coverity\Coverity Connect\config\cim.properties`) |
+
+Map the properties into `config.json` (or the corresponding `COVERITY_DB_*`
+environment variables) as follows:
+
+| `cim.properties` key | `config.json` field | Env var |
+| -------------------- | ------------------- | ------- |
+| `cim.database.host` | `database.host` | `COVERITY_DB_HOST` |
+| `cim.database.port` | `database.port` | `COVERITY_DB_PORT` |
+| `cim.database.name` | `database.database` | `COVERITY_DB_NAME` |
+| `cim.database.user` | `database.user` | `COVERITY_DB_USER` |
+| `cim.database.password` | `database.password` | `COVERITY_DB_PASSWORD` |
+
+Quick peek at just the relevant lines (paths adjusted to match your install):
+
+```bash
+# Linux
+grep -E '^cim\.database\.(host|port|name|user|password)=' \
+     /opt/coverity/connect/config/cim.properties
+```
+
+```powershell
+# Windows (PowerShell)
+Select-String -Path 'C:\Program Files\Coverity\Coverity Connect\config\cim.properties' `
+              -Pattern '^cim\.database\.(host|port|name|user|password)='
+```
+
+Notes:
+- The password in `cim.properties` is stored in cleartext. Only the OS user
+  running the Coverity Connect service should have read access to this file.
+- The bundled PostgreSQL that ships with Coverity Connect listens on **port
+  `5433`** by default (not `5432`) so it doesn't clash with a system-wide
+  PostgreSQL. Copy whatever port is in `cim.properties`.
+- The default user is `coverity`. If your security policy prefers a
+  read-only role (recommended), create one in Postgres and grant
+  `pg_read_all_data` — the tool never issues DML against the schema.
+- Copy the file (or just those five lines) off the Coverity Connect host over
+  a secure channel; don't paste the password into chat or commit it to git.
+
 ### Configuring `coverity-export` / `coverity-dashboard` from environment variables
 
 Both `coverity-export` and `coverity-dashboard` (in database mode) can also be run against a

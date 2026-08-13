@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - When `--config` is passed the placeholder-password guard is skipped (since credentials come from the file), and the path is forwarded to the binary as `--config <path>`. Multi-instance configuration is supported this way
   - The pre-run banner now includes a `Config : <path>` (or `Config : <env vars>`) line so the mode is unambiguous
 
+### Documentation
+- README now has a "Finding the database credentials in your Coverity Connect installation" section that maps `cim.properties` keys onto `config.json` fields / `COVERITY_DB_*` env vars, with `grep` / `Select-String` recipes for Linux and Windows and a note about the bundled Postgres port being `5433` by default
+
 ### Fixed
 - **`coverity-dashboard` single-instance auto mode crashed with `_path_exists: path should be string, bytes, os.PathLike or integer, not NoneType`**
   - When `--config` was not passed (default `config.json` auto-fallback or env-var mode) and a single instance was configured, the auto-generated aggregated dashboard step called `MultiInstanceMetrics(args.config)` with `args.config = None`, which crashed inside `os.path.exists`
