@@ -4,9 +4,14 @@
 
 ### Version 1.0.24 - 2026-08-13
 
-**TLS Escape Hatches and `--workers` Passthrough on the Quickstart Scripts**
+**`--config` Passthrough, TLS Escape Hatches, and `--workers` Passthrough on the Quickstart Scripts**
 
 #### Added
+
+##### 🗄️ `--config` / `-Config` Passthrough on the Quickstart Scripts
+- Both quickstart scripts now accept `--config FILE` (bash) / `-Config FILE` (PowerShell) to run against an existing `config.json` instead of the `COVERITY_DB_*` environment-variable block.
+- When `--config` is passed the placeholder-password guard is skipped (since credentials come from the file), and the path is forwarded to the binary as `--config <path>`. Multi-instance configuration is supported this way.
+- The pre-run banner now includes a `Config : <path>` (or `Config : <env vars>`) line so the mode is unambiguous.
 
 ##### 🔒 TLS Escape Hatches on the Quickstart Scripts
 - Fixes the common `curl: (60) SSL certificate problem: unable to get local issuer certificate` error on hosts behind SSL-inspection proxies or with an outdated CA bundle.

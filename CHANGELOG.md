@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.24] - 2026-08-13
 
 ### Added
+- **`--config` / `-Config` passthrough on the quickstart scripts**
+  - Both quickstart scripts now accept `--config FILE` (bash) / `-Config FILE` (PowerShell) to run against an existing `config.json` instead of the `COVERITY_DB_*` environment-variable block
+  - When `--config` is passed the placeholder-password guard is skipped (since credentials come from the file), and the path is forwarded to the binary as `--config <path>`. Multi-instance configuration is supported this way
+  - The pre-run banner now includes a `Config : <path>` (or `Config : <env vars>`) line so the mode is unambiguous
+
 - **TLS escape hatches on the quickstart scripts**
   - Fixes `curl: (60) SSL certificate problem: unable to get local issuer certificate` on hosts behind SSL-inspection proxies or with an outdated CA bundle
   - [scripts/coverity-export.sh](scripts/coverity-export.sh): new `--cacert PATH` flag (or `CURL_CA_BUNDLE` / `SSL_CERT_FILE` env var) forwards a trusted CA bundle to every curl call. New `--insecure` flag adds `curl -k` as a last-resort escape hatch, with a warning

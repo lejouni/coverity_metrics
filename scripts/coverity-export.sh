@@ -30,6 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="${BIN_DIR:-${SCRIPT_DIR}/bin}"
 
 TAG=""
+CONFIG=""
 OUTPUT="exports"
 DAYS=365
 PROJECT=""
@@ -43,16 +44,22 @@ INSECURE=0
 
 usage() {
   cat <<EOF
-Usage: $0 [--tag vX.Y.Z] [--output DIR] [--days N] [--project NAMES]
-          [--workers N] [--anonymize] [--no-snapshots] [--no-leaderboards]
-          [-v|--verbose] [-h|--help]
+Usage: $0 [--tag vX.Y.Z] [--config FILE] [--output DIR] [--days N]
+          [--project NAMES] [--workers N] [--anonymize]
+          [--no-snapshots] [--no-leaderboards]
+          [--cacert PATH] [--insecure] [-v|--verbose] [-h|--help]
 
 Downloads the coverity-metrics binary for the given release tag (or the
-latest release when --tag is omitted) and runs 'coverity-metrics export'
-using the environment variables configured at the top of this script.
+latest release when --tag is omitted) and runs 'coverity-metrics export'.
+By default the connection details come from the environment variables
+configured at the top of this script. Pass --config FILE to use a JSON
+configuration file instead (multi-instance supported); the env-var block
+and the placeholder-password guard are then skipped.
 
 Options:
   --tag vX.Y.Z          Release tag to download (default: latest)
+  --config FILE         Use a config.json instead of environment variables.
+                        Multi-instance configuration is supported here.
   --output DIR          Output directory (default: exports)
   --days N              Trend analysis window in days (default: 365)
   --project NAMES       Comma-separated project filter (default: all)
@@ -84,6 +91,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag)              TAG="${2:?--tag requires a value}"; shift 2 ;;
+    --config)           CONFIG="${2:?--config requires a value}"; shift 2 ;;
     --output)           OUTPUT="${2:?--output requires a value}"; shift 2 ;;
     --days)             DAYS="${2:?--days requires a value}"; shift 2 ;;
     --project)          PROJECT="${2:?--project requires a value}"; shift 2 ;;
@@ -160,14 +168,16 @@ else
 fi
 
 # Refuse to run with the placeholder password so nobody triggers a real export
-# with an unedited copy of this script.
-if [[ "$COVERITY_DB_PASSWORD" == "change-me" ]]; then
+# with an unedited copy of this script. When --config is used, connection
+# details come from the file so the env-var guard is irrelevant.
+if [[ -z "$CONFIG" && "$COVERITY_DB_PASSWORD" == "change-me" ]]; then
   echo "ERROR: COVERITY_DB_PASSWORD is still the placeholder value 'change-me'." >&2
-  echo "Edit this script (or export COVERITY_DB_PASSWORD) before running." >&2
+  echo "Edit this script (or export COVERITY_DB_PASSWORD, or pass --config FILE) before running." >&2
   exit 1
 fi
 
 cmd=("$BIN_PATH" export --output "$OUTPUT" --days "$DAYS" --workers "$WORKERS")
+[[ -n "$CONFIG" ]] && cmd+=(--config "$CONFIG")
 [[ -n "$PROJECT" ]] && cmd+=(--project "$PROJECT")
 (( ANONYMIZE == 1 )) && cmd+=(--anonymize)
 (( NO_SNAPSHOTS == 1 )) && cmd+=(--no-snapshots)
@@ -176,6 +186,7 @@ cmd=("$BIN_PATH" export --output "$OUTPUT" --days "$DAYS" --workers "$WORKERS")
 
 cat <<INFO
 
+Config   : ${CONFIG:-<env vars>}
 Instance : ${COVERITY_INSTANCE_NAME}
 Host     : ${COVERITY_DB_HOST}
 Database : ${COVERITY_DB_NAME}

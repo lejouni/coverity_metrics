@@ -14,6 +14,12 @@
 .PARAMETER Tag
   Release tag to download (default: latest resolved from the GitHub API).
 
+.PARAMETER Config
+  Use a config.json instead of environment variables. When set, the
+  COVERITY_DB_* placeholder-password guard is skipped and the file path is
+  passed through to the binary as --config <path>. Multi-instance
+  configuration is supported this way.
+
 .PARAMETER Output
   Output directory for the ZIP export (default: exports).
 
@@ -58,6 +64,7 @@
 [CmdletBinding()]
 param(
     [string]$Tag = '',
+    [string]$Config = '',
     [string]$Output = 'exports',
     [int]   $Days = 365,
     [string]$Project = '',
@@ -153,12 +160,14 @@ if (Test-Path $BinPath -PathType Leaf) {
 }
 
 # Refuse to run with the placeholder password so nobody triggers a real export
-# with an unedited copy of this script.
-if ($env:COVERITY_DB_PASSWORD -eq 'change-me') {
-    throw "COVERITY_DB_PASSWORD is still the placeholder value 'change-me'. Edit this script (or set `$env:COVERITY_DB_PASSWORD`) before running."
+# with an unedited copy of this script. Not relevant when -Config is used
+# because connection details come from the file, not the env vars.
+if (-not $Config -and $env:COVERITY_DB_PASSWORD -eq 'change-me') {
+    throw "COVERITY_DB_PASSWORD is still the placeholder value 'change-me'. Edit this script, set `$env:COVERITY_DB_PASSWORD, or pass -Config <path> before running."
 }
 
 $argsList = @('export', '--output', $Output, '--days', $Days.ToString(), '--workers', $Workers.ToString())
+if ($Config)         { $argsList += @('--config', $Config) }
 if ($Project)        { $argsList += @('--project', $Project) }
 if ($Anonymize)      { $argsList += '--anonymize' }
 if ($NoSnapshots)    { $argsList += '--no-snapshots' }
@@ -167,6 +176,7 @@ if ($NoLeaderboards) { $argsList += '--no-leaderboards' }
 if ($VerbosePreference -ne 'SilentlyContinue') { $argsList += '--verbose' }
 
 Write-Host ""
+Write-Host ("Config   : {0}" -f $(if ($Config) { $Config } else { '<env vars>' }))
 Write-Host ("Instance : {0}" -f $env:COVERITY_INSTANCE_NAME)
 Write-Host ("Host     : {0}" -f $env:COVERITY_DB_HOST)
 Write-Host ("Database : {0}" -f $env:COVERITY_DB_NAME)
