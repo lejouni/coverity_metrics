@@ -36,10 +36,10 @@ The dashboard will be saved to `output/dashboard.html` and can optionally open i
 **Filter by Project:**
 ```bash
 # View metrics for a specific project only
-coverity-dashboard --project "feature"
+coverity-dashboard --project "project-b"
 
 # View metrics for multiple projects (comma-separated)
-coverity-dashboard --project "feature,sampleapp-feature"
+coverity-dashboard --project "project-b,project-c"
 
 # Generate with custom output location
 coverity-dashboard --output reports/my_dashboard.html
@@ -91,9 +91,9 @@ Based on the initial analysis of your Coverity database:
 4. **Code maintainability issues** - 3 defects
 
 ### Defect Density Analysis
-- **feature stream**: 7.51 defects per KLOC (highest)
-- **Damm-Vulnerable-dotNet-Application**: 1.71 defects per KLOC
-- **sampleapp-feature**: 0.44 defects per KLOC (lowest, best quality)
+- **project-b stream**: 7.51 defects per KLOC (highest)
+- **project-d**: 1.71 defects per KLOC
+- **project-c**: 0.44 defects per KLOC (lowest, best quality)
 
 ### File Hotspots (Files with Most Defects)
 1. **main.tf** - 34 defects in 51 lines (Infrastructure as Code file)
@@ -114,13 +114,13 @@ metrics_global = CoverityMetrics()
 summary_all = metrics_global.get_overall_summary()
 
 # Project-specific metrics
-metrics_project = CoverityMetrics(project_name="feature")
+metrics_project = CoverityMetrics(project_name="project-b")
 summary_project = metrics_project.get_overall_summary()
 defects = metrics_project.get_defects_by_severity()
 hotspots = metrics_project.get_file_hotspots()
 
 # Compare projects
-for project in ["feature", "sampleapp-feature", "Damm-Vulnerable-dotNet-Application"]:
+for project in ["project-b", "project-c", "project-d"]:
     m = CoverityMetrics(project_name=project)
     summary = m.get_overall_summary()
     print(f"{project}: {summary['total_defects']} defects, {summary['high_severity_defects']} high")

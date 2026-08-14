@@ -7,12 +7,12 @@ The "Top Fixers" leaderboard was counting **triage actions** instead of **actual
 ### Incorrect Behavior (Before)
 - Counted defects marked with `action_id IN (2, 3)` (Fix Required, Fix Submitted)
 - This represented user **intention** to fix, not actual elimination
-- **Example**: sample_2026 showed **1 fix** when the defect was only marked but still exists in code
+- **Example**: project-a showed **1 fix** when the defect was only marked but still exists in code
 
 ### Correct Behavior (After)  
 - Counts defects **actually eliminated** from code (`fixed_snapshot_element_id IS NOT NULL`)
 - Represents defects that **disappeared** in subsequent snapshots
-- **Example**: sample_2026 now shows **0 fixes** (correct - defect still exists)
+- **Example**: project-a now shows **0 fixes** (correct - defect still exists)
 
 ## Technical Changes
 
@@ -65,7 +65,7 @@ The "Top Fixers" leaderboard was counting **triage actions** instead of **actual
 
 ## Validation Results
 
-### Test Case: sample_2026 Project
+### Test Case: project-a Project
 **Database State**:
 - Total defects: 5
 - Actually fixed (eliminated): **0**
@@ -76,7 +76,7 @@ The "Top Fixers" leaderboard was counting **triage actions** instead of **actual
 - ✅ **After**: Shows 0 fixes (correct - section not displayed)
 
 ### Overall Database
-- 3 total defects actually eliminated (all in "feature" project)
+- 3 total defects actually eliminated (all in "project-b" project)
 - All 3 only have "System User" triage actions (no human attribution)
 - **Result**: No human users shown in Top Fixers (correct)
 
@@ -116,7 +116,7 @@ python test_actual_fixes.py
 
 # Expected output:
 # - Instance level: No users with actual fixes (System User only)
-# - sample_2026: ✅ CORRECT: No users with actual fixes
+# - project-a: ✅ CORRECT: No users with actual fixes
 ```
 
 ---

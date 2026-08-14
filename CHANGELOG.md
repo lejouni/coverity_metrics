@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fixed is derived as `defect_count - Active - Dismissed` so the row invariant still holds; Active is clamped so it can't exceed `defect_count - dismissed_defects`
   - Works whether `last_detected_snapshot` is populated or not; healthy DBs where the two paths already agree are a no-op
   - Applies to all three variants (multi-project, single-project per-stream drill-down, all-projects)
-  - Verified against the sumatrapdf case: latest snapshot `total_defect_count = 83522`, newly eliminated `= 12`, stream_defect count `= 83534` → Active = 83522, Fixed = 12 (previously reported 83534 / 0)
+  - Verified against the example-project case: latest snapshot `total_defect_count = 83522`, newly eliminated `= 12`, stream_defect count `= 83534` → Active = 83522, Fixed = 12 (previously reported 83534 / 0)
 
 ### Fixed
 - **Active / Fixed / High-severity defect counts didn't match Coverity Connect's UI on multi-stream projects**
@@ -23,9 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed the snapshot-aggregate fallback (`_apply_snapshot_active_fallback`, `_snapshot_active_by_project`, `_LATEST_SNAPSHOT_PER_STREAM_SQL`) that was introduced as a workaround — it can't de-duplicate merged defects across streams and is no longer needed once the primary path is correct.
 
 - **Function Complexity Distribution and Most Complex Functions were joining on the wrong ids**
-  - Both metrics did `JOIN function_metrics fm ON sf.function_id = fm.id` (or `f.id = fm.id`). Neither `stream_function.function_id` nor `function.id` is a foreign key to `function_metrics.id` — the two id spaces just happen to overlap coincidentally for a small subset of rows. On `sumatrapdf` the tool was reporting **185 functions with complexity metrics** when Coverity Connect's latest snapshot shows **21,153**.
+  - Both metrics did `JOIN function_metrics fm ON sf.function_id = fm.id` (or `f.id = fm.id`). Neither `stream_function.function_id` nor `function.id` is a foreign key to `function_metrics.id` — the two id spaces just happen to overlap coincidentally for a small subset of rows. On `example-project` the tool was reporting **185 functions with complexity metrics** when Coverity Connect's latest snapshot shows **21,153**.
   - The correct linkage in Coverity's schema is `stream_function -> function_instance -> function_metrics`, where `function_instance` records per-snapshot-range metric revisions and is FK-linked to both sides. Filtering to `function_instance.snapshot_end_id IS NULL` restricts to instances present in the latest snapshot; deduping to `MAX(complexity)` per `sf.id` collapses the rare case where a stream_function has multiple current instances.
-  - Both `get_function_complexity_distribution` and `get_most_complex_functions` now use the corrected joins. Verified on `sumatrapdf`: 21,153 functions total, split 19263 Low / 1089 Moderate / 513 High / 246 Very High / 42 Extreme — matching Coverity Connect exactly.
+  - Both `get_function_complexity_distribution` and `get_most_complex_functions` now use the corrected joins. Verified on `example-project`: 21,153 functions total, split 19263 Low / 1089 Moderate / 513 High / 246 Very High / 42 Extreme — matching Coverity Connect exactly.
 
 - **Total Lines of Code (and derived KLOC ratios) could render as a negative number**
   - Coverity Connect uses negative sentinel values (typically `-1`) in `stream_file.current_code_line_count` / `current_comment_line_count` / `current_blank_line_count` and `snapshot.code_line_count` for files or snapshots where line counting couldn't be done (binary files, generated code, parse failures, etc.). On projects with enough such files the sentinels dragged the SUM below zero

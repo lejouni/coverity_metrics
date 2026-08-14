@@ -42,7 +42,7 @@ python -m coverity_metrics dashboard
 ## Features
 
 
-**What's New:** See [CHANGELOG.md](CHANGELOG.md) for the full per-version changelog and [RELEASE_NOTES.md](RELEASE_NOTES.md) for the narrative release notes. Recent releases are also listed on the [GitHub Releases page](https://github.com/lejouni/coverity_metrics/releases).
+**What's New:** See [CHANGELOG.md](https://github.com/lejouni/coverity_metrics/blob/main/CHANGELOG.md) for the full per-version changelog and [RELEASE_NOTES.md](https://github.com/lejouni/coverity_metrics/blob/main/RELEASE_NOTES.md) for the narrative release notes. Recent releases are also listed on the [GitHub Releases page](https://github.com/lejouni/coverity_metrics/releases).
 
 ---
 
