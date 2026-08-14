@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.25] - 2026-08-14
+
+### Added
+- **Active / Fixed defect counts are now anchored on Coverity Connect's own snapshot aggregates**
+  - `get_total_defects_by_project` now uses `snapshot.total_defect_count` on the latest non-deleted snapshot per stream (summed across the streams in scope) as the source of truth for Active — the exact same figure Coverity Connect's own UI shows in its "Outstanding" column
+  - Fixed is derived as `defect_count - Active - Dismissed` so the row invariant still holds; Active is clamped so it can't exceed `defect_count - dismissed_defects`
+  - Works whether `last_detected_snapshot` is populated or not; healthy DBs where the two paths already agree are a no-op
+  - Applies to all three variants (multi-project, single-project per-stream drill-down, all-projects)
+  - Verified against the sumatrapdf case: latest snapshot `total_defect_count = 83522`, newly eliminated `= 12`, stream_defect count `= 83534` → Active = 83522, Fixed = 12 (previously reported 83534 / 0)
+
+### Fixed
+- **Active / Fixed / High-severity defect counts didn't match Coverity Connect's UI on multi-stream projects**
+  - Two independent bugs compounded: (a) the "active" predicate was flipped around a few times while chasing this, and (b) `COUNT(DISTINCT sd.id)` counted the same defect once per stream instead of once per merged defect. Concrete example on `Checkers` (streams `checkers` + `checkers-claude` mirror each other): Coverity Connect shows 21 active defects (3 High / 2 Medium / 16 Low by Impact), the tool was reporting 12 High.
+  - Fix: (1) `_ACTIVE_COND_SQL` is back to the strict `lds.detected_snapshot_id = sn_latest.latest_snap_id`; `_FIXED_COND_SQL` is the strict `IS NOT NULL AND != latest`. Rows where `last_detected_snapshot` has no entry (a small tail on typical DBs) are treated as unknown and fall through both buckets rather than being force-fed into one. (2) Every defect-count query in `get_total_defects_by_project`, `get_defects_by_severity`, and `high_severity_defects` now counts `DISTINCT COALESCE(sd.merged_defect_id, sd.id)`, so a defect present in multiple streams is counted once — matching Coverity Connect's project-level UI.
+  - `get_defects_by_severity` continues to bucket by `checker_properties.impact` (which Coverity Connect surfaces as "Severity" in the UI). Verified on `Checkers`: 3 / 2 / 16.
+  - Removed the snapshot-aggregate fallback (`_apply_snapshot_active_fallback`, `_snapshot_active_by_project`, `_LATEST_SNAPSHOT_PER_STREAM_SQL`) that was introduced as a workaround — it can't de-duplicate merged defects across streams and is no longer needed once the primary path is correct.
+
+- **Function Complexity Distribution and Most Complex Functions were joining on the wrong ids**
+  - Both metrics did `JOIN function_metrics fm ON sf.function_id = fm.id` (or `f.id = fm.id`). Neither `stream_function.function_id` nor `function.id` is a foreign key to `function_metrics.id` — the two id spaces just happen to overlap coincidentally for a small subset of rows. On `sumatrapdf` the tool was reporting **185 functions with complexity metrics** when Coverity Connect's latest snapshot shows **21,153**.
+  - The correct linkage in Coverity's schema is `stream_function -> function_instance -> function_metrics`, where `function_instance` records per-snapshot-range metric revisions and is FK-linked to both sides. Filtering to `function_instance.snapshot_end_id IS NULL` restricts to instances present in the latest snapshot; deduping to `MAX(complexity)` per `sf.id` collapses the rare case where a stream_function has multiple current instances.
+  - Both `get_function_complexity_distribution` and `get_most_complex_functions` now use the corrected joins. Verified on `sumatrapdf`: 21,153 functions total, split 19263 Low / 1089 Moderate / 513 High / 246 Very High / 42 Extreme — matching Coverity Connect exactly.
+
+- **Total Lines of Code (and derived KLOC ratios) could render as a negative number**
+  - Coverity Connect uses negative sentinel values (typically `-1`) in `stream_file.current_code_line_count` / `current_comment_line_count` / `current_blank_line_count` and `snapshot.code_line_count` for files or snapshots where line counting couldn't be done (binary files, generated code, parse failures, etc.). On projects with enough such files the sentinels dragged the SUM below zero
+  - Every aggregation over those columns now uses `SUM(GREATEST(COALESCE(x, 0), 0))` (and the per-file / per-snapshot readouts use `GREATEST(COALESCE(x, 0), 0)`), so sentinels contribute zero instead of a negative delta. Affected metrics: `get_defect_density_by_project`, `get_code_metrics_by_stream`, `get_overall_summary` (both project-scoped and global `total_loc`), `get_file_hotspots`, `get_snapshot_details`
+  - Downstream `defects_per_kloc`, `avg_file_loc`, and `comment_ratio_pct` figures inherit the fix automatically since they reuse the same clamped aggregate
+
 ## [1.0.24] - 2026-08-13
 
 ### Added

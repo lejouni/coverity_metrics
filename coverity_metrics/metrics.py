@@ -10,11 +10,18 @@ from tqdm import tqdm
 class CoverityMetrics:
     """Comprehensive metrics for Coverity static analysis data"""
 
-    # A stream_defect is "currently outstanding" iff its last-detected snapshot equals the
-    # stream's latest snapshot. stream_defect.fixed_snapshot_element_id alone is unreliable
-    # because Coverity does not clear it when a previously-fixed defect reappears in a later
-    # snapshot. Queries embed these three constants via f-strings; use {{name}} for later
-    # .format() placeholders such as {project_filter}.
+    # A stream_defect is Active iff its `last_detected_snapshot` (lds) row points at the latest
+    # non-deleted snapshot of its stream (sn_latest.latest_snap_id), and Fixed otherwise. Rows
+    # without any lds entry (~2.5% on typical DBs; more on installations that skipped a schema
+    # migration) are treated as *unknown* and excluded from both buckets rather than being
+    # forced into one — that's the pragmatic middle ground: it never inflates Active on a
+    # broken DB, and never inflates Fixed on a healthy one. Queries embed these two constants
+    # via f-strings; use {{name}} for later .format() placeholders such as {project_filter}.
+    #
+    # ``stream_defect.fixed_snapshot_element_id`` alone is unreliable because Coverity doesn't
+    # clear it when a previously-fixed defect reappears in a later snapshot — using it as a
+    # secondary check would drop ~5% of active defects on such DBs. That's why we anchor on
+    # ``last_detected_snapshot`` instead.
     _ACTIVE_JOIN_SQL = """
         LEFT JOIN last_detected_snapshot lds ON lds.stream_defect_id = sd.id
         LEFT JOIN (
@@ -25,7 +32,7 @@ class CoverityMetrics:
         ) sn_latest ON sn_latest.stream_id = se.stream_id
     """
     _ACTIVE_COND_SQL = "lds.detected_snapshot_id = sn_latest.latest_snap_id"
-    _FIXED_COND_SQL = "(lds.detected_snapshot_id IS NULL OR lds.detected_snapshot_id != sn_latest.latest_snap_id)"
+    _FIXED_COND_SQL = "(lds.detected_snapshot_id IS NOT NULL AND lds.detected_snapshot_id != sn_latest.latest_snap_id)"
 
     def __init__(self, connection_params, project_name=None):
         """Initialize metrics calculator
@@ -63,7 +70,7 @@ class CoverityMetrics:
             self._project_names = [value]
     
     # ========== DEFECT METRICS ==========
-    
+
     def get_total_defects_by_project(self):
         """Get total defect count grouped by project, or by stream when filtered to a single project
         Includes both code-based fixes and triaged defects (False Positive/Intentional)
@@ -80,20 +87,20 @@ class CoverityMetrics:
             query = f"""
                 SELECT 
                     p.name as project_name,
-                    COUNT(DISTINCT sd.id) as defect_count,
+                    COUNT(DISTINCT COALESCE(sd.merged_defect_id, sd.id)) as defect_count,
                     COUNT(DISTINCT CASE 
                         WHEN {self._ACTIVE_COND_SQL}
                             AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
-                        THEN sd.id 
+                        THEN COALESCE(sd.merged_defect_id, sd.id) 
                     END) as active_defects,
                     COUNT(DISTINCT CASE 
                         WHEN {self._FIXED_COND_SQL}
                             AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
-                        THEN sd.id 
+                        THEN COALESCE(sd.merged_defect_id, sd.id) 
                     END) as fixed_defects,
                     COUNT(DISTINCT CASE 
                         WHEN de_cls.name IN ('False Positive', 'Intentional')
-                        THEN sd.id 
+                        THEN COALESCE(sd.merged_defect_id, sd.id) 
                     END) as dismissed_defects
                 FROM project p
                 JOIN project_stream ps ON p.id = ps.project_id
@@ -109,26 +116,27 @@ class CoverityMetrics:
                 ORDER BY defect_count DESC
             """
             results = self.db.execute_query_dict(query, (self._project_names,))
+            results
         elif single_project:
             # Single project: group by stream for drill-down view.
             # active / fixed / dismissed are mutually exclusive and sum to defect_count.
             query = f"""
                 SELECT 
                     s.name as project_name,
-                    COUNT(DISTINCT sd.id) as defect_count,
+                    COUNT(DISTINCT COALESCE(sd.merged_defect_id, sd.id)) as defect_count,
                     COUNT(DISTINCT CASE 
                         WHEN {self._ACTIVE_COND_SQL}
                             AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
-                        THEN sd.id 
+                        THEN COALESCE(sd.merged_defect_id, sd.id) 
                     END) as active_defects,
                     COUNT(DISTINCT CASE 
                         WHEN {self._FIXED_COND_SQL}
                             AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
-                        THEN sd.id 
+                        THEN COALESCE(sd.merged_defect_id, sd.id) 
                     END) as fixed_defects,
                     COUNT(DISTINCT CASE 
                         WHEN de_cls.name IN ('False Positive', 'Intentional')
-                        THEN sd.id 
+                        THEN COALESCE(sd.merged_defect_id, sd.id) 
                     END) as dismissed_defects
                 FROM project p
                 JOIN project_stream ps ON p.id = ps.project_id
@@ -144,25 +152,26 @@ class CoverityMetrics:
                 ORDER BY defect_count DESC
             """
             results = self.db.execute_query_dict(query, (self._project_names,))
+            results
         else:
             # All projects: active / fixed / dismissed are mutually exclusive and sum to defect_count.
             query = f"""
                 SELECT 
                     p.name as project_name,
-                    COUNT(DISTINCT sd.id) as defect_count,
+                    COUNT(DISTINCT COALESCE(sd.merged_defect_id, sd.id)) as defect_count,
                     COUNT(DISTINCT CASE 
                         WHEN {self._ACTIVE_COND_SQL}
                             AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
-                        THEN sd.id 
+                        THEN COALESCE(sd.merged_defect_id, sd.id) 
                     END) as active_defects,
                     COUNT(DISTINCT CASE 
                         WHEN {self._FIXED_COND_SQL}
                             AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
-                        THEN sd.id 
+                        THEN COALESCE(sd.merged_defect_id, sd.id) 
                     END) as fixed_defects,
                     COUNT(DISTINCT CASE 
                         WHEN de_cls.name IN ('False Positive', 'Intentional')
-                        THEN sd.id 
+                        THEN COALESCE(sd.merged_defect_id, sd.id) 
                     END) as dismissed_defects
                 FROM project p
                 JOIN project_stream ps ON p.id = ps.project_id
@@ -178,21 +187,28 @@ class CoverityMetrics:
                 ORDER BY defect_count DESC
             """
             results = self.db.execute_query_dict(query)
+            results
         return pd.DataFrame(results)
     
     def get_defects_by_severity(self):
-        """Get defect count grouped by impact (severity)
+        """Get defect count grouped by checker Impact (High / Medium / Low / Unspecified).
 
-        Includes dismissed defects (False Positive / Intentional) so the chart reflects
-        the full defect volume Coverity has surfaced, not just the currently-actionable set.
+        Coverity Connect labels the ``checker_properties.impact`` column as "Severity" in most
+        UI surfaces, and that's what we bucket by here. Includes dismissed defects
+        (False Positive / Intentional) so the chart reflects the full defect volume Coverity
+        has surfaced, not just the currently-actionable set.
+
+        Only counts defects that are currently active — i.e. present in the latest non-deleted
+        snapshot of their stream, as recorded in ``stream_defect_occurrence`` — so the numbers
+        match Coverity Connect's UI.
 
         Returns:
-            pandas.DataFrame: Impact level and count
+            pandas.DataFrame: Impact level and count.
         """
         query = f"""
             SELECT 
                 cp.impact,
-                COUNT(*) as defect_count
+                COUNT(DISTINCT COALESCE(sd.merged_defect_id, sd.id)) as defect_count
             FROM stream_defect sd
             JOIN checker_properties cp ON sd.checker_properties_id = cp.id
             JOIN stream_element se ON sd.stream_element_id = se.id
@@ -314,10 +330,10 @@ class CoverityMetrics:
                 p.name as project_name,
                 s.name as stream_name,
                 COUNT(DISTINCT sd.id) as total_defects,
-                SUM(COALESCE(sf.current_code_line_count, 0)) as total_loc,
+                SUM(GREATEST(COALESCE(sf.current_code_line_count, 0), 0)) as total_loc,
                 CASE 
-                    WHEN SUM(COALESCE(sf.current_code_line_count, 0)) > 0 
-                    THEN ROUND((COUNT(DISTINCT sd.id)::decimal / SUM(sf.current_code_line_count) * 1000), 2)
+                    WHEN SUM(GREATEST(COALESCE(sf.current_code_line_count, 0), 0)) > 0 
+                    THEN ROUND((COUNT(DISTINCT sd.id)::decimal / SUM(GREATEST(COALESCE(sf.current_code_line_count, 0), 0)) * 1000), 2)
                     ELSE 0
                 END as defects_per_kloc
             FROM project p
@@ -422,14 +438,14 @@ class CoverityMetrics:
             SELECT 
                 s.name as stream_name,
                 COUNT(DISTINCT sf.id) as file_count,
-                SUM(COALESCE(sf.current_code_line_count, 0)) as total_loc,
-                SUM(COALESCE(sf.current_comment_line_count, 0)) as total_comment_lines,
-                SUM(COALESCE(sf.current_blank_line_count, 0)) as total_blank_lines,
-                ROUND(AVG(COALESCE(sf.current_code_line_count, 0)), 2) as avg_file_loc,
+                SUM(GREATEST(COALESCE(sf.current_code_line_count, 0), 0)) as total_loc,
+                SUM(GREATEST(COALESCE(sf.current_comment_line_count, 0), 0)) as total_comment_lines,
+                SUM(GREATEST(COALESCE(sf.current_blank_line_count, 0), 0)) as total_blank_lines,
+                ROUND(AVG(GREATEST(COALESCE(sf.current_code_line_count, 0), 0)), 2) as avg_file_loc,
                 CASE 
-                    WHEN SUM(COALESCE(sf.current_code_line_count, 0)) > 0
-                    THEN ROUND((SUM(COALESCE(sf.current_comment_line_count, 0))::decimal / 
-                               SUM(sf.current_code_line_count) * 100), 2)
+                    WHEN SUM(GREATEST(COALESCE(sf.current_code_line_count, 0), 0)) > 0
+                    THEN ROUND((SUM(GREATEST(COALESCE(sf.current_comment_line_count, 0), 0))::decimal / 
+                               SUM(GREATEST(COALESCE(sf.current_code_line_count, 0), 0)) * 100), 2)
                     ELSE 0
                 END as comment_ratio_pct
             FROM stream s
@@ -452,17 +468,36 @@ class CoverityMetrics:
         return pd.DataFrame(results)
     
     def get_function_complexity_distribution(self):
-        """Get distribution of function complexity
-        
+        """Get distribution of function complexity for the current (latest) code.
+
+        Correct linkage in Coverity Connect:
+
+            stream_function            <-- listing of current functions in the code
+                |
+                | fi.stream_function_id
+                v
+            function_instance          <-- per-snapshot-range instance with metrics
+                |
+                | fi.function_metrics_id
+                v
+            function_metrics           <-- actual metric values (cyclomatic_complexity, ...)
+
+        ``function_metrics.id`` is *not* a foreign key from ``stream_function.function_id`` —
+        the old ``JOIN function_metrics fm ON sf.function_id = fm.id`` matched only rows where
+        the two id spaces coincidentally overlapped, drastically under-counting.
+
+        ``function_instance.snapshot_end_id IS NULL`` restricts to instances that are still
+        current (present in the latest snapshot). ``COUNT(DISTINCT sf.id)`` de-duplicates the
+        rare case where a stream_function has multiple current instances.
+
         Returns:
-            pandas.DataFrame: Complexity ranges and counts
+            pandas.DataFrame: Complexity ranges with function counts and average complexity.
         """
         project_filter_join = ""
         project_filter_where = ""
         params = None
         if self._project_names:
             project_filter_join = """
-                JOIN stream_file stf ON sf.stream_file_id = stf.id
                 JOIN stream_element se ON stf.stream_element_id = se.id
                 JOIN stream s ON se.stream_id = s.id
                 JOIN project_stream ps ON s.id = ps.stream_id
@@ -473,13 +508,18 @@ class CoverityMetrics:
 
         query = f"""
             WITH complexity_data AS (
-                SELECT 
-                    fm.cyclomatic_complexity as complexity
+                SELECT
+                    sf.id AS sf_id,
+                    MAX(fm.cyclomatic_complexity) AS complexity
                 FROM stream_function sf
-                JOIN function_metrics fm ON sf.function_id = fm.id
+                JOIN stream_file stf ON sf.stream_file_id = stf.id
+                JOIN function_instance fi ON fi.stream_function_id = sf.id
+                JOIN function_metrics fm ON fm.id = fi.function_metrics_id
                 {project_filter_join}
                 WHERE fm.cyclomatic_complexity IS NOT NULL
+                    AND fi.snapshot_end_id IS NULL
                     {project_filter_where}
+                GROUP BY sf.id
             )
             SELECT 
                 CASE 
@@ -545,11 +585,13 @@ class CoverityMetrics:
                 fm.line_count
             FROM stream_function sf
             JOIN function f ON sf.function_id = f.id
-            JOIN function_metrics fm ON f.id = fm.id
+            JOIN function_instance fi ON fi.stream_function_id = sf.id
+            JOIN function_metrics fm ON fm.id = fi.function_metrics_id
             JOIN stream_file stf ON sf.stream_file_id = stf.id
             JOIN file_path fp ON stf.file_path_id = fp.id
             {project_filter_join}
             WHERE fm.cyclomatic_complexity IS NOT NULL
+                AND fi.snapshot_end_id IS NULL
                 {project_filter_where}
             ORDER BY fm.cyclomatic_complexity DESC, fm.line_count DESC
             {limit_clause}
@@ -624,7 +666,7 @@ class CoverityMetrics:
                     sn.total_defect_count,
                     sn.new_defect_count,
                     sn.eliminated_defect_count,
-                    sn.code_line_count,
+                    GREATEST(COALESCE(sn.code_line_count, 0), 0) as code_line_count,
                     sn.total_file_count as file_count
                 FROM snapshot sn
                 JOIN stream s ON sn.stream_id = s.id
@@ -642,7 +684,7 @@ class CoverityMetrics:
                     sn.total_defect_count,
                     sn.new_defect_count,
                     sn.eliminated_defect_count,
-                    sn.code_line_count,
+                    GREATEST(COALESCE(sn.code_line_count, 0), 0) as code_line_count,
                     sn.total_file_count as file_count
                 FROM snapshot sn
                 JOIN stream s ON sn.stream_id = s.id
@@ -888,7 +930,7 @@ class CoverityMetrics:
                     WHERE p.name = ANY(%s)
                 """, (self._project_names,)),
                 'total_loc': ("""
-                    SELECT SUM(COALESCE(sfile.current_code_line_count, 0)) FROM stream_file sfile
+                    SELECT SUM(GREATEST(COALESCE(sfile.current_code_line_count, 0), 0)) FROM stream_file sfile
                     JOIN stream_element se ON sfile.stream_element_id = se.id
                     JOIN stream s ON se.stream_id = s.id
                     JOIN project_stream ps ON s.id = ps.stream_id
@@ -945,7 +987,7 @@ class CoverityMetrics:
                     ) active_users
                 """, (self._project_names, self._project_names, self._project_names)),
                 'high_severity_defects': (f"""
-                    SELECT COUNT(DISTINCT sd.id) FROM stream_defect sd 
+                    SELECT COUNT(DISTINCT COALESCE(sd.merged_defect_id, sd.id)) FROM stream_defect sd 
                     JOIN checker_properties cp ON sd.checker_properties_id = cp.id
                     JOIN stream_element se ON sd.stream_element_id = se.id
                     JOIN stream s ON se.stream_id = s.id
@@ -978,7 +1020,7 @@ class CoverityMetrics:
                 """, None),
                 'total_files': ("SELECT COUNT(DISTINCT id) FROM stream_file", None),
                 'total_functions': ("SELECT COUNT(*) FROM stream_function", None),
-                'total_loc': ("SELECT SUM(COALESCE(current_code_line_count, 0)) FROM stream_file", None),
+                'total_loc': ("SELECT SUM(GREATEST(COALESCE(current_code_line_count, 0), 0)) FROM stream_file", None),
                 # Deduplicated active users (triage, login, or commit activity, excluding system/reporter)
                 'total_users': ("""
                     SELECT COUNT(DISTINCT user_id) FROM (
@@ -1009,7 +1051,7 @@ class CoverityMetrics:
                     ) active_user_list
                 """, None),
                 'high_severity_defects': (f"""
-                    SELECT COUNT(*) FROM stream_defect sd 
+                    SELECT COUNT(DISTINCT COALESCE(sd.merged_defect_id, sd.id)) FROM stream_defect sd 
                     JOIN checker_properties cp ON sd.checker_properties_id = cp.id 
                     JOIN stream_element se ON sd.stream_element_id = se.id
                     LEFT JOIN defect_triage dt ON sd.defect_triage_id = dt.id
@@ -1045,7 +1087,7 @@ class CoverityMetrics:
             SELECT 
                 fp.filename as file_path,
                 COUNT(DISTINCT sdo.stream_defect_id) as defect_count,
-                sf.current_code_line_count as loc,
+                GREATEST(COALESCE(sf.current_code_line_count, 0), 0) as loc,
                 CASE 
                     WHEN sf.current_code_line_count > 0 
                     THEN ROUND((COUNT(DISTINCT sdo.stream_defect_id)::decimal / sf.current_code_line_count * 1000), 2)
