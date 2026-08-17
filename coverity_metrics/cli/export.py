@@ -215,7 +215,7 @@ def export_instance_to_json(instance_name, connection_params, instance_dir, days
     metrics_config = {
         # Basic Metrics
         'available_projects': {'method': 'get_available_projects'},
-        'overall_summary': {'method': 'get_overall_summary'},
+        'overall_summary': {'method': 'get_overall_summary', 'kwargs': {'days': days}},
         'defects_by_severity': {'method': 'get_defects_by_severity'},
         'total_defects_by_project': {'method': 'get_total_defects_by_project'},
         'defects_by_checker_category': {'method': 'get_defects_by_checker_category', 'kwargs': {'fetch_all': True}},
@@ -350,7 +350,7 @@ def export_project_specific_metrics(metrics, instance_name, project_dir, project
     
     # Export core project-specific metrics needed for dashboards
     project_metrics_config = {
-        'overall_summary': {'method': 'get_overall_summary'},
+        'overall_summary': {'method': 'get_overall_summary', 'kwargs': {'days': days}},
         'defects_by_severity': {'method': 'get_defects_by_severity'},
         'total_defects_by_project': {'method': 'get_total_defects_by_project'},
         'defects_by_checker_category': {'method': 'get_defects_by_checker_category', 'kwargs': {'fetch_all': True}},

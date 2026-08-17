@@ -2,6 +2,43 @@
 
 ## Version History
 
+### Version 1.0.26 - 2026-08-17
+
+**Overview Cards Now Agree With Each Other, on a Per-Stream Basis**
+
+#### Fixed
+
+##### ⚖️ Active Defects, Defects by Severity, High Severity, and Defects by Project All Use the Same Per-Stream Count
+- The 1.0.25 fix that added `COUNT(DISTINCT COALESCE(sd.merged_defect_id, sd.id))` to `get_defects_by_severity` inadvertently made it disagree with the Active Defects card (still `COUNT(DISTINCT sd.id)`) whenever a project had multiple streams sharing defects — e.g. an `example-project` with two mirror streams (21 active defects each; merge-deduped project total 21, per-stream total 42). The two cards on the Overview tab could show very different numbers for the same project.
+- After weighing both approaches, the per-stream sum is the intended one: each stream is analyzed and reported independently, and its active defects count towards the project total once per stream. So a project with two streams that both have 21 active defects reports 42, not 21.
+- Reverted the merge-defect deduplication introduced in 1.0.25 across every Overview count so they all use `COUNT(DISTINCT sd.id)` (each `stream_defect` row counted once): `get_overall_summary`'s `total_defects` and `high_severity_defects` (both project-scoped and global branches), `get_defects_by_severity`, and `get_total_defects_by_project`'s `defect_count` / `active_defects` / `fixed_defects` / `dismissed_defects` (all three project-scope branches).
+- All queries still exclude classifications `False Positive` and `Intentional`, so the identity `sum(defects_by_severity) == total_defects == high_severity + medium + low + unspecified` holds and matches the sum of the per-stream active counts shown in the `Defects by Project` / stream drill-down table.
+- Active Defects tooltip updated to state the per-stream semantics explicitly.
+
+##### 🧾 Code Metrics by Stream Reported an Inflated `Files` Column and a Near-Zero Avg File LOC
+- Each `stream_element` accumulates its `stream_file` rows for the entire life of the stream: files that no longer exist in the codebase stay as rows but have all `current_*_line_count` columns zeroed. `COUNT(DISTINCT sf.id)` therefore counted every file that has ever been part of the stream, and `AVG(current_code_line_count)` was diluted by thousands of zero-LOC historical rows. Concrete example on a single stream of an `example-project`: the Code Metrics table showed **11 214 Files** with an avg-file-LOC of **~0.4** while Coverity Connect shows 30 files and 149.5 LOC/file.
+- The SUMs (`total_loc`, `total_comment_lines`, `total_blank_lines`) and `comment_ratio_pct` were already correct — zero rows contribute 0 to a SUM, and the ratio is between two such SUMs.
+- Added a WHERE filter that requires at least one of `current_code_line_count` / `current_comment_line_count` / `current_blank_line_count` to be > 0 so aggregates count only the files currently present in the stream. `file_count` and `avg_file_loc` now match Coverity Connect's per-stream figures; nothing else changes.
+
+##### 🏷️ Triage Classification by Stream Was Hiding False Positive and Intentional Buckets
+- `get_triage_trends` (which powers the *Triage Classification by Stream* chart) explicitly excluded `False Positive` and `Intentional`, so streams with those classifications showed only `Bug` and `Unclassified`. Concrete example on an `example-project`: the project has 2 Intentional-classified defects that never appeared on the chart.
+- Removed the `NOT IN ('False Positive','Intentional')` filter and updated the docstring — the metric now shows every triage bucket Coverity Connect displays (Bug, False Positive, Intentional, Pending, Untriaged, …) plus the `Unclassified` bucket for defects that have no triage row yet. The primary ordering by unclassified-count-per-stream is unchanged, so streams needing triage attention still surface at the top.
+
+##### 🧭 Dashboard Back-Navigation Went Straight to the Aggregated View From Every Level
+- Both instance-level and project-level dashboards rendered a single *"Back to All Instances"* button pointing at `../dashboard_aggregated.html`. On a project page that skipped the instance dashboard entirely; on single-instance deployments (where no aggregated dashboard is generated) the same button still rendered on the project page and 404'd.
+- The button now renders only on the instance-level dashboard, and only when an aggregated dashboard actually exists (guarded by `has_aggregated_dashboard`). Project pages already have a *"Show All"* control next to the project filter for returning to the instance dashboard, so no separate back button is needed there. Single-instance runs correctly render no back button on the instance page either.
+
+##### 📁 Total Files / Lines of Code / Functions Were Reporting Cumulative History Instead of Current Codebase Size
+- `get_overall_summary`'s `total_files`, `total_functions`, and `total_loc` queries all counted/summed over `stream_file` and `stream_function` joined through `stream_element`. Because `stream_element` rows are created per snapshot and both child tables attach to a specific `stream_element`, the counts effectively summed every historical snapshot's file / function / LOC records in scope. Concrete example on an `example-project` (2 streams × ~30 files each in the latest snapshot): Coverity Connect's UI shows Total Files = 60, the dashboard was showing 11 244; the same inflation applied to `total_loc` and `total_functions`.
+- All three now use the per-snapshot aggregates on the `snapshot` table — `total_file_count`, `function_count`, and `code_line_count` — taken from the latest non-deleted snapshot per stream. These are the exact numbers Coverity Connect displays. Optionally restricted to snapshots committed within the `--days` trend window; streams with no analysis in that window contribute 0. When `days` is not supplied (e.g. the `coverity-metrics` console report) the fallback is "latest non-deleted snapshot per stream regardless of age", which is also correct. Negative sentinel values in `snapshot.code_line_count` are clamped to 0 the same way as elsewhere in the codebase.
+- `get_overall_summary` now accepts an optional `days` argument. `coverity-dashboard` and `coverity-export` forward the CLI's `--days` value so ZIP exports carry the windowed numbers and offline dashboards agree with the live-database output.
+- The Overview tab's "Total Files", "Lines of Code", and "Functions" tooltips now describe the new semantics and cite the active trend window via `trend_period_text`.
+
+#### Changed
+
+##### ℹ️ Overview → Active Defects Tooltip Clarified
+- Previous wording claimed the count excluded "dismissed" defects, but the query only filters classifications `False Positive` and `Intentional` — dismissive triage *actions* such as `Ignore` are **not** filtered. Tooltip now says so explicitly and describes the underlying "still detected in the latest snapshot of each stream" definition. No metric values changed.
+
 ### Version 1.0.25 - 2026-08-14
 
 **Active / Fixed Defect Counts Now Match Coverity Connect's UI**
@@ -16,11 +53,11 @@
 #### Fixed
 
 ##### ⚖️ Active / Fixed / High-Severity Counts Didn't Match Coverity Connect's UI on Multi-Stream Projects
-- Two independent bugs compounded on projects where the same defect appears under multiple streams (e.g. a `checkers` stream and a `checkers-claude` mirror):
+- Two independent bugs compounded on projects where the same defect appears under multiple streams (e.g. two mirror streams within the same project):
   1. The "active" predicate was flipped around a few times while chasing an unrelated `last_detected_snapshot` symptom, at one point inflating Active by pulling in previously-eliminated defects.
   2. Every defect-count query used `COUNT(DISTINCT sd.id)`, which counted the same defect once per stream instead of once per merged defect — so a mirror stream doubled the number.
-- Concrete example on `Checkers`: Coverity Connect shows 21 active defects (3 High / 2 Medium / 16 Low by Impact), the tool was reporting 12 High.
-- Fix: `_ACTIVE_COND_SQL` is back to the strict `lds.detected_snapshot_id = sn_latest.latest_snap_id` (rows without a `last_detected_snapshot` entry are treated as *unknown* and fall through both buckets), and every affected count — `get_total_defects_by_project`, `get_defects_by_severity`, `high_severity_defects` — now counts `DISTINCT COALESCE(sd.merged_defect_id, sd.id)` so a defect present in multiple streams is counted once, matching Coverity Connect's project-level UI. `get_defects_by_severity` continues to bucket by `checker_properties.impact` (what Coverity Connect surfaces as "Severity"). Verified on `Checkers`: 3 High / 2 Medium / 16 Low = 21.
+- Concrete example on an `example-project`: Coverity Connect shows 21 active defects (3 High / 2 Medium / 16 Low by Impact), the tool was reporting 12 High.
+- Fix: `_ACTIVE_COND_SQL` is back to the strict `lds.detected_snapshot_id = sn_latest.latest_snap_id` (rows without a `last_detected_snapshot` entry are treated as *unknown* and fall through both buckets), and every affected count — `get_total_defects_by_project`, `get_defects_by_severity`, `high_severity_defects` — now counts `DISTINCT COALESCE(sd.merged_defect_id, sd.id)` so a defect present in multiple streams is counted once, matching Coverity Connect's project-level UI. `get_defects_by_severity` continues to bucket by `checker_properties.impact` (what Coverity Connect surfaces as "Severity"). Verified on the `example-project`: 3 High / 2 Medium / 16 Low = 21.
 
 ##### � Function Complexity Distribution and Most Complex Functions Joined on the Wrong Ids
 - Both metrics used `JOIN function_metrics fm ON sf.function_id = fm.id` (or `f.id = fm.id`). Neither `stream_function.function_id` nor `function.id` is a foreign key to `function_metrics.id` — the two id spaces just happen to overlap for a small subset of rows. Concrete example: on `example-project` the tool was reporting **185** functions with complexity metrics when Coverity Connect's latest snapshot shows **21,153**.

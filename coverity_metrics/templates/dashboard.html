@@ -44,8 +44,8 @@
     </header>
 
     <div class="container">
-        <!-- Back to Aggregated View Button -->
-        {% if current_instance and has_aggregated_dashboard %}
+        <!-- Back navigation: instance dashboard → aggregated. Project pages use the "Show All" button below. -->
+        {% if current_instance and not current_project and has_aggregated_dashboard %}
         <div style="margin-bottom: 1.5rem;">
             <a href="../dashboard_aggregated.html" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1.25rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 6px; font-weight: 600; transition: all 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)';"
@@ -231,7 +231,7 @@
                 <div class="label">
                     Active Defects
                     <span class="info-icon">ℹ
-                        <span class="tooltip">Total count of unresolved defects found by Coverity analysis. This includes all defects not marked as Fixed or dismissed. Excludes false positives and intentional issues.</span>
+                        <span class="tooltip">Defects still detected in the latest snapshot of each stream (i.e. not yet Fixed). Streams are counted independently: a defect present in multiple streams contributes once per stream, so the total is the sum of each stream's active count. Excludes defects classified as False Positive or Intentional. Dismissive triage actions (e.g. Ignore) are not filtered out.</span>
                     </span>
                 </div>
                 <div class="value">{{ summary.total_defects|default(0) }}</div>
@@ -249,7 +249,7 @@
                 <div class="label">
                     Total Files
                     <span class="info-icon">ℹ
-                        <span class="tooltip">Total number of source code files analyzed across all streams. This count includes all files submitted for analysis in the latest snapshots.</span>
+                        <span class="tooltip">Number of source files being analyzed by Coverity in the trend window ({{ trend_period_text }}): sum of the latest non-deleted snapshot's file count per stream, counting only streams that had at least one analysis in the window. Streams with no analysis in this window contribute 0. Matches the Coverity Connect stream-level "Files" number.</span>
                     </span>
                 </div>
                 <div class="value">{{ summary.total_files|default(0) }}</div>
@@ -258,7 +258,7 @@
                 <div class="label">
                     Lines of Code
                     <span class="info-icon">ℹ
-                        <span class="tooltip">Total lines of code (LOC) counted across all analyzed files. This includes code lines only, excluding comments and blank lines. Summed from all active streams.</span>
+                        <span class="tooltip">Lines of code being analyzed by Coverity in the trend window ({{ trend_period_text }}): sum of the latest non-deleted snapshot's LOC per stream, counting only streams that had at least one analysis in the window. Streams with no analysis in this window contribute 0. Coverity's negative sentinel values (e.g. binary or generated files that couldn't be counted) are clamped to 0.</span>
                     </span>
                 </div>
                 <div class="value">{{ "{:,}".format(summary.total_loc|default(0)) }}</div>
@@ -267,7 +267,7 @@
                 <div class="label">
                     Functions
                     <span class="info-icon">ℹ
-                        <span class="tooltip">Total number of functions/methods identified in the analyzed codebase. Functions are counted across all files and streams currently being tracked.</span>
+                        <span class="tooltip">Functions/methods being analyzed by Coverity in the trend window ({{ trend_period_text }}): sum of the latest non-deleted snapshot's function count per stream, counting only streams that had at least one analysis in the window. Streams with no analysis in this window contribute 0.</span>
                     </span>
                 </div>
                 <div class="value">{{ summary.total_functions|default(0) }}</div>

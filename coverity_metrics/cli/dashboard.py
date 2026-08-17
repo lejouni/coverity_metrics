@@ -386,7 +386,7 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         # Collect all metrics data
         tqdm.write("Collecting metrics data...")
         
-        summary = metrics.get_overall_summary()
+        summary = metrics.get_overall_summary(days=days)
         defects_by_severity = metrics.get_defects_by_severity().to_dict('records')
         defects_by_project = metrics.get_total_defects_by_project().to_dict('records')
         defects_by_category = metrics.get_defects_by_checker_category(limit=20).to_dict('records')
@@ -580,7 +580,7 @@ def _collect_and_cache_metrics(metrics, instance_name, project_name, cache, days
     all_projects = metrics.get_available_projects()
     projects_list = all_projects['project_name'].tolist() if not all_projects.empty else []
     
-    summary = metrics.get_overall_summary()
+    summary = metrics.get_overall_summary(days=days)
     defects_by_severity = metrics.get_defects_by_severity().to_dict('records')
     defects_by_project = metrics.get_total_defects_by_project().to_dict('records')
     defects_by_category = metrics.get_defects_by_checker_category(limit=20).to_dict('records')
