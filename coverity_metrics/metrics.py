@@ -19,19 +19,26 @@ class CoverityMetrics:
     # Preferred rule: a stream_defect is Active iff its ``last_detected_snapshot`` (lds) row
     # points at the latest non-deleted snapshot of its stream (``sn_latest.latest_snap_id``);
     # Fixed iff lds points at an earlier snapshot. This matches Coverity Connect's UI exactly
-    # and correctly handles defects that were fixed and later reappeared (Coverity does NOT
-    # clear ``stream_defect.fixed_snapshot_element_id`` on reappearance, so anchoring on that
-    # column alone drops ~5% of active defects on a mature DB).
+    # and correctly handles defects that were fixed and later reappeared.
     #
-    # Fallback rule (per row): for defects that have no lds entry — either because the whole
-    # stream's LDS is stale (upgrade / migration on the Coverity side skipped the population
-    # step) or because a healthy stream has the usual ~2.5% tail of missing rows — the CASE
-    # falls back to ``stream_defect.fixed_snapshot_element_id`` (Active iff NULL). That column
-    # inherits the ~5% caveat above, but it's the only per-defect signal available when lds is
-    # silent and it keeps every defect classified as either Active or Fixed rather than
-    # dropping it from both buckets. ``_check_lds_freshness`` logs a WARNING once per DB when
-    # entire streams are stale so users can diagnose the situation and (optionally) get
-    # Coverity Connect to rebuild the table.
+    # Fallback rule (per row): when the defect has no lds entry — either because the stream's
+    # LDS is stale (upgrade / migration / purge on the Coverity side hasn't been followed by
+    # the population job) or because a healthy stream has the usual ~2.5% tail of missing
+    # rows — the CASE falls back to two ``stream_defect`` columns Coverity Connect updates
+    # itself:
+    #
+    #   Active iff  fixed_snapshot_element_id IS NULL
+    #           OR  introduced_snapshot_element_id > fixed_snapshot_element_id
+    #
+    # The second disjunct catches defects that were fixed and later reappeared. Coverity does
+    # NOT clear ``fixed_snapshot_element_id`` on reappearance, but it DOES update
+    # ``introduced_snapshot_element_id`` to point at the new introduction — so
+    # ``introduced > fixed`` (both are ``snapshot_element.id`` values, which are monotonic on
+    # Coverity's DB) means "the defect was re-detected after the last known fix" and is
+    # authoritative. Without this second disjunct the fallback under-counted Active by ~5% on
+    # DBs where LDS is stale but re-detections have happened. ``_check_lds_freshness`` still
+    # logs a one-time WARNING when entire streams are stale so users can diagnose the
+    # situation and (optionally) get Coverity Connect to rebuild the table.
     #
     # Queries embed these constants via f-strings; use ``{{name}}`` for later ``.format()``
     # placeholders such as ``{project_filter}``.
@@ -49,7 +56,8 @@ class CoverityMetrics:
         "WHEN lds.detected_snapshot_id IS NOT NULL "
         "  THEN (lds.detected_snapshot_id = sn_latest.latest_snap_id) "
         "WHEN sd.id IS NOT NULL "
-        "  THEN (sd.fixed_snapshot_element_id IS NULL) "
+        "  THEN (sd.fixed_snapshot_element_id IS NULL "
+        "        OR sd.introduced_snapshot_element_id > sd.fixed_snapshot_element_id) "
         "ELSE NULL "
         "END)"
     )
@@ -58,7 +66,9 @@ class CoverityMetrics:
         "WHEN lds.detected_snapshot_id IS NOT NULL "
         "  THEN (lds.detected_snapshot_id != sn_latest.latest_snap_id) "
         "WHEN sd.id IS NOT NULL "
-        "  THEN (sd.fixed_snapshot_element_id IS NOT NULL) "
+        "  THEN (sd.fixed_snapshot_element_id IS NOT NULL "
+        "        AND (sd.introduced_snapshot_element_id IS NULL "
+        "             OR sd.introduced_snapshot_element_id <= sd.fixed_snapshot_element_id)) "
         "ELSE NULL "
         "END)"
     )

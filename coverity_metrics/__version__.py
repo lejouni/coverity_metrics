@@ -1,5 +1,5 @@
 """Version information for coverity-metrics package"""
 
-__version__ = "1.0.27"
+__version__ = "1.0.28"
 __author__ = "Jouni Lehto"
 __description__ = "Comprehensive metrics and dashboard generator for Coverity static analysis"

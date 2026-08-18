@@ -2,6 +2,21 @@
 
 ## Version History
 
+### Version 1.0.28 - 2026-08-18
+
+**Stale-LDS Fallback Now Detects Fixed-Then-Reappeared Defects, Matching Coverity Connect Exactly**
+
+#### Fixed
+
+##### 🔁 Fallback under-counted Active by ~5% on stale-LDS installs because `fixed_snapshot_element_id` isn't cleared on reappearance
+- 1.0.27's fallback (`Active iff fixed_snapshot_element_id IS NULL`) correctly classified the vast majority of defects on stale-LDS installs but missed every defect that had been fixed and later re-detected: Coverity's own UI would still show them as Active, but the tool marked them Fixed. Concrete example on the DB used in the 1.0.27 note: the `checkers` stream reported 15 unclassified Active by the 1.0.27 rule; Coverity Connect's UI showed 20. The 5 missing defects had all been fixed at snapshot ~40200 and reappeared at snapshot ~100550, and `fixed_snapshot_element_id` never got cleared on the reappearance.
+- Fix — add a second disjunct on `stream_defect.introduced_snapshot_element_id`:
+  - **Active iff `fixed_snapshot_element_id IS NULL` OR `introduced_snapshot_element_id > fixed_snapshot_element_id`**
+  - **Fixed iff `fixed_snapshot_element_id IS NOT NULL` AND (`introduced_snapshot_element_id IS NULL` OR `introduced_snapshot_element_id <= fixed_snapshot_element_id`)**
+  - Coverity DOES update `introduced_snapshot_element_id` when it re-detects a previously-fixed defect (unlike `fixed_snapshot_element_id`, which it leaves alone), so comparing the two `snapshot_element` ids — which are monotonic on Coverity's DB — identifies the reappeared cases exactly. No new joins were needed; the comparison is between two columns already on `stream_defect`.
+  - Preferred (LDS-populated) branch is unchanged — fully-fresh streams stay on strict `lds.detected_snapshot_id = sn_latest.latest_snap_id` from 1.0.25 / 1.0.26 / 1.0.27. Only the fallback path changed; every call site inherits the fix because all 60+ queries embed the same three shared constants.
+- Verified on the affected DB: `checkers` stream went from 15 unclassified Active → 20 (matching UI); `example-project-b` project total went from 35 → 40 (also matching UI). `example-project-a` (fully-fresh LDS) is unchanged.
+
 ### Version 1.0.27 - 2026-08-18
 
 **Active / Fixed Counts Fall Back Gracefully When `last_detected_snapshot` Is Stale**
@@ -15,7 +30,7 @@
   - `_ACTIVE_COND_SQL` / `_FIXED_COND_SQL` are now CASE expressions. When a defect has an LDS row, the strict rule from 1.0.25 fires (Active iff `lds.detected_snapshot_id = sn_latest.latest_snap_id`, Fixed iff it points at an earlier snapshot). When it doesn't, the CASE falls back to `stream_defect.fixed_snapshot_element_id` (Active iff NULL, Fixed iff NOT NULL).
   - The extremes match a healthy Coverity install: fully-fresh streams stay on strict LDS everywhere (no behaviour change vs 1.0.25 / 1.0.26); fully-stale streams use `fixed_snapshot_element_id` everywhere. The mixed case — a stream in transition where LDS is only partially populated — no longer drops the un-indexed tail from both buckets.
   - Every existing call site inherits the fix because all 60+ queries embed the same three shared constants.
-- The fallback column can be ~5% off when Coverity re-detects a previously-fixed defect (Coverity doesn't clear `fixed_snapshot_element_id` in that case) — that's the exact reason 1.0.25 moved away from it in the first place. The per-row design keeps that caveat contained to LDS-missing rows only; whenever LDS is populated for a defect the strict LDS rule wins, so a defect that was fixed then re-detected is correctly counted as Active as soon as Coverity Connect records the reappearance in LDS.
+- The fallback column can be ~5% off when Coverity re-detects a previously-fixed defect (Coverity doesn't clear `fixed_snapshot_element_id` in that case) — that's the exact reason 1.0.25 moved away from it in the first place. The per-row design keeps that caveat contained to LDS-missing rows only; whenever LDS is populated for a defect the strict LDS rule wins, so a defect that was fixed then re-detected is correctly counted as Active as soon as Coverity Connect records the reappearance in LDS. (1.0.28 closes this caveat entirely via `introduced_snapshot_element_id`.)
 - New `_check_lds_freshness()` probe: runs once per DB signature `(host, port, database, user)` per process, populates `self._lds_stale_streams`, and logs a single WARNING naming the affected streams so silent under-counting can be diagnosed. The probe result is cached in class-level `_LDS_FRESHNESS_CACHE` / `_LDS_WARNING_EMITTED`, so `dashboard`/`export` worker pools that instantiate many `CoverityMetrics` against the same DB pay for it exactly once and don't emit duplicate warnings.
 
 ### Version 1.0.26 - 2026-08-17
