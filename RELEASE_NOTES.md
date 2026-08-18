@@ -9,13 +9,13 @@
 #### Fixed
 
 ##### 🔁 Fallback under-counted Active by ~5% on stale-LDS installs because `fixed_snapshot_element_id` isn't cleared on reappearance
-- 1.0.27's fallback (`Active iff fixed_snapshot_element_id IS NULL`) correctly classified the vast majority of defects on stale-LDS installs but missed every defect that had been fixed and later re-detected: Coverity's own UI would still show them as Active, but the tool marked them Fixed. Concrete example on the DB used in the 1.0.27 note: the `checkers` stream reported 15 unclassified Active by the 1.0.27 rule; Coverity Connect's UI showed 20. The 5 missing defects had all been fixed at snapshot ~40200 and reappeared at snapshot ~100550, and `fixed_snapshot_element_id` never got cleared on the reappearance.
+- 1.0.27's fallback (`Active iff fixed_snapshot_element_id IS NULL`) correctly classified the vast majority of defects on stale-LDS installs but missed every defect that had been fixed and later re-detected: Coverity's own UI would still show them as Active, but the tool marked them Fixed. Concrete example on the DB used in the 1.0.27 note: the affected stream on `example-project-b` reported 15 unclassified Active by the 1.0.27 rule; Coverity Connect's UI showed 20. The 5 missing defects had all been fixed at snapshot ~40200 and reappeared at snapshot ~100550, and `fixed_snapshot_element_id` never got cleared on the reappearance.
 - Fix — add a second disjunct on `stream_defect.introduced_snapshot_element_id`:
   - **Active iff `fixed_snapshot_element_id IS NULL` OR `introduced_snapshot_element_id > fixed_snapshot_element_id`**
   - **Fixed iff `fixed_snapshot_element_id IS NOT NULL` AND (`introduced_snapshot_element_id IS NULL` OR `introduced_snapshot_element_id <= fixed_snapshot_element_id`)**
   - Coverity DOES update `introduced_snapshot_element_id` when it re-detects a previously-fixed defect (unlike `fixed_snapshot_element_id`, which it leaves alone), so comparing the two `snapshot_element` ids — which are monotonic on Coverity's DB — identifies the reappeared cases exactly. No new joins were needed; the comparison is between two columns already on `stream_defect`.
   - Preferred (LDS-populated) branch is unchanged — fully-fresh streams stay on strict `lds.detected_snapshot_id = sn_latest.latest_snap_id` from 1.0.25 / 1.0.26 / 1.0.27. Only the fallback path changed; every call site inherits the fix because all 60+ queries embed the same three shared constants.
-- Verified on the affected DB: `checkers` stream went from 15 unclassified Active → 20 (matching UI); `example-project-b` project total went from 35 → 40 (also matching UI). `example-project-a` (fully-fresh LDS) is unchanged.
+- Verified on the affected DB: the stale-LDS stream on `example-project-b` went from 15 unclassified Active → 20 (matching UI); `example-project-b` project total went from 35 → 40 (also matching UI). `example-project-a` (fully-fresh LDS) is unchanged.
 
 ### Version 1.0.27 - 2026-08-18
 
