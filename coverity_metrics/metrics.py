@@ -2,26 +2,39 @@
 Coverity Metrics Module
 Provides various metrics calculations based on Coverity database
 """
+import logging
 from datetime import datetime, timedelta
 from coverity_metrics.db_connection import CoverityDatabase
 import pandas as pd
 from tqdm import tqdm
 
+logger = logging.getLogger(__name__)
+
 class CoverityMetrics:
     """Comprehensive metrics for Coverity static analysis data"""
 
-    # A stream_defect is Active iff its `last_detected_snapshot` (lds) row points at the latest
-    # non-deleted snapshot of its stream (sn_latest.latest_snap_id), and Fixed otherwise. Rows
-    # without any lds entry (~2.5% on typical DBs; more on installations that skipped a schema
-    # migration) are treated as *unknown* and excluded from both buckets rather than being
-    # forced into one — that's the pragmatic middle ground: it never inflates Active on a
-    # broken DB, and never inflates Fixed on a healthy one. Queries embed these two constants
-    # via f-strings; use {{name}} for later .format() placeholders such as {project_filter}.
+    # Active / Fixed anchoring, with per-row fallback for defects that lack a
+    # ``last_detected_snapshot`` (LDS) entry.
     #
-    # ``stream_defect.fixed_snapshot_element_id`` alone is unreliable because Coverity doesn't
-    # clear it when a previously-fixed defect reappears in a later snapshot — using it as a
-    # secondary check would drop ~5% of active defects on such DBs. That's why we anchor on
-    # ``last_detected_snapshot`` instead.
+    # Preferred rule: a stream_defect is Active iff its ``last_detected_snapshot`` (lds) row
+    # points at the latest non-deleted snapshot of its stream (``sn_latest.latest_snap_id``);
+    # Fixed iff lds points at an earlier snapshot. This matches Coverity Connect's UI exactly
+    # and correctly handles defects that were fixed and later reappeared (Coverity does NOT
+    # clear ``stream_defect.fixed_snapshot_element_id`` on reappearance, so anchoring on that
+    # column alone drops ~5% of active defects on a mature DB).
+    #
+    # Fallback rule (per row): for defects that have no lds entry — either because the whole
+    # stream's LDS is stale (upgrade / migration on the Coverity side skipped the population
+    # step) or because a healthy stream has the usual ~2.5% tail of missing rows — the CASE
+    # falls back to ``stream_defect.fixed_snapshot_element_id`` (Active iff NULL). That column
+    # inherits the ~5% caveat above, but it's the only per-defect signal available when lds is
+    # silent and it keeps every defect classified as either Active or Fixed rather than
+    # dropping it from both buckets. ``_check_lds_freshness`` logs a WARNING once per DB when
+    # entire streams are stale so users can diagnose the situation and (optionally) get
+    # Coverity Connect to rebuild the table.
+    #
+    # Queries embed these constants via f-strings; use ``{{name}}`` for later ``.format()``
+    # placeholders such as ``{project_filter}``.
     _ACTIVE_JOIN_SQL = """
         LEFT JOIN last_detected_snapshot lds ON lds.stream_defect_id = sd.id
         LEFT JOIN (
@@ -31,8 +44,31 @@ class CoverityMetrics:
             GROUP BY sn2.stream_id
         ) sn_latest ON sn_latest.stream_id = se.stream_id
     """
-    _ACTIVE_COND_SQL = "lds.detected_snapshot_id = sn_latest.latest_snap_id"
-    _FIXED_COND_SQL = "(lds.detected_snapshot_id IS NOT NULL AND lds.detected_snapshot_id != sn_latest.latest_snap_id)"
+    _ACTIVE_COND_SQL = (
+        "(CASE "
+        "WHEN lds.detected_snapshot_id IS NOT NULL "
+        "  THEN (lds.detected_snapshot_id = sn_latest.latest_snap_id) "
+        "WHEN sd.id IS NOT NULL "
+        "  THEN (sd.fixed_snapshot_element_id IS NULL) "
+        "ELSE NULL "
+        "END)"
+    )
+    _FIXED_COND_SQL = (
+        "(CASE "
+        "WHEN lds.detected_snapshot_id IS NOT NULL "
+        "  THEN (lds.detected_snapshot_id != sn_latest.latest_snap_id) "
+        "WHEN sd.id IS NOT NULL "
+        "  THEN (sd.fixed_snapshot_element_id IS NOT NULL) "
+        "ELSE NULL "
+        "END)"
+    )
+
+    # Per-DB caches shared across all instances in this process. Keyed by
+    # (host, port, database, user) so multiple CoverityMetrics workers against
+    # the same server pay for the freshness probe exactly once and don't spam
+    # duplicate warnings.
+    _LDS_FRESHNESS_CACHE: dict = {}
+    _LDS_WARNING_EMITTED: set = set()
 
     def __init__(self, connection_params, project_name=None):
         """Initialize metrics calculator
@@ -48,6 +84,8 @@ class CoverityMetrics:
         self.db = CoverityDatabase(connection_params=connection_params)
         # Use the property setter so _project_names is always normalised
         self.project_name = project_name
+        self._lds_stale_streams: list = []
+        self._check_lds_freshness()
 
     # ------------------------------------------------------------------
     # project_name property – accepts str, list[str], or None.
@@ -68,7 +106,74 @@ class CoverityMetrics:
             self._project_names = value if value else None
         else:
             self._project_names = [value]
-    
+
+    # ------------------------------------------------------------------
+    # last_detected_snapshot (LDS) freshness probe.
+    #
+    # A stream is "stale" when its max ``lds.detected_snapshot_id`` is
+    # missing or below its latest non-deleted snapshot. The Active/Fixed
+    # CASE predicates fall back to ``stream_defect.fixed_snapshot_element_id``
+    # for those streams; this method surfaces the situation to the caller
+    # via a one-time WARNING so silent under-counting can be diagnosed.
+    # ------------------------------------------------------------------
+    def _db_signature(self):
+        p = getattr(self.db, 'connection_params', None) or {}
+        return (p.get('host'), p.get('port'), p.get('database'), p.get('user'))
+
+    def _check_lds_freshness(self):
+        """Populate ``self._lds_stale_streams`` and warn once per DB if stale."""
+        sig = self._db_signature()
+        cache = type(self)._LDS_FRESHNESS_CACHE
+        if sig in cache:
+            self._lds_stale_streams = cache[sig]
+            return
+        query = """
+            SELECT s.name AS stream_name,
+                   s_lat.latest_snap AS latest_snap,
+                   l_max.max_lds_snap AS max_lds_snap
+            FROM stream s
+            JOIN (
+                SELECT stream_id, MAX(id) AS latest_snap
+                FROM snapshot
+                WHERE NOT COALESCE(deleted, FALSE)
+                GROUP BY stream_id
+            ) s_lat ON s_lat.stream_id = s.id
+            LEFT JOIN (
+                SELECT se.stream_id, MAX(lds.detected_snapshot_id) AS max_lds_snap
+                FROM last_detected_snapshot lds
+                JOIN stream_defect sd ON sd.id = lds.stream_defect_id
+                JOIN stream_element se ON se.id = sd.stream_element_id
+                GROUP BY se.stream_id
+            ) l_max ON l_max.stream_id = s.id
+            WHERE NOT COALESCE(s.deleted, FALSE)
+              AND (l_max.max_lds_snap IS NULL
+                   OR l_max.max_lds_snap < s_lat.latest_snap)
+            ORDER BY s.name
+        """
+        try:
+            rows = self.db.execute_query_dict(query) or []
+        except Exception as exc:
+            # Probe is best-effort; if it fails we assume LDS is healthy.
+            logger.debug("LDS freshness probe failed: %s", exc)
+            cache[sig] = []
+            return
+        stale = [r['stream_name'] for r in rows]
+        cache[sig] = stale
+        self._lds_stale_streams = stale
+        warned = type(self)._LDS_WARNING_EMITTED
+        if stale and sig not in warned:
+            warned.add(sig)
+            preview = ', '.join(stale[:5])
+            more = '' if len(stale) <= 5 else f' (+{len(stale) - 5} more)'
+            logger.warning(
+                "last_detected_snapshot is stale for %d stream(s): %s%s. "
+                "Active/Fixed for these streams fall back to "
+                "stream_defect.fixed_snapshot_element_id, which can be ~5%% off "
+                "when defects have been re-detected after a fix. Ask a Coverity "
+                "admin to rebuild the table to restore strict LDS-based counts.",
+                len(stale), preview, more,
+            )
+
     # ========== DEFECT METRICS ==========
 
     def get_total_defects_by_project(self):

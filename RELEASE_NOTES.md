@@ -2,6 +2,22 @@
 
 ## Version History
 
+### Version 1.0.27 - 2026-08-18
+
+**Active / Fixed Counts Fall Back Gracefully When `last_detected_snapshot` Is Stale**
+
+#### Fixed
+
+##### 🔁 Active and Fixed reported 0 on Coverity installs where `last_detected_snapshot` had stopped being maintained
+- Some Coverity Connect installs stop updating the `last_detected_snapshot` (LDS) table after an upgrade or migration: every snapshot committed after that point gets zero LDS coverage. Because 1.0.25 anchored Active/Fixed strictly on LDS (rows without an LDS entry were treated as *unknown* rather than active), those installs saw **Active = 0 and Fixed = 0** on every affected stream while Coverity Connect's UI kept showing correct outstanding counts.
+- Concrete example on a two-project DB: `example-project-a` snapshots (up to id 40207) all had LDS rows; `example-project-b` snapshots (id 70379+) had **none**. The tool reported 0 / 0 for `example-project-b`'s 5300 stream_defect rows.
+- Fix — per-row fallback anchored on the same signals Coverity Connect uses:
+  - `_ACTIVE_COND_SQL` / `_FIXED_COND_SQL` are now CASE expressions. When a defect has an LDS row, the strict rule from 1.0.25 fires (Active iff `lds.detected_snapshot_id = sn_latest.latest_snap_id`, Fixed iff it points at an earlier snapshot). When it doesn't, the CASE falls back to `stream_defect.fixed_snapshot_element_id` (Active iff NULL, Fixed iff NOT NULL).
+  - The extremes match a healthy Coverity install: fully-fresh streams stay on strict LDS everywhere (no behaviour change vs 1.0.25 / 1.0.26); fully-stale streams use `fixed_snapshot_element_id` everywhere. The mixed case — a stream in transition where LDS is only partially populated — no longer drops the un-indexed tail from both buckets.
+  - Every existing call site inherits the fix because all 60+ queries embed the same three shared constants.
+- The fallback column can be ~5% off when Coverity re-detects a previously-fixed defect (Coverity doesn't clear `fixed_snapshot_element_id` in that case) — that's the exact reason 1.0.25 moved away from it in the first place. The per-row design keeps that caveat contained to LDS-missing rows only; whenever LDS is populated for a defect the strict LDS rule wins, so a defect that was fixed then re-detected is correctly counted as Active as soon as Coverity Connect records the reappearance in LDS.
+- New `_check_lds_freshness()` probe: runs once per DB signature `(host, port, database, user)` per process, populates `self._lds_stale_streams`, and logs a single WARNING naming the affected streams so silent under-counting can be diagnosed. The probe result is cached in class-level `_LDS_FRESHNESS_CACHE` / `_LDS_WARNING_EMITTED`, so `dashboard`/`export` worker pools that instantiate many `CoverityMetrics` against the same DB pay for it exactly once and don't emit duplicate warnings.
+
 ### Version 1.0.26 - 2026-08-17
 
 **Overview Cards Now Agree With Each Other, on a Per-Stream Basis**
@@ -202,7 +218,7 @@
 ##### 📉 Daily Fix Efficiency % Was Always 0% When Fixes Landed on a Different Day Than Introductions
 - `get_defect_velocity_trend` computed `fix_efficiency_pct = Fixed / New * 100` per day, with an early `WHEN new_count = 0 THEN 0` branch. Since fixes and their originating introductions almost never share the same daily snapshot, most rows collapsed to 0% — including the row where the fix actually landed
 - The dashboard tooltip already promised the correct formula: `Fixes / (Fixes + Introductions) × 100%`. The SQL now matches the tooltip: `Fixed / (New + Fixed) * 100`, with a single divide-by-zero guard when both are 0
-- Real-world example: project `853-descuento-en-factura-changeplan` — 5 defects introduced 2023-05-08, all 5 fixed 2023-05-17. Before this fix the Daily Fix Velocity table showed 0% on every row (contradicting the 100% shown by the aggregate Fix Rate metric); after, 2023-05-17 correctly shows 100%
+- Real-world example: project `example-project` — 5 defects introduced 2023-05-08, all 5 fixed 2023-05-17. Before this fix the Daily Fix Velocity table showed 0% on every row (contradicting the 100% shown by the aggregate Fix Rate metric); after, 2023-05-17 correctly shows 100%
 
 ### Version 1.0.17 - 2026-08-04
 
@@ -300,7 +316,7 @@
 - The Overview card fix above closed one gap; the same "outstanding = `fixed_snapshot_element_id IS NULL`" pattern was still present in **fourteen** other queries, causing the severity donut, category chart, top-checkers table, defect-density leaderboard, file hotspots, aging distribution, triage progress %, triage-trends stacked bars, current-outstanding in the trend summary, top-projects-by-triage, and all OWASP + CWE Top 25 tables to include dismissed defects while the by-stream table and Overview card excluded them
 - Every one of those queries now adds the same triage-classification join and exclusion, so the entire dashboard agrees on the definition of "active"
 - Preserved on purpose (these are *about* classifications and would go empty otherwise): `get_checker_classification_breakdown` (Noisy Checkers) and `get_top_projects_by_classification` (Projects Ranked by Intentional). Fix-rate / velocity / cumulative / trend CTEs are also unchanged — those already count FP/Intentional on the *fixed* side of the ledger, which is exactly what the fix-rate metric is supposed to do
-- Real-world example: `Vista360_Fix_KeyCloak` has 97 stream_defects with 96 classified as False Positive/Intentional. Before this release the Overview severity donut, category chart, hotspots, aging, OWASP tab and CWE Top 25 tab all showed 97 defects. After the fix they all correctly show **1** truly-active defect, matching the Defects by Stream table
+- Real-world example: `example-project` has 97 stream_defects with 96 classified as False Positive/Intentional. Before this release the Overview severity donut, category chart, hotspots, aging, OWASP tab and CWE Top 25 tab all showed 97 defects. After the fix they all correctly show **1** truly-active defect, matching the Defects by Stream table
 
 ##### 🔁 Refined: Five "Raw Defect" Charts Reverted to Include Dismissed
 - Follow-up on the change above: the sweep was too aggressive for five charts whose whole purpose is to visualise *what Coverity is finding*, not what still needs work. Notably, **Current Triage Progress** was collapsing to `total_defects = 0` on projects where every defect had been triaged as False Positive or Intentional, hiding the entire triage picture on the Trend & Progress tab
@@ -327,12 +343,12 @@
   - `_FIXED_COND_SQL` — the inverse (`IS NULL OR !=`); used alongside `fixed_snapshot_element_id IS NOT NULL` in code-fixed / fix-time / fix-rate queries so only defects that truly no longer appear are counted as fixed
 - Applied to every active-defect SQL site (~20 queries): `get_total_defects_by_project`, `get_defects_by_severity`, `get_defects_by_checker_category`, `get_defects_by_checker_name`, `get_defect_density_by_project`, `get_overall_summary` (project + global branches), `get_file_hotspots`, `get_triage_trends`, `get_checker_classification_breakdown`, `get_top_projects_by_classification`, `get_fix_rate_metrics` (three CTEs), `get_defect_velocity_trend`, `get_cumulative_defect_trend`, `get_defect_trend_summary` (period_triaged + current_state), `get_defect_aging_distribution`, `get_triage_progress_summary`, `get_technical_debt_summary`, `get_top_projects_by_fix_rate`, `get_top_projects_by_triage`, `get_top_users_by_fixes` (both branches), `get_owasp_top10_metrics`, `get_owasp_category_details`, `get_cwe_top25_metrics`, `get_cwe_top25_details`
 - `get_triage_progress_summary` was additionally reshaped to start `FROM stream_defect sd` (was `FROM defect_triage dt` with a `LEFT JOIN` to `sd`), so orphan triages that don't belong to a currently-outstanding defect no longer inflate the totals
-- Real-world example: project `786-834_proyecto_hrim_workday` — Coverity UI shows 2 outstanding defects (CID 38907 Intentional and CID 39378 Unclassified with a stale `fixed_snapshot_element_id`). Before this fix, `get_triage_progress_summary.total_defects = 1`; after, `total_defects = 2` and the classification breakdown matches the UI exactly
+- Real-world example: project `example-project` — Coverity UI shows 2 outstanding defects (CID 38907 Intentional and CID 39378 Unclassified with a stale `fixed_snapshot_element_id`). Before this fix, `get_triage_progress_summary.total_defects = 1`; after, `total_defects = 2` and the classification breakdown matches the UI exactly
 - Rebuild any cached dashboard (`--use-cache` runs) after upgrading — counts for all of the above metrics will change on projects where at least one defect was ever eliminated-then-reintroduced
 
 ##### 🧮 Function Complexity Distribution Leaked Instance-wide Numbers into Every Project
 - `get_function_complexity_distribution` and `get_most_complex_functions` had no project filter — every project's ZIP export and every DB-mode dashboard showed the *instance-wide* complexity histogram and top-N list, so projects with zero streams still displayed thousands of functions in the "Function Complexity Distribution" chart and the "Most Complex Functions" table
-- Both queries now join `stream_file` → `stream_element` → `stream` → `project_stream` → `project` when a project filter is active and add `AND p.name = ANY(%s)`. Projects with no streams (e.g. `894-985-DetalleConsumo`) now correctly return empty
+- Both queries now join `stream_file` → `stream_element` → `stream` → `project_stream` → `project` when a project filter is active and add `AND p.name = ANY(%s)`. Projects with no streams (e.g. `example-project`) now correctly return empty
 - Re-export required: pre-1.0.17 ZIPs still contain leaky per-project `function_complexity_distribution.json`. Re-run `coverity-export` with 1.0.17+ to get correct per-project numbers in ZIP dashboards
 
 #### Developer Experience
