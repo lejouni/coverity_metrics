@@ -1277,6 +1277,13 @@ class CoverityMetrics:
     def get_file_hotspots(self, limit=20, fetch_all=False):
         """Get files with most defects (hotspots)
         
+        At instance scope, each row is aggregated by (file, project) and
+        includes a ``project_name`` column so the caller can attribute the
+        hotspot to its owning project. At project scope, each row is
+        aggregated by (file, stream) and includes a ``stream_name`` column
+        instead — a finer split that's more useful when the project is
+        already fixed.
+        
         Args:
             limit: Maximum number of files to return (ignored if fetch_all=True)
             fetch_all: If True, fetch all files instead of top N hotspots
@@ -1284,10 +1291,17 @@ class CoverityMetrics:
         Returns:
             pandas.DataFrame: File hotspots with defect counts
         """
+        if self.project_name:
+            name_select = "s.name as stream_name"
+            name_group = "s.name"
+        else:
+            name_select = "p.name as project_name"
+            name_group = "p.name"
         limit_clause = "" if fetch_all else "LIMIT %s"
         query = f"""
             SELECT 
                 fp.filename as file_path,
+                {name_select},
                 COUNT(DISTINCT sdo.stream_defect_id) as defect_count,
                 GREATEST(COALESCE(sf.current_code_line_count, 0), 0) as loc,
                 CASE 
@@ -1311,7 +1325,7 @@ class CoverityMetrics:
                 AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
                 AND p.deleted = false
                 {{project_filter}}
-            GROUP BY fp.filename, sf.current_code_line_count
+            GROUP BY fp.filename, {name_group}, sf.current_code_line_count
             ORDER BY defect_count DESC
             {limit_clause}
         """

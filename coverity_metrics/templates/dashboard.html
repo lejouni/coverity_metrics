@@ -499,6 +499,7 @@
                 <thead>
                     <tr>
                         <th>File Path</th>
+                        <th>{% if current_project %}Stream{% else %}Project{% endif %}</th>
                         <th>Defect Count</th>
                         <th>LOC</th>
                         <th>Defects/KLOC</th>
@@ -508,6 +509,7 @@
                     {% for row in file_hotspots[:15] %}
                     <tr>
                         <td><code>{{ row.file_path }}</code></td>
+                        <td>{% if current_project %}{{ row.stream_name }}{% else %}{{ row.project_name }}{% endif %}</td>
                         <td class="metric-number {% if row.defect_count > 10 %}metric-increase{% endif %}">
                             {{ row.defect_count }}
                         </td>
@@ -532,12 +534,12 @@
         <!-- Code Quality Tab -->
         <div id="code-quality-tab" class="tab-content">
             
-        <!-- Code Quality Metrics -->
+        <!-- Codebase Metrics -->
         <div class="section">
             <h2 class="section-title">
-                Code Quality Metrics by Stream
+                Codebase Metrics by Stream
                 <span class="info-icon">ℹ
-                        <span class="tooltip">Code metrics for each stream: LOC (lines of code), files, functions, and comment ratio. Comment ratio = (Comment lines / Code lines) × 100%. Higher comment ratios indicate better documentation.</span>
+                        <span class="tooltip">Size and documentation metrics for each stream: file count, total LOC (lines of code), average file LOC, and comment ratio. Comment ratio = (Comment lines / Code lines) × 100%. Comment ratio is a rough documentation-density signal, not a direct measure of code quality.</span>
                 </span>
             </h2>
             <table class="data-table">
