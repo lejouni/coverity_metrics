@@ -117,14 +117,14 @@ jobs:
         # Ubuntu 26.04's system libz.so.1 is upstream 1.3.1 but shipped with
         # Debian's dfsg patches (package string `1:1.3.dfsg+really1.3.1-1ubuntu3`)
         # which some scanners flag as a version mismatch against pristine upstream.
-        # Building 1.3.1 from source and prepending the lib dir to LD_LIBRARY_PATH
-        # makes PyInstaller bundle the pristine copy — same code, same ABI, no
-        # dfsg patches. Bump ZLIB_VER when upstream releases a newer patch
-        # (https://zlib.net/ — as of writing, 1.3.1 is the current stable).
+        # Building from source and prepending the lib dir to LD_LIBRARY_PATH makes
+        # PyInstaller bundle the pristine copy — same ABI (soname stays libz.so.1),
+        # no dfsg patches. Bump ZLIB_VER when upstream releases a newer patch
+        # (https://zlib.net/).
         if: matrix.artifact_os == 'linux'
         shell: bash
         env:
-          ZLIB_VER: "1.3.1"
+          ZLIB_VER: "1.3.2"
         run: |
           curl -fsSL "https://zlib.net/zlib-${ZLIB_VER}.tar.gz" -o zlib.tar.gz
           tar xzf zlib.tar.gz
