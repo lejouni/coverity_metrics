@@ -2,6 +2,29 @@
 
 ## Version History
 
+### Version 1.1.3 - 2026-08-20
+
+**Linux Binary Bundles Pristine OpenSSL 3.5.7 + zlib 1.3.2 Built From Source, PowerShell Quickstart Uses `Bypass`**
+
+#### Changed
+
+##### 🔐 Linux binary CI builds OpenSSL 3.5.7 and zlib 1.3.2 from source and bundles them via `LD_LIBRARY_PATH`
+- Ubuntu 26.04's system OpenSSL is frozen at the string `libssl3 3.5.5` (Jan 2026 release); Canonical won't rev it, only backport patches within `3.5.5-*ubuntu*`. BDBA against the 1.1.2 Linux binary flagged this as behind upstream 3.5.7. Pinning the runner OS only moves as fast as Ubuntu's package-string cadence, so we now build the newer OpenSSL ourselves.
+- New workflow step builds OpenSSL 3.5.7 from the official `openssl/openssl` release tarball into `$HOME/openssl-new` and prepends `$HOME/openssl-new/lib64:$HOME/openssl-new/lib` to `LD_LIBRARY_PATH`. PyInstaller resolves CPython's `_ssl.so` / `_hashlib.so` shared-library deps via `ldd`, which honors `LD_LIBRARY_PATH`, so the bundle picks up the freshly-built `libssl.so.3` / `libcrypto.so.3` instead of the runner's system ones. Kept within the 3.5.x line so the ABI stays compatible with the `_ssl.so` CPython 3.14 was compiled against.
+- Same approach for zlib: the runner ships Debian's patched `1:1.3.dfsg+really1.3.1-1ubuntu3`, which some scanners flag against pristine upstream. Workflow now downloads and builds `zlib-1.3.2` from `zlib.net` into `$HOME/zlib-new` and prepends the lib dir to `LD_LIBRARY_PATH`. Bundle gets pristine upstream `libz.so.1` at an ABI-compatible soname.
+- `OPENSSL_VER` / `ZLIB_VER` are declared as top-level `env` on the respective build steps so future bumps are a one-line diff — the inline comments point to the upstream sources.
+- Verification steps confirm `python -c "import ssl; print(ssl.OPENSSL_VERSION)"` returns the new string and that `ldd` on `_ssl.so` / `zlib.so` resolves to the new lib dirs before PyInstaller runs.
+- A "Diagnostic - identify libcrypto/libz sources" step runs first on Linux to log the pre-override paths, versions, and Ubuntu package strings — kept in-place so future BDBA deltas can be root-caused against the actual bundled artifact without reproducing the runner locally.
+
+##### 🪟 Windows binary is unaffected
+- Windows CPython bundles OpenSSL and zlib inside its own installer (`Python314\DLLs\libcrypto-3.dll`, `Python314\DLLs\libssl-3.dll`, `Python314\DLLs\zlib.dll`), which track CPython's own release cadence. No `LD_LIBRARY_PATH`-equivalent hack is needed on Windows because PyInstaller pulls those DLLs directly from the CPython install.
+
+#### Fixed
+
+##### 📝 `EXPORT_QUICKSTART.md` and `scripts/coverity-export.ps1` docs now recommend `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
+- `RemoteSigned` allows locally-authored scripts to run but still refuses scripts marked with the NTFS `Zone.Identifier` alternate data stream — which every script downloaded from the release page inherits. Users following the previous docs verbatim hit `File ... cannot be loaded. The file ... is not digitally signed.` and had no obvious fix in the quickstart.
+- Both files now explain the two working paths — `Unblock-File .\coverity-export.ps1` to strip the zone marker on the single downloaded script, or use `Bypass` for the whole session — with `Bypass` shown as the default example because it's the one-liner that actually works out of the box for the "download and run" flow the quickstart describes.
+
 ### Version 1.1.2 - 2026-08-19
 
 **Linux CI Runner Pinned to Ubuntu 26.04 — Bundled OpenSSL Bumped 3.0.13 → 3.5.x**
