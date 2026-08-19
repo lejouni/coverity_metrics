@@ -43,6 +43,39 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install .[build]
 
+      - name: Diagnostic - identify libcrypto/libz sources (Linux only)
+        if: matrix.artifact_os == 'linux'
+        shell: bash
+        run: |
+          echo "::group::CPython _ssl module location"
+          python -c "import _ssl; print(_ssl.__file__)"
+          echo "::endgroup::"
+
+          echo "::group::_ssl.so shared-library dependencies"
+          ldd "$(python -c 'import _ssl; print(_ssl.__file__)')"
+          echo "::endgroup::"
+
+          echo "::group::_hashlib.so shared-library dependencies"
+          ldd "$(python -c 'import _hashlib; print(_hashlib.__file__)')" || true
+          echo "::endgroup::"
+
+          echo "::group::zlib.so shared-library dependencies"
+          ldd "$(python -c 'import zlib; print(zlib.__file__)')" || true
+          echo "::endgroup::"
+
+          echo "::group::OpenSSL / zlib versions Python is using at runtime"
+          python -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)"
+          python -c "import zlib; print('zlib   :', zlib.ZLIB_VERSION)"
+          echo "::endgroup::"
+
+          echo "::group::Ubuntu package versions"
+          dpkg -l libssl3 zlib1g 2>/dev/null | awk '/^ii/ { print $2, $3 }' || true
+          echo "::endgroup::"
+
+          echo "::group::Ubuntu security patches applied to libssl3 (last 40 lines)"
+          apt-get changelog libssl3 2>/dev/null | head -40 || true
+          echo "::endgroup::"
+
       - name: Build binary
         shell: bash
         run: ${{ matrix.build_cmd }}
