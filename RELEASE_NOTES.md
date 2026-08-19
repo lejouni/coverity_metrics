@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.0.30 - YYYY-MM-DD
+### Version 1.1.0 - 2026-08-19
 
 **Pure-Python Postgres Driver, Dead Deps Dropped, Standalone Binary Down 28%**
 
@@ -45,9 +45,9 @@
 
 #### Notes on BDBA scan findings
 
-**Resolved by the 1.0.30 refactor.** These were tracked as "no action available" in the 1.0.28 and 1.0.29 notes and are now gone from the binary entirely:
+**Resolved by the 1.1.0 refactor.** These were tracked as "no action available" in the 1.0.28 and 1.0.29 notes and are now gone from the binary entirely:
 
-| Finding | Route it took into 1.0.29 binary | How 1.0.30 resolves it |
+| Finding | Route it took into 1.0.29 binary | How 1.1.0 resolves it |
 |---|---|---|
 | openssl (`libcrypto-3-x64-*.dll`, `libssl-3-x64-*.dll`, `.so` equivalents) | `psycopg2-binary` wheel | Driver swap → `pg8000` (pure Python, no OpenSSL binding) |
 | libpq (`libpq-*.dll` / `.so`) | `psycopg2-binary` wheel | Driver swap → `pg8000` (speaks Postgres wire protocol directly) |

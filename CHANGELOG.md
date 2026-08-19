@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.30] - YYYY-MM-DD
+## [1.1.0] - 2026-08-19
 
 ### Changed
 - **Swapped the PostgreSQL driver from `psycopg2-binary` to `pg8000` (pure-Python)**
@@ -37,9 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes on BDBA scan findings
 
-**Resolved by the 1.0.30 refactor.** These were tracked as "no action available" in the 1.0.28 and 1.0.29 notes and are now gone from the binary entirely:
+**Resolved by the 1.1.0 refactor.** These were tracked as "no action available" in the 1.0.28 and 1.0.29 notes and are now gone from the binary entirely:
 
-| Finding | Route it took into 1.0.29 binary | How 1.0.30 resolves it |
+| Finding | Route it took into 1.0.29 binary | How 1.1.0 resolves it |
 | --- | --- | --- |
 | `openssl` (`libcrypto-3-x64-*.dll`, `libssl-3-x64-*.dll`, `.so` equivalents) | `psycopg2-binary` wheel | Driver swap → `pg8000` (pure Python, no OpenSSL binding) |
 | `libpq` (`libpq-*.dll` / `.so`) | `psycopg2-binary` wheel | Driver swap → `pg8000` (speaks Postgres wire protocol directly) |
