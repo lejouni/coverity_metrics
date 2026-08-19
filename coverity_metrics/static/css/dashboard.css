@@ -650,6 +650,23 @@ footer {
     letter-spacing: 0.05em;
 }
 
+.leaderboard-table th.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.2s;
+}
+
+.leaderboard-table th.sortable:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.sort-arrow {
+    opacity: 0.55;
+    font-size: 0.75em;
+    margin-left: 0.25rem;
+    white-space: nowrap;
+}
+
 .leaderboard-table td {
     padding: 0.75rem;
     border-bottom: 1px solid #e9ecef;

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.29] - 2026-08-19
+
+### Changed
+- **Local binary-build instructions bumped from Python 3.12 → 3.14 to match CI**
+  - `.github/workflows/build-binaries.yml` has been building the `coverity-metrics` / `coverity-metrics.exe` binaries on Python 3.14 since that runner was upgraded, but `packaging/README.md` still told maintainers to create the local `.binbuild` venv with `py -3.12` / `python3.12`. Anyone following the doc ended up producing a binary against a different CPython than what CI ships to the GitHub Release, and a locally-built exe embedded an older `python3XX.dll` (older bundled sqlite3 / expat / OpenSSL surface) than the released artifact.
+  - `packaging/README.md` now instructs `py -3.14 -m venv .binbuild` on Windows and `python3.14 -m venv .binbuild` on Linux so the local reproduction matches the CI matrix exactly.
+  - No source-code change — the released binaries produced by CI are unaffected. Only maintainers rebuilding locally are impacted.
+
+### Notes on BDBA scan findings (no action required)
+- The 1.0.28 Windows binary produced a BDBA report flagging five bundled native libraries as behind their upstream latest:
+  - `openssl` (bundled in `psycopg2_binary.libs/libcrypto-3-x64-*.dll` and `libssl-3-x64-*.dll`) — comes from the `psycopg2-binary` wheel; PyPI already ships the latest `psycopg2-binary==2.9.12`, no newer wheel available.
+  - `libpq` / postgresql client (bundled in `psycopg2_binary.libs/libpq-*.dll`) — same wheel, same story.
+  - `libtiff` (bundled in `PIL/_imaging.cp314-win_amd64.pyd`) — comes from the `Pillow` wheel; already on the latest `pillow==12.3.0`.
+  - `sqlite3.dll` — vendored by CPython itself; already on the latest patch (3.14.7).
+  - `pyexpat.pyd` (expat) — vendored by CPython itself; already on the latest patch (3.14.7).
+- All five will refresh naturally when the upstream projects (`psycopg2-binary`, `Pillow`, CPython) publish new artifacts. No project-level change can accelerate this without giving up the "no Python required on the target machine" property of the standalone binary; the findings are being treated as suppressed / upstream-tracked in BDBA.
+
 ## [1.0.28] - 2026-08-18
 
 ### Fixed

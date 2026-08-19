@@ -881,6 +881,84 @@
     </footer>
 
     <script>
+        // Table sorting functionality — shared with per-instance dashboard.html
+        let sortDirections = {};
+
+        function sortTable(columnIndex, tableId, dataType) {
+            const table = document.getElementById(tableId);
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const sortKey = tableId + '-' + columnIndex;
+            if (!sortDirections[sortKey]) {
+                sortDirections[sortKey] = 'asc';
+            }
+            const isAscending = sortDirections[sortKey] === 'asc';
+            sortDirections[sortKey] = isAscending ? 'desc' : 'asc';
+            rows.sort((a, b) => {
+                let aValue = a.cells[columnIndex].textContent.trim();
+                let bValue = b.cells[columnIndex].textContent.trim();
+                if (dataType === 'number') {
+                    aValue = parseFloat(aValue.replace(/[^0-9.-]/g, '')) || 0;
+                    bValue = parseFloat(bValue.replace(/[^0-9.-]/g, '')) || 0;
+                    return isAscending ? aValue - bValue : bValue - aValue;
+                } else if (dataType === 'date') {
+                    aValue = new Date(aValue);
+                    bValue = new Date(bValue);
+                    return isAscending ? aValue - bValue : bValue - aValue;
+                } else {
+                    return isAscending ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+                }
+            });
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+        function detectColumnType(table, colIndex) {
+            const rows = table.querySelectorAll('tbody tr');
+            for (let i = 0; i < Math.min(rows.length, 5); i++) {
+                const cell = rows[i].cells[colIndex];
+                if (!cell) continue;
+                const txt = cell.textContent.trim();
+                if (!txt || txt === 'N/A' || txt === '-' || txt === '—') continue;
+                if (/^\d{4}-\d{2}-\d{2}/.test(txt)) return 'date';
+                const stripped = txt.replace(/[,%]/g, '').replace(/\s*(min|sec|hrs?|h|days?|d|ms|MB|KB|GB)\s*$/i, '').trim();
+                if (stripped !== '' && !isNaN(parseFloat(stripped)) && isFinite(stripped)) return 'number';
+                return 'text';
+            }
+            return 'text';
+        }
+
+        let autoSortableTableSeq = 0;
+        function makeTableSortable(table) {
+            if (!table || table.dataset.sortableInitialized === '1') return;
+            const headerRow = table.querySelector('thead tr');
+            if (!headerRow) return;
+            if (!table.id) {
+                autoSortableTableSeq += 1;
+                table.id = 'auto-sortable-table-' + autoSortableTableSeq;
+            }
+            const ths = headerRow.querySelectorAll('th');
+            ths.forEach((th, i) => {
+                if (th.classList.contains('sortable') || th.getAttribute('onclick')) return;
+                const dataType = detectColumnType(table, i);
+                th.classList.add('sortable');
+                th.setAttribute('onclick', "sortTable(" + i + ", '" + table.id + "', '" + dataType + "')");
+                if (!/[▲▼]/.test(th.textContent)) {
+                    th.insertAdjacentHTML('beforeend', ' <span class="sort-arrow">▲▼</span>');
+                }
+            });
+            table.dataset.sortableInitialized = '1';
+        }
+
+        function makeAllTablesSortable() {
+            document.querySelectorAll('table.data-table, table.leaderboard-table').forEach(makeTableSortable);
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(makeAllTablesSortable, 0);
+        });
+    </script>
+
+    <script>
         // Tab switching functionality
         document.querySelectorAll('.tab-button').forEach(button => {
             button.addEventListener('click', () => {

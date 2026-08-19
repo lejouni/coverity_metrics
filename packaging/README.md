@@ -39,7 +39,7 @@ Install the project with the `build` extra in an isolated env:
 
 ```powershell
 # Windows
-py -3.12 -m venv .binbuild
+py -3.14 -m venv .binbuild
 .binbuild\Scripts\Activate.ps1
 pip install -e .[build]
 pwsh -File packaging/build_binary.ps1
@@ -47,7 +47,7 @@ pwsh -File packaging/build_binary.ps1
 
 ```bash
 # Linux
-python3.12 -m venv .binbuild
+python3.14 -m venv .binbuild
 source .binbuild/bin/activate
 pip install -e '.[build]'
 bash packaging/build_binary.sh

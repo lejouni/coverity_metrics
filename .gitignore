@@ -208,3 +208,4 @@ _no_lb_verify/*
 _no_snap/*
 _snap_ctl/*
 .github/copilot-instructions.md
+scans/*

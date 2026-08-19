@@ -2,6 +2,31 @@
 
 ## Version History
 
+### Version 1.0.29 - 2026-08-19
+
+**Local Binary Build Matches CI (Python 3.14)**
+
+#### Changed
+
+##### Local `.binbuild` venv now documented as Python 3.14 to match CI
+- `.github/workflows/build-binaries.yml` builds the released `coverity-metrics.exe` / `coverity-metrics` on Python 3.14, but `packaging/README.md` still told maintainers to create the local `.binbuild` venv with `py -3.12` / `python3.12`. Locally-built binaries therefore embedded a different CPython (and older bundled sqlite / expat / OpenSSL surface) than the artifacts CI publishes to the GitHub Release.
+- `packaging/README.md` now uses `py -3.14 -m venv .binbuild` (Windows) and `python3.14 -m venv .binbuild` (Linux) so the local reproduction matches CI exactly.
+- No source-code change — CI-produced binaries are unaffected. Only maintainers rebuilding locally are impacted.
+
+#### Notes on BDBA scan findings against the 1.0.28 Windows binary (no action required)
+
+The BDBA report flagged five bundled native libraries as behind their upstream latest. All five are inside third-party binary artifacts we consume, and each is already at the newest available version:
+
+| Native lib | Bundled by | Our version | Newest upstream artifact |
+|---|---|---|---|
+| openssl (`libcrypto-3`, `libssl-3`) | `psycopg2-binary` wheel | 2.9.12 | 2.9.12 (latest on PyPI) |
+| libpq (postgresql client) | `psycopg2-binary` wheel | 2.9.12 | 2.9.12 (latest on PyPI) |
+| libtiff (`PIL/_imaging`) | `Pillow` wheel | 12.3.0 | 12.3.0 (latest on PyPI) |
+| `sqlite3.dll` | CPython itself | 3.14.7 | 3.14.7 (latest patch) |
+| `pyexpat.pyd` (expat) | CPython itself | 3.14.7 | 3.14.7 (latest patch) |
+
+The deltas will refresh naturally once `psycopg2-binary`, `Pillow`, or CPython publish new artifacts with newer vendored natives. No project-level change can accelerate this without giving up the "no Python required on the target machine" property of the standalone binary. The report's "OpenSSL 4.0.1" latest-version claim is a scanner metadata error — OpenSSL's current stable line is still 3.x. The findings are being tracked as upstream-only in BDBA.
+
 ### Version 1.0.28 - 2026-08-18
 
 **Stale-LDS Fallback Now Detects Fixed-Then-Reappeared Defects, Matching Coverity Connect Exactly**

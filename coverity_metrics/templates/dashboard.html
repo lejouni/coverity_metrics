@@ -2853,6 +2853,56 @@
             rows.forEach(row => tbody.appendChild(row));
         }
 
+        // Detect data type of a column from its first non-empty data rows.
+        function detectColumnType(table, colIndex) {
+            const rows = table.querySelectorAll('tbody tr');
+            for (let i = 0; i < Math.min(rows.length, 5); i++) {
+                const cell = rows[i].cells[colIndex];
+                if (!cell) continue;
+                const txt = cell.textContent.trim();
+                if (!txt || txt === 'N/A' || txt === '-' || txt === '—') continue;
+                if (/^\d{4}-\d{2}-\d{2}/.test(txt)) return 'date';
+                // Strip commas, %, and common trailing units, then test for a number
+                const stripped = txt.replace(/[,%]/g, '').replace(/\s*(min|sec|hrs?|h|days?|d|ms|MB|KB|GB)\s*$/i, '').trim();
+                if (stripped !== '' && !isNaN(parseFloat(stripped)) && isFinite(stripped)) return 'number';
+                return 'text';
+            }
+            return 'text';
+        }
+
+        // Wire click-to-sort on every column header of the given table.
+        // Preserves any header that already has sortable/onclick wiring.
+        let autoSortableTableSeq = 0;
+        function makeTableSortable(table) {
+            if (!table || table.dataset.sortableInitialized === '1') return;
+            const headerRow = table.querySelector('thead tr');
+            if (!headerRow) return;
+            if (!table.id) {
+                autoSortableTableSeq += 1;
+                table.id = 'auto-sortable-table-' + autoSortableTableSeq;
+            }
+            const ths = headerRow.querySelectorAll('th');
+            ths.forEach((th, i) => {
+                if (th.classList.contains('sortable') || th.getAttribute('onclick')) return;
+                const dataType = detectColumnType(table, i);
+                th.classList.add('sortable');
+                th.setAttribute('onclick', "sortTable(" + i + ", '" + table.id + "', '" + dataType + "')");
+                if (!/[▲▼]/.test(th.textContent)) {
+                    th.insertAdjacentHTML('beforeend', ' <span class="sort-arrow">▲▼</span>');
+                }
+            });
+            table.dataset.sortableInitialized = '1';
+        }
+
+        function makeAllTablesSortable() {
+            document.querySelectorAll('table.data-table, table.leaderboard-table').forEach(makeTableSortable);
+        }
+
+        // Run once after the DOM (and inline pivot-table builders) settle.
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(makeAllTablesSortable, 0);
+        });
+
         // Project filter functionality with datalist
         const projectInput = document.getElementById('project-input');
         const projectList = document.getElementById('project-list');
