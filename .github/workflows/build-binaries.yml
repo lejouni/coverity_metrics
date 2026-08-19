@@ -21,7 +21,10 @@ jobs:
             artifact_os: windows
             binary_name: coverity-metrics.exe
             build_cmd: pwsh -File packaging/build_binary.ps1
-          - os: ubuntu-latest
+          # Pinned to ubuntu-26.04 (preview) so PyInstaller picks up the runner's
+          # OpenSSL 3.5.x for the bundled libcrypto.so.3 / libssl.so.3, instead of
+          # Ubuntu 24.04's 3.0.13. Revert to ubuntu-latest once it flips to 26.04.
+          - os: ubuntu-26.04
             artifact_os: linux
             binary_name: coverity-metrics
             build_cmd: bash packaging/build_binary.sh
