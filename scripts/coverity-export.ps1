@@ -11,6 +11,12 @@
   or set the same variable names in your PowerShell session before running
   this script — the script only assigns a default when the variable is empty.
 
+  If PowerShell refuses to run the script with "file is not digitally signed",
+  the file was marked as downloaded from the internet. Either unblock it once
+  with `Unblock-File .\coverity-export.ps1`, or start the session with
+  `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` instead of
+  `RemoteSigned` (which still blocks unsigned remote scripts).
+
 .PARAMETER Tag
   Release tag to download (default: latest resolved from the GitHub API).
 

@@ -77,8 +77,12 @@ cd scripts
 # session first (the script only assigns defaults when the variable is
 # empty).
 
-# One-time execution-policy prompt for the current session:
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+# One-time execution-policy prompt for the current session. NOTE:
+# `RemoteSigned` still blocks scripts marked as downloaded from the
+# internet (NTFS Zone.Identifier). If you get "file is not digitally
+# signed", either unblock the file first (`Unblock-File .\coverity-export.ps1`)
+# or use `Bypass` instead of `RemoteSigned`:
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ./coverity-export.ps1
 ```
