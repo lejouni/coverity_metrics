@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.1.2 - YYYY-MM-DD
+### Version 1.1.2 - 2026-08-19
 
 **Linux CI Runner Pinned to Ubuntu 26.04 — Bundled OpenSSL Bumped 3.0.13 → 3.5.x**
 
