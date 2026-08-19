@@ -41,6 +41,17 @@ hiddenimports += collect_submodules('pg8000')
 # call pd.read_xml / DataFrame.to_xml, so exclude the C extensions to drop
 # the pyexpat.pyd BDBA finding (pandas.io.xml itself stays for the same
 # reason as pandas.io.sql).
+# lzma / _lzma: pandas.io.common and numpy.lib._datasource pull in stdlib
+# lzma for .xz compression support → _lzma.pyd on Windows, liblzma.so.5
+# on Linux. We never read or write .xz payloads.
+# readline / _curses / _curses_panel: only bundled on Linux, pulled in by
+# _pyrepl (Python 3.14's REPL) and CPython's inspect/pdb chain. Links to
+# libtinfo.so.6 / libncurses.so.6 via libreadline. We never invoke a REPL.
+# _uuid: pandas / pg8000 / plotly all import stdlib uuid, which does a
+# top-level `try: import _uuid`. The C extension is a mild speed-up for
+# uuid.uuid1() only; uuid.uuid4() (which every caller in the chain uses)
+# is pure Python and unaffected. Excluding _uuid drops libuuid.so.1 on
+# Linux without changing behaviour.
 excludes = [
     'tkinter',
     'PyQt5', 'PyQt6', 'PySide2', 'PySide6',
@@ -49,6 +60,9 @@ excludes = [
     'matplotlib', 'PIL', 'seaborn', 'openpyxl',
     'sqlite3', '_sqlite3',
     'pyexpat', '_elementtree',
+    'lzma', '_lzma',
+    'readline', '_curses', '_curses_panel',
+    '_uuid',
 ]
 
 a = Analysis(
