@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.1.1 - YYYY-MM-DD
+### Version 1.1.1 - 2026-08-19
 
 **Further PyInstaller Excludes — Drops `libreadline` (GPL-3.0), `libuuid`, `liblzma`, `libtinfo`, `libncurses` From Linux Binary**
 
