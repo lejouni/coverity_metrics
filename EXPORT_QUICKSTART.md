@@ -35,31 +35,47 @@ subsequent runs work fully offline as long as you keep the same
 
 ## First run
 
+> **Review every variable in the "EDIT THESE VALUES" block, not just the
+> password.** The defaults are placeholders — `coverity-prod.company.com`
+> for the host, `cim` for the database name, `coverity_ro` for the user,
+> `Production` for the instance name, etc. — and the host in particular
+> is almost certainly wrong for your environment. Walk through all six
+> variables (`COVERITY_DB_HOST`, `COVERITY_DB_PORT`, `COVERITY_DB_NAME`,
+> `COVERITY_DB_USER`, `COVERITY_DB_PASSWORD`, `COVERITY_INSTANCE_NAME`)
+> and set each to a real value before the first run.
+
 ### Linux / macOS
 
 ```bash
 cd scripts
-# Open coverity-export.sh, edit the "EDIT THESE VALUES" block at the top:
+# Open coverity-export.sh and edit the "EDIT THESE VALUES" block at the
+# top. Review ALL six variables (see the note above) — the placeholder
+# host will not resolve in your network:
 #   COVERITY_DB_HOST, COVERITY_DB_PORT, COVERITY_DB_NAME,
 #   COVERITY_DB_USER, COVERITY_DB_PASSWORD, COVERITY_INSTANCE_NAME
-# (or export those variables in your shell before running).
+# (or export those variables in your shell before running — the script
+# only assigns defaults when the variable is empty).
 
 chmod +x coverity-export.sh
 ./coverity-export.sh
 ```
 
 The script refuses to run while `COVERITY_DB_PASSWORD` is still the
-placeholder `change-me`, so you can't accidentally invoke it with the
-unedited defaults.
+placeholder `change-me`, so an unedited copy fails fast — but the guard
+only checks the password, so **it's on you to review the host, port,
+database name, user, and instance name.** A wrong host usually shows up
+as a `could not translate host name` or connection-timeout error a few
+seconds after startup.
 
 ### Windows
 
 ```powershell
 cd scripts
-# Open coverity-export.ps1 in an editor, edit the "EDIT THESE VALUES"
-# block at the top (same six variables as above), OR set them in your
-# PowerShell session first — the script only assigns defaults when the
-# variable is empty.
+# Open coverity-export.ps1 in an editor and edit the "EDIT THESE VALUES"
+# block at the top. Review ALL six variables (same list as Linux above)
+# — the placeholder host is not real, OR set them in your PowerShell
+# session first (the script only assigns defaults when the variable is
+# empty).
 
 # One-time execution-policy prompt for the current session:
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
@@ -67,7 +83,8 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
 ./coverity-export.ps1
 ```
 
-Same placeholder-password guard applies.
+Same placeholder-password guard applies — and the same "check every
+variable, not just the password" caveat.
 
 ### What you get
 
@@ -259,6 +276,13 @@ You forgot to edit the env-var block at the top of the script (or you
 haven't set the variable in your shell). Fix the block or export the
 variable, then re-run. Alternatively use `--config` / `-Config` to point
 at a real config file — the placeholder guard is skipped in that mode.
+
+**`could not translate host name "coverity-prod.company.com"` (or similar)**
+The placeholder host at the top of the script is a stand-in and is not
+your Coverity Connect DB. Open the script, set `COVERITY_DB_HOST` to the
+real hostname, and re-check `COVERITY_DB_PORT`, `COVERITY_DB_NAME`, and
+`COVERITY_DB_USER` at the same time — the password guard doesn't catch a
+placeholder host, so it's easy to miss.
 
 **Download fails with a TLS error**
 Corporate TLS interception is intercepting the GitHub CDN. Point curl /
