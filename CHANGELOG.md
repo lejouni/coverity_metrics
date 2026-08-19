@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - YYYY-MM-DD
+
+### Changed
+- **Linux binary CI runner pinned to `ubuntu-26.04` so PyInstaller picks up the runner's newer OpenSSL for the bundled `libcrypto.so.3` / `libssl.so.3`**
+  - `actions/setup-python@v6`'s Linux CPython 3.14 builds dynamically link to the runner's system OpenSSL. On `ubuntu-latest` → 24.04, that's OpenSSL 3.0.13 (Ubuntu 24.04's LTS-frozen 3.0.x line), which BDBA against the 1.1.1 Linux binary flagged as behind the current upstream 3.0.x / 3.4.x / 3.5.x lines.
+  - Ubuntu 26.04 (Resolute Rhino, still in preview on [actions/runner-images](https://github.com/actions/runner-images) at time of release) ships OpenSSL 3.5.x. Pinning `runs-on: ubuntu-26.04` for the Linux binary matrix entry moves the bundled `libcrypto` forward without any source-code change.
+  - Only the Linux binary build is pinned; the `publish-pypi` and `release` jobs stay on `ubuntu-latest` because they only run Python-level tooling (build sdist/wheel, upload artifacts, create GitHub Release) and don't care about the system OpenSSL surface.
+  - Cleanup path: once GitHub flips `ubuntu-latest` to point at 26.04 (expected once the preview is promoted to GA), revert the pin — the inline comment in `.github/workflows/build-binaries.yml` documents this.
+- **Windows binary is unaffected** — Windows CPython bundles its own OpenSSL from `Python314\DLLs\libcrypto-3.dll`, which tracks CPython's own release cadence and doesn't depend on the CI runner OS.
+
 ## [1.1.1] - 2026-08-19
 
 ### Changed
