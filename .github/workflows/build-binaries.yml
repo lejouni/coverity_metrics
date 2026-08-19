@@ -76,6 +76,43 @@ jobs:
           apt-get changelog libssl3 2>/dev/null | head -40 || true
           echo "::endgroup::"
 
+      - name: Build newer OpenSSL for bundling (Linux only)
+        # Ubuntu 26.04's system libssl.so.3 / libcrypto.so.3 is 3.5.5 (Jan 2026)
+        # and Ubuntu will only backport patches within that string, not rev it.
+        # PyInstaller walks _ssl.so's shared-library dependencies via ldd, which
+        # honors LD_LIBRARY_PATH — so building a newer 3.5.x locally and prepending
+        # its lib dir makes PyInstaller bundle the newer copies instead of the
+        # system ones, closing the BDBA delta without changing any source code.
+        # Stay within the 3.5 line so ABI is compatible with the _ssl.so that
+        # CPython was compiled against; bump OPENSSL_VER whenever a newer 3.5.x
+        # patch ships (check https://openssl-library.org/source/).
+        if: matrix.artifact_os == 'linux'
+        shell: bash
+        env:
+          OPENSSL_VER: "3.5.7"
+        run: |
+          curl -fsSL "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VER}/openssl-${OPENSSL_VER}.tar.gz" -o openssl.tar.gz
+          tar xzf openssl.tar.gz
+          pushd "openssl-${OPENSSL_VER}"
+          ./Configure --prefix="$HOME/openssl-new" \
+                      --openssldir="$HOME/openssl-new/ssl" \
+                      shared no-tests linux-x86_64 > /dev/null
+          make -j"$(nproc)" > /tmp/openssl-build.log 2>&1 || (tail -80 /tmp/openssl-build.log; exit 1)
+          make install_sw > /tmp/openssl-install.log 2>&1 || (tail -80 /tmp/openssl-install.log; exit 1)
+          popd
+          rm -rf "openssl-${OPENSSL_VER}" openssl.tar.gz
+
+          # Prepend for every subsequent step (Build binary, Determine artifact name, ...).
+          echo "LD_LIBRARY_PATH=$HOME/openssl-new/lib64:$HOME/openssl-new/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+
+          # Verify Python picks up the freshly-built OpenSSL under the new path.
+          LD_LIBRARY_PATH="$HOME/openssl-new/lib64:$HOME/openssl-new/lib:${LD_LIBRARY_PATH:-}" \
+            python -c "import ssl; v = ssl.OPENSSL_VERSION; print('Python now sees:', v); assert '${OPENSSL_VER}' in v, f'Expected ${OPENSSL_VER} in {v}'"
+
+          # And confirm _ssl.so's ldd walk resolves to the new location.
+          LD_LIBRARY_PATH="$HOME/openssl-new/lib64:$HOME/openssl-new/lib:${LD_LIBRARY_PATH:-}" \
+            ldd "$(python -c 'import _ssl; print(_ssl.__file__)')" | grep -E 'lib(ssl|crypto)'
+
       - name: Build binary
         shell: bash
         run: ${{ matrix.build_cmd }}
