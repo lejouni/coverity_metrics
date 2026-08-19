@@ -2,6 +2,33 @@
 
 ## Version History
 
+### Version 1.1.1 - YYYY-MM-DD
+
+**Further PyInstaller Excludes — Drops `libreadline` (GPL-3.0), `libuuid`, `liblzma`, `libtinfo`, `libncurses` From Linux Binary**
+
+#### Changed
+
+##### 📦 PyInstaller `excludes` extended to drop five more transitively-bundled CPython native extensions we never use
+- `lzma` + `_lzma` (imported optionally by `pandas.io.common`, `numpy.lib._datasource`, `shutil`, `tarfile`, `zipfile` — all delayed/conditional/optional per PyInstaller's own warn file). We never handle `.xz` payloads.
+- `readline` + `_curses` + `_curses_panel` (imported by `cmd` / `code` / `pdb` / `rlcompleter` for interactive REPL support). We never invoke a REPL from the CLI entry points.
+- `_uuid` (imported by stdlib `uuid.py` inside a `try/except ImportError`). Stdlib `uuid` falls back to pure-Python UUID generation via `os.urandom`; all consumers in our binary (`pg8000.converters`, `pandas.core.reshape.merge`, `pandas.io.formats.style_render`, `_plotly_utils.basevalidators`, `plotly.io._html`) use `uuid.uuid4()` (random) which is unaffected by removing the C accelerator.
+
+#### Notes on BDBA scan findings
+
+**Additional findings resolved (Linux binary).** These come from CPython bundling native libraries alongside the affected stdlib C extensions on the manylinux CPython build; the accompanying `.cpython-*-linux-gnu.so` files no longer land in the bundle now that PyInstaller excludes the Python modules that would import them:
+
+| Finding | Route into the 1.1.0 Linux binary | How 1.1.1 resolves it |
+|---|---|---|
+| `liblzma.so.5` | CPython `_lzma.cpython-*-linux-gnu.so` (via pandas / numpy / tarfile / zipfile) | Added `lzma` + `_lzma` to PyInstaller `excludes` |
+| `libtinfo.so.6` | CPython `readline.cpython-*-linux-gnu.so` (via `_pyrepl`) → libreadline → libtinfo | Added `readline` + `_curses` + `_curses_panel` to PyInstaller `excludes` |
+| `libncurses.so.6` | Same chain as libtinfo | Same excludes |
+| **`libreadline.so.8` (GPL-3.0)** | CPython `readline.cpython-*-linux-gnu.so` | Same excludes — dropping this removes the strong-copyleft dependency |
+| `libuuid.so.1` | CPython `_uuid.cpython-*-linux-gnu.so` (via pandas / pg8000 / plotly, all using `uuid.uuid4()`) | Added `_uuid` to PyInstaller `excludes` |
+
+- The `libreadline.so.8` finding is worth calling out separately: `libreadline` is licensed **GPL-3.0**, which is strong copyleft, not the permissive licenses covering the other CPython-bundled natives. Excluding `readline` therefore carries actual licensing value beyond the BDBA cleanup, not just a scanner-metadata fix. `libncurses` / `libtinfo` are permissive (X11-like) but drop out for free as transitives of libreadline.
+- **Windows binary**: none of the newly-excluded modules had Windows-side native-lib findings (Windows CPython doesn't ship `libreadline` / `libtinfo` / `libncurses` / `libuuid`, and `_lzma.pyd` didn't carry a separate BDBA entry), so Windows binary size is essentially unchanged (~40 MB). Linux binary drops noticeably — exact delta depends on the CPython manylinux artifact.
+- No functional change. All five excluded stdlib modules are optional in every consumer's import path per PyInstaller's own annotation (`delayed`, `conditional`, `optional`).
+
 ### Version 1.1.0 - 2026-08-19
 
 **Pure-Python Postgres Driver, Dead Deps Dropped, Standalone Binary Down 28%**
