@@ -113,6 +113,35 @@ jobs:
           LD_LIBRARY_PATH="$HOME/openssl-new/lib64:$HOME/openssl-new/lib:${LD_LIBRARY_PATH:-}" \
             ldd "$(python -c 'import _ssl; print(_ssl.__file__)')" | grep -E 'lib(ssl|crypto)'
 
+      - name: Build newer zlib for bundling (Linux only)
+        # Ubuntu 26.04's system libz.so.1 is upstream 1.3.1 but shipped with
+        # Debian's dfsg patches (package string `1:1.3.dfsg+really1.3.1-1ubuntu3`)
+        # which some scanners flag as a version mismatch against pristine upstream.
+        # Building 1.3.1 from source and prepending the lib dir to LD_LIBRARY_PATH
+        # makes PyInstaller bundle the pristine copy — same code, same ABI, no
+        # dfsg patches. Bump ZLIB_VER when upstream releases a newer patch
+        # (https://zlib.net/ — as of writing, 1.3.1 is the current stable).
+        if: matrix.artifact_os == 'linux'
+        shell: bash
+        env:
+          ZLIB_VER: "1.3.1"
+        run: |
+          curl -fsSL "https://zlib.net/zlib-${ZLIB_VER}.tar.gz" -o zlib.tar.gz
+          tar xzf zlib.tar.gz
+          pushd "zlib-${ZLIB_VER}"
+          ./configure --prefix="$HOME/zlib-new" --libdir="$HOME/zlib-new/lib" > /dev/null
+          make -j"$(nproc)" > /tmp/zlib-build.log 2>&1 || (tail -80 /tmp/zlib-build.log; exit 1)
+          make install > /tmp/zlib-install.log 2>&1 || (tail -80 /tmp/zlib-install.log; exit 1)
+          popd
+          rm -rf "zlib-${ZLIB_VER}" zlib.tar.gz
+
+          # Prepend so PyInstaller's ldd walk finds our pristine copy first.
+          echo "LD_LIBRARY_PATH=$HOME/zlib-new/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+
+          # Verify zlib.so's ldd walk resolves to the new location.
+          LD_LIBRARY_PATH="$HOME/zlib-new/lib:${LD_LIBRARY_PATH:-}" \
+            ldd "$(python -c 'import zlib; print(zlib.__file__)')" | grep libz
+
       - name: Build binary
         shell: bash
         run: ${{ matrix.build_cmd }}
