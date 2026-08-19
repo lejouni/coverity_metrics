@@ -2282,7 +2282,7 @@ def _run_main(args):
                                 base_metrics.project_name = None
                             else:
                                 # Parallel path — one worker owns one
-                                # CoverityMetrics (psycopg2 conns aren't
+                                # CoverityMetrics (Postgres conns aren't
                                 # thread-safe). Reuse ``base_metrics`` as
                                 # worker #0 and open extras for the rest.
                                 from concurrent.futures import ThreadPoolExecutor, as_completed

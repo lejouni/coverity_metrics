@@ -3,8 +3,7 @@ Database connection module for Coverity PostgreSQL database
 """
 import logging
 
-import psycopg2
-from psycopg2 import pool
+import pg8000.dbapi
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +26,17 @@ class CoverityDatabase:
     
     def connect(self):
         """Establish database connection"""
-        if self.connection is None or self.connection.closed:
-            self.connection = psycopg2.connect(**self.connection_params)
+        if self.connection is None:
+            self.connection = pg8000.dbapi.connect(**self.connection_params)
         return self.connection
     
     def close(self):
         """Close database connection"""
-        if self.connection and not self.connection.closed:
-            self.connection.close()
+        if self.connection is not None:
+            try:
+                self.connection.close()
+            finally:
+                self.connection = None
     
     def execute_query(self, query, params=None):
         """Execute a query and return results.
@@ -59,7 +61,7 @@ class CoverityDatabase:
 
         cursor = conn.cursor()
         try:
-            cursor.execute(query, params)
+            cursor.execute(query, params or ())
             results = cursor.fetchall()
             if results is None:
                 return []
@@ -97,7 +99,7 @@ class CoverityDatabase:
 
         cursor = conn.cursor()
         try:
-            cursor.execute(query, params)
+            cursor.execute(query, params or ())
             if cursor.description is None:
                 # Non-SELECT statement or no result set
                 return []

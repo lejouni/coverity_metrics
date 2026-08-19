@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.30] - YYYY-MM-DD
+
+### Changed
+- **Swapped the PostgreSQL driver from `psycopg2-binary` to `pg8000` (pure-Python)**
+  - `psycopg2-binary`'s Windows and Linux wheels bundle a full stack of native libraries (OpenSSL, libpq, MIT krb5, PCRE1, and their manylinux siblings — openldap / sasl / com_err / keyutils / selinux). Every one of those tracks against whatever the psycopg2 maintainers built their manylinux base image against, so BDBA reports on the standalone binary flagged them as behind upstream repeatedly (1.0.28 Windows report, 1.0.29 Linux report). None of them were fixable at the project level without giving up the "no Python required on the target machine" property of the binary.
+  - `pg8000` is a pure-Python Postgres driver — zero C extensions, zero bundled natives — that speaks the same DB-API 2.0 surface and the same `format` paramstyle (`%s`) as psycopg2. Confirmed `connect()` accepts the same `host` / `port` / `database` / `user` / `password` kwargs, so `config.json` schema is unchanged.
+  - Trade-off: pure-Python protocol handling is roughly 2–4× slower than libpq for large result sets. This project's workload is aggregation queries returning small result sets (defect counts, top-N lists, weekly trends), so end-to-end dashboard / export / report runs are within a couple seconds of the psycopg2 baseline on the DB used for smoke-testing.
+  - Not compatible with GSSAPI / Kerberos authentication — pg8000 supports plaintext, MD5, and SCRAM-SHA-256 only. If your Coverity Connect DB requires GSSAPI, pin `<= 1.0.29` and open an issue.
+  - Kills five of the seven BDBA findings against the 1.0.29 Linux binary (see the "BDBA scan findings" section below).
+- **Dropped three dependencies that were declared but never imported: `matplotlib`, `seaborn`, `openpyxl`**
+  - Grep for `import matplotlib | pyplot | seaborn | openpyxl | to_excel` across `coverity_metrics/**/*.py` returned empty — all three were declared in `requirements.txt` / `pyproject.toml` for years without a single call site. All dashboard rendering happens via `plotly` (JavaScript, in-browser) and the exporter writes ZIPs of JSON, not `.xlsx`.
+  - Removing `matplotlib` also removes `Pillow` as a transitive, which kills the `libtiff` finding from the 1.0.29 Windows BDBA report.
+- **PyInstaller build now excludes stdlib modules pulled in transitively but never used**
+  - `sqlite3` / `_sqlite3` (imported delayed by `pandas.io.sql`): drops `sqlite3.dll` and `_sqlite3.pyd` from the bundle. We never call `pd.read_sql` / `pd.to_sql`.
+  - `pyexpat` / `_elementtree` (imported by `pandas.io.xml` and `pandas.io.formats.xml`): drops `pyexpat.pyd` and `_elementtree.pyd`. We never call `pd.read_xml` / `DataFrame.to_xml`.
+  - `matplotlib.backends.backend_agg` hidden-import line removed. The full `matplotlib` / `PIL` / `seaborn` / `openpyxl` packages are also added to the `excludes` list as belt-and-suspenders in case the build venv accidentally has them installed.
+  - The `pandas.io.sql` / `pandas.io.xml` shim modules themselves stay bundled — `pandas.io.api` hard-imports them and pandas won't load otherwise. They fall through to raising at call time if anything ever tries to actually use them, which nothing does.
+- **Standalone binary size dropped from ~57 MB to ~40 MB (Windows, x86_64) — a 28 % reduction** — from the combined effect of the psycopg2 → pg8000 swap, the three deleted deps, and the PyInstaller exclude list. Linux binary tracks similarly.
+
+### Fixed
+- **pg8000 compat: 29 `INTERVAL '%s <unit>'` SQL sites rewritten so parameters land outside the string literal**
+  - Unlike psycopg2, pg8000's `format` paramstyle does not substitute `%s` inside single-quoted SQL string literals. The 29 date-range queries in `coverity_metrics/metrics.py` that used `CURRENT_DATE - INTERVAL '%s days'` (or `'%s weeks'`) were sending the literal `%s` to Postgres and failing with `invalid input syntax for type interval: "%s days"`. `execute_query_dict` caught the exception and returned `[]`, so the dashboard silently rendered zero for every affected metric on the first pg8000 build.
+  - All 29 sites rewritten to `INTERVAL '1 day' * %s` (and two `INTERVAL '1 week' * %s`), which sends the integer as a proper bound parameter and multiplies against a constant interval. Same execution plan, same numeric result, driver-agnostic.
+- **pg8000 compat: `db_connection` wrapper now coerces `None` params to `()` before calling `cursor.execute`**
+  - psycopg2 tolerated `cursor.execute(query, None)`; pg8000's `Cursor.execute(operation, args=())` calls `len(args)` internally and raises `object of type 'NoneType' has no len()` on `None`. Both `execute_query` and `execute_query_dict` in `coverity_metrics/db_connection.py` now pass `params or ()` so callers can keep the historical `execute_query(query)` no-params style.
+- **pg8000 compat: `CoverityDatabase` no longer relies on `psycopg2.connection.closed`**
+  - `pg8000.dbapi.Connection` has no `.closed` attribute (psycopg2's is a driver-specific extension, not part of DB-API 2.0). Replaced the `self.connection.closed` sentinel with a `self.connection is None` check plus a `try/finally` that nulls out the handle in `close()`, giving equivalent semantics for this project's single-connection-per-instance usage pattern with no driver-specific coupling.
+- **`ZipDataLoader.get_overall_summary()` now accepts the `days=` kwarg for API parity with `CoverityMetrics`**
+  - Every other `metrics.get_*(days=days)` call in `dashboard.py` had a matching kwarg-accepting override on `ZipDataLoader`; `get_overall_summary()` was the one missing signature. Loading a dashboard from a `--zip-file` crashed with `TypeError: ZipDataLoader.get_overall_summary() got an unexpected keyword argument 'days'` on the first pg8000 build. The kwarg is now accepted and ignored — zip data is pre-aggregated at export time so a re-filter isn't possible or meaningful at load time.
+
+### Notes on BDBA scan findings
+
+**Resolved by the 1.0.30 refactor.** These were tracked as "no action available" in the 1.0.28 and 1.0.29 notes and are now gone from the binary entirely:
+
+| Finding | Route it took into 1.0.29 binary | How 1.0.30 resolves it |
+| --- | --- | --- |
+| `openssl` (`libcrypto-3-x64-*.dll`, `libssl-3-x64-*.dll`, `.so` equivalents) | `psycopg2-binary` wheel | Driver swap → `pg8000` (pure Python, no OpenSSL binding) |
+| `libpq` (`libpq-*.dll` / `.so`) | `psycopg2-binary` wheel | Driver swap → `pg8000` (speaks Postgres wire protocol directly) |
+| `libpcre` PCRE1 (`libpcre-*.so.1.2.0`) | `psycopg2-binary` Linux wheel | Driver swap → `pg8000` |
+| `krb5` (`libgssapi_krb5.so.2`, `libkrb5.so.3`, `libk5crypto.so.3`, `libkrb5support.so.0`) | `psycopg2-binary` Linux wheel | Driver swap → `pg8000` |
+| `libtiff` (`PIL/_imaging.cp314-win_amd64.pyd`) | `Pillow` wheel, transitively via `matplotlib` in `requirements.txt` | `matplotlib` dropped from deps → `Pillow` no longer transitively pulled in |
+| `sqlite3.dll` / `_sqlite3.pyd` | CPython, transitively via `pandas.io.sql` delayed import | Added `sqlite3` + `_sqlite3` to PyInstaller `excludes` |
+| `pyexpat.pyd` | CPython, transitively via `pandas.io.xml` | Added `pyexpat` + `_elementtree` to PyInstaller `excludes` |
+
+**Still upstream-only (no action available at project level).** These come from CPython itself and from the numpy/pandas wheels via pandas, which is still a hard runtime dependency:
+
+| Finding | Bundling package | Our version | Newest upstream artifact |
+| --- | --- | --- | --- |
+| `libscipy_openblas64_-*.dll` (OpenBLAS) | `numpy` wheel (shared with SciPy since NumPy 2.0) | Latest on PyPI | Latest on PyPI |
+| `VCRUNTIME140.dll` / `VCRUNTIME140_1.dll` | CPython 3.14.x | Latest patch | Latest patch |
+| `msvcp140-*.dll` | `numpy` + `pandas` wheels | Latest on PyPI | Latest on PyPI |
+
+- **On the OpenBLAS finding specifically**: BDBA labels the DLL as "proprietary" — that is a scanner metadata error. OpenBLAS is [BSD-3-Clause licensed](https://github.com/OpenMathLib/OpenBLAS/blob/develop/LICENSE) and freely redistributable; it is the same OpenBLAS binary shipped by every scientific Python distribution and by Anaconda. Since NumPy 2.0 the Windows/Linux wheels reuse SciPy's pre-built OpenBLAS artifact (hence the `libscipy_` prefix on the filename). It backs `numpy.linalg`, `numpy.fft`, and the random-number generators; numpy loads it unconditionally at package init, so it cannot be excluded without breaking `import pandas`.
+- **On the Visual C++ runtime findings**: these are the standard Microsoft VC++ redistributable DLLs required by every Python C extension on Windows and by CPython itself. They are covered by Microsoft's [Visual C++ Redistributable license](https://learn.microsoft.com/en-us/cpp/windows/redistributing-the-latest-supported-visual-c-runtime), which explicitly allows free redistribution with your application; they ship with CPython, with every C-extension wheel on PyPI, and with countless Windows applications. They cannot be excluded — the binary won't start without them.
+- All three refresh naturally when NumPy, pandas, or CPython publish new artifacts.
+
+
 ## [1.0.29] - 2026-08-19
 
 ### Changed

@@ -157,15 +157,12 @@ Editable mode is useful when you want to modify the source.
 
 ### Requirements
 
-- **Python >= 3.10** (required by `pandas` >=3.0 and `matplotlib` >=3.10)
+- **Python >= 3.10** (required by `pandas` >=3.0)
 
 The package includes these dependencies (automatically installed):
-- `psycopg2-binary` - PostgreSQL database adapter
+- `pg8000` - Pure-Python PostgreSQL database adapter
 - `pandas` - Data analysis and manipulation
-- `matplotlib` - Plotting library
-- `seaborn` - Statistical data visualization
 - `python-dateutil` - Date/time utilities
-- `openpyxl` - Excel file support (pandas dependency)
 - `jinja2` - HTML template engine for dashboard generation
 - `plotly` - Interactive charts and visualizations
 - `tqdm` - Progress bars

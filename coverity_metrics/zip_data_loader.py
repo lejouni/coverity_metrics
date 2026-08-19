@@ -236,8 +236,9 @@ class ZipDataLoader:
         """Get list of available projects"""
         return self._read_json_from_zip(self._get_metric_file('available_projects'), as_dataframe=True)
     
-    def get_overall_summary(self):
-        """Get overall summary metrics"""
+    def get_overall_summary(self, days=None):
+        """Get overall summary metrics (``days`` is accepted for API parity with
+        ``CoverityMetrics`` but ignored — zip data is pre-aggregated at export)."""
         return self._read_metric_json('overall_summary')
     
     def get_defects_by_severity(self):

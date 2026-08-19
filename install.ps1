@@ -59,7 +59,7 @@ if ($versionMatch) {
     $major = [int]$matches[1]
     $minor = [int]$matches[2]
     if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 10)) {
-        Write-Error "[ERROR] Python 3.10+ is required (pandas>=3.0 and matplotlib>=3.10 need it). Found Python $major.$minor"
+        Write-Error "[ERROR] Python 3.10+ is required (pandas>=3.0 needs it). Found Python $major.$minor"
         exit 1
     }
 }

@@ -185,10 +185,10 @@ Create `config.json` in your working directory:
 
 ## Requirements
 
-- Python >= 3.10 (required by `pandas` >=3.0 and `matplotlib` >=3.10)
+- Python >= 3.10 (required by `pandas` >=3.0)
 - PostgreSQL access to Coverity database
 - Dependencies (automatically installed):
-  - psycopg2-binary
+  - pg8000
   - pandas
   - jinja2
   - plotly

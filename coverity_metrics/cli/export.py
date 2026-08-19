@@ -681,7 +681,7 @@ def export_to_json(output_dir="exports", days=365, config_file=None, projects_fi
                         tqdm.write(f"  [ERROR] {project_name}: {exc}")
             else:
                 # Parallel path — each worker owns its own CoverityMetrics
-                # instance (psycopg2 connections aren't thread-safe).
+                # instance (Postgres connections aren't thread-safe).
                 from concurrent.futures import ThreadPoolExecutor, as_completed
                 from queue import Queue
 

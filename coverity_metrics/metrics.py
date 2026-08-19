@@ -21,10 +21,10 @@ class CoverityMetrics:
     # Fixed iff lds points at an earlier snapshot. This matches Coverity Connect's UI exactly
     # and correctly handles defects that were fixed and later reappeared.
     #
-    # Fallback rule (per row): when the defect has no lds entry — either because the stream's
+    # Fallback rule (per row): when the defect has no lds entry â€” either because the stream's
     # LDS is stale (upgrade / migration / purge on the Coverity side hasn't been followed by
     # the population job) or because a healthy stream has the usual ~2.5% tail of missing
-    # rows — the CASE falls back to two ``stream_defect`` columns Coverity Connect updates
+    # rows â€” the CASE falls back to two ``stream_defect`` columns Coverity Connect updates
     # itself:
     #
     #   Active iff  fixed_snapshot_element_id IS NULL
@@ -32,7 +32,7 @@ class CoverityMetrics:
     #
     # The second disjunct catches defects that were fixed and later reappeared. Coverity does
     # NOT clear ``fixed_snapshot_element_id`` on reappearance, but it DOES update
-    # ``introduced_snapshot_element_id`` to point at the new introduction — so
+    # ``introduced_snapshot_element_id`` to point at the new introduction â€” so
     # ``introduced > fixed`` (both are ``snapshot_element.id`` values, which are monotonic on
     # Coverity's DB) means "the defect was re-detected after the last known fix" and is
     # authoritative. Without this second disjunct the fallback under-counted Active by ~5% on
@@ -98,7 +98,7 @@ class CoverityMetrics:
         self._check_lds_freshness()
 
     # ------------------------------------------------------------------
-    # project_name property – accepts str, list[str], or None.
+    # project_name property â€“ accepts str, list[str], or None.
     # Internally stored as self._project_names (list or None).
     # ------------------------------------------------------------------
     @property
@@ -314,7 +314,7 @@ class CoverityMetrics:
 
         Coverity Connect labels the ``checker_properties.impact`` column as "Severity" in most
         UI surfaces, and that's what we bucket by here. Only counts defects that are currently
-        active — present in the latest non-deleted snapshot of their stream — and excludes
+        active â€” present in the latest non-deleted snapshot of their stream â€” and excludes
         defects classified as False Positive or Intentional. Counts are per stream_defect row,
         so a defect present in multiple streams of the same project contributes once per
         stream. The sum of the buckets therefore matches the Overview "Active Defects" card.
@@ -617,7 +617,7 @@ class CoverityMetrics:
                 v
             function_metrics           <-- actual metric values (cyclomatic_complexity, ...)
 
-        ``function_metrics.id`` is *not* a foreign key from ``stream_function.function_id`` —
+        ``function_metrics.id`` is *not* a foreign key from ``stream_function.function_id`` â€”
         the old ``JOIN function_metrics fm ON sf.function_id = fm.id`` matched only rows where
         the two id spaces coincidentally overlapped, drastically under-counting.
 
@@ -752,7 +752,7 @@ class CoverityMetrics:
                 to_date,
                 SUM(count) as total_defects
             FROM weekly_issue_count
-            WHERE from_date >= CURRENT_DATE - INTERVAL '%s weeks'
+            WHERE from_date >= CURRENT_DATE - INTERVAL '1 week' * %s
             GROUP BY from_date, to_date
             ORDER BY from_date DESC
         """
@@ -774,7 +774,7 @@ class CoverityMetrics:
                 to_date,
                 SUM(count) as total_files
             FROM weekly_file_count
-            WHERE from_date >= CURRENT_DATE - INTERVAL '%s weeks'
+            WHERE from_date >= CURRENT_DATE - INTERVAL '1 week' * %s
             GROUP BY from_date, to_date
             ORDER BY from_date DESC
         """
@@ -983,7 +983,7 @@ class CoverityMetrics:
                 ROUND(AVG(EXTRACT(EPOCH FROM (ul.session_end - ul.session_start)) / 60), 2) as avg_session_minutes
             FROM users u
             LEFT JOIN user_login ul ON u.id = ul.user_id
-            WHERE ul.session_start >= CURRENT_DATE - INTERVAL '%s days'
+            WHERE ul.session_start >= CURRENT_DATE - INTERVAL '1 day' * %s
             GROUP BY u.username
             ORDER BY login_count DESC
         """
@@ -1007,7 +1007,7 @@ class CoverityMetrics:
                 COUNT(DISTINCT ts.defect_triage_id) as defects_triaged
             FROM users u
             JOIN triage_state ts ON u.id = ts.user_created_id
-            WHERE ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+            WHERE ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
             GROUP BY u.username
             ORDER BY triage_actions DESC
             LIMIT %s
@@ -1033,10 +1033,10 @@ class CoverityMetrics:
         """
         # Files, functions, and LOC: use per-snapshot aggregates on the latest
         # non-deleted snapshot per stream (optionally restricted to a date
-        # window) — mirrors Coverity Connect's per-stream numbers, not the
+        # window) â€” mirrors Coverity Connect's per-stream numbers, not the
         # cumulative stream_file / stream_function history.
         if days is not None:
-            files_date_filter = "AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'"
+            files_date_filter = "AND sn.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s"
         else:
             files_date_filter = ""
 
@@ -1281,7 +1281,7 @@ class CoverityMetrics:
         includes a ``project_name`` column so the caller can attribute the
         hotspot to its owning project. At project scope, each row is
         aggregated by (file, stream) and includes a ``stream_name`` column
-        instead — a finer split that's more useful when the project is
+        instead â€” a finer split that's more useful when the project is
         already fixed.
         
         Args:
@@ -1586,9 +1586,9 @@ class CoverityMetrics:
             # Add date filter if specified
             if days:
                 if self.project_name:
-                    query += " AND s.date_created >= CURRENT_DATE - INTERVAL '%s days'"
+                    query += " AND s.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s"
                 else:
-                    query += " AND date_created >= CURRENT_DATE - INTERVAL '%s days'"
+                    query += " AND date_created >= CURRENT_DATE - INTERVAL '1 day' * %s"
                 params.append(days)
             
             # Group and order
@@ -1686,7 +1686,7 @@ class CoverityMetrics:
 
         Reads `snapshot_element` rows attached to the N most recent snapshots
         (filtered by project when `project_name` is set). Each snapshot has one
-        or more elements — typically one `SrcSE` (cov-build) and one `StcSE`
+        or more elements â€” typically one `SrcSE` (cov-build) and one `StcSE`
         (cov-analyze). Mirrors the "Command Line" data shown per snapshot in
         the Coverity Connect UI.
 
@@ -1991,7 +1991,7 @@ class CoverityMetrics:
             FROM snapshot sn
             {project_filter_join}
             WHERE sn.deleted = false
-                AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                AND sn.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                 {project_filter}
             GROUP BY DATE(sn.date_created)
             ORDER BY snapshot_date DESC
@@ -2045,7 +2045,7 @@ class CoverityMetrics:
                 FROM snapshot sn
                 {{project_filter_join}}
                 WHERE sn.deleted = false
-                    AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND sn.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     {{project_filter}}
                 GROUP BY period
             ),
@@ -2065,7 +2065,7 @@ class CoverityMetrics:
                 WHERE de.dtype = 'Cls'
                     AND de.name IN ('False Positive', 'Intentional')
                     AND {self._ACTIVE_COND_SQL}
-                    AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     {{project_filter_triage}}
                 GROUP BY period
             )
@@ -2112,8 +2112,8 @@ class CoverityMetrics:
 
         Shows ALL currently active defects, broken down by stream and their CURRENT
         classification, so every triage bucket that Coverity Connect displays is
-        represented — ``Bug``, ``False Positive``, ``Intentional``, ``Pending``,
-        ``Untriaged``, etc. — plus an ``Unclassified`` bucket for defects that have no
+        represented â€” ``Bug``, ``False Positive``, ``Intentional``, ``Pending``,
+        ``Untriaged``, etc. â€” plus an ``Unclassified`` bucket for defects that have no
         triage record yet (``defect_triage_id IS NULL`` or classification not set).
         Streams are ordered so those with the most unclassified defects appear first,
         highlighting where triage attention is most needed.
@@ -2166,7 +2166,7 @@ class CoverityMetrics:
 
         Identifies which checker rules accumulate the most explicit triage classifications
         (False Positive, Intentional, Bug).  Only defects that have been explicitly
-        classified are included — Unclassified defects are intentionally excluded so the
+        classified are included â€” Unclassified defects are intentionally excluded so the
         result focuses on deliberate decisions.  Checkers are ranked by the sum of
         False Positive + Intentional counts (noise / accepted-debt signal), helping teams
         spot overly noisy rules or rules whose findings are routinely dismissed.
@@ -2234,7 +2234,7 @@ class CoverityMetrics:
         (including Unclassified) so the bar chart can show the full triage picture
         alongside the Intentional highlight.
 
-        The primary sort key is Intentional count descending — highlighting teams
+        The primary sort key is Intentional count descending â€” highlighting teams
         that may be marking defects Intentional to pass a security quality gate
         without addressing the underlying findings.
 
@@ -2315,7 +2315,7 @@ class CoverityMetrics:
                 FROM snapshot sn
                 {{project_filter_join}}
                 WHERE sn.deleted = false
-                    AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND sn.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     {{project_filter}}
             ),
             triaged_stats AS (
@@ -2333,7 +2333,7 @@ class CoverityMetrics:
                 WHERE de.dtype = 'Cls'
                     AND de.name IN ('False Positive', 'Intentional')
                     AND {self._ACTIVE_COND_SQL}
-                    AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     {{project_filter_triaged_stats}}
             ),
             fix_times AS (
@@ -2356,7 +2356,7 @@ class CoverityMetrics:
                 WHERE sd.fixed_snapshot_element_id IS NOT NULL
                     AND {self._FIXED_COND_SQL}
                     AND sd.first_snapshot_element_id IS NOT NULL
-                    AND sn_fix.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND sn_fix.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     AND sn_fix.date_created > sn_detect.date_created
                     {{project_filter_fix}}
                 
@@ -2382,7 +2382,7 @@ class CoverityMetrics:
                     AND de.name IN ('False Positive', 'Intentional')
                     AND {self._ACTIVE_COND_SQL}  -- Not already counted in code-based fixes
                     AND sd.first_snapshot_element_id IS NOT NULL
-                    AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     AND ts.date_created > sn_detect.date_created
                     {{project_filter_triage}}
             )
@@ -2457,7 +2457,7 @@ class CoverityMetrics:
                 FROM snapshot sn
                 {{project_filter_join}}
                 WHERE sn.deleted = false
-                    AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND sn.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     {{project_filter}}
                 GROUP BY DATE(sn.date_created)
             ),
@@ -2477,7 +2477,7 @@ class CoverityMetrics:
                 WHERE de.dtype = 'Cls'
                     AND de.name IN ('False Positive', 'Intentional')
                     AND {self._ACTIVE_COND_SQL}
-                    AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     {{project_filter_triage}}
                 GROUP BY DATE(ts.date_created)
             )
@@ -2530,7 +2530,7 @@ class CoverityMetrics:
 
         Args:
             days: Number of days to analyze.
-            granularity: Bucket size — one of 'day', 'week', 'month'.
+            granularity: Bucket size â€” one of 'day', 'week', 'month'.
                 Defaults to 'day'. Anything else falls back to 'day'.
 
         Returns:
@@ -2542,7 +2542,7 @@ class CoverityMetrics:
                 total_new_defects,
                 total_eliminated_defects.
         """
-        # Whitelist granularity — value is injected directly into SQL, not bound.
+        # Whitelist granularity â€” value is injected directly into SQL, not bound.
         allowed = {'day', 'week', 'month'}
         bucket = granularity if granularity in allowed else 'day'
 
@@ -2557,7 +2557,7 @@ class CoverityMetrics:
             FROM snapshot sn
             {{project_filter_join}}
             WHERE sn.deleted = false
-                AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                AND sn.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                 {{project_filter}}
             GROUP BY DATE_TRUNC('{bucket}', sn.date_created)
             ORDER BY period ASC
@@ -2598,7 +2598,7 @@ class CoverityMetrics:
                 FROM snapshot sn
                 {{project_filter_join}}
                 WHERE sn.deleted = false
-                    AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND sn.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     {{project_filter}}
                 GROUP BY DATE(sn.date_created)
             ),
@@ -2618,7 +2618,7 @@ class CoverityMetrics:
                 WHERE de.dtype = 'Cls'
                     AND de.name IN ('False Positive', 'Intentional')
                     AND {self._ACTIVE_COND_SQL}
-                    AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     {{project_filter_triage}}
                 GROUP BY DATE(ts.date_created)
             ),
@@ -2687,7 +2687,7 @@ class CoverityMetrics:
                 FROM snapshot sn
                 {{project_filter_join_period}}
                 WHERE sn.deleted = false
-                    AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND sn.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     {{project_filter_period}}
             ),
             period_triaged_metrics AS (
@@ -2705,7 +2705,7 @@ class CoverityMetrics:
                 WHERE de.dtype = 'Cls'
                     AND de.name IN ('False Positive', 'Intentional')
                     AND {self._ACTIVE_COND_SQL}
-                    AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     {{project_filter_triaged}}
             ),
             current_state AS (
@@ -3019,7 +3019,7 @@ class CoverityMetrics:
                 WHERE p.deleted = false
                     AND sn.deleted = false
                     AND (sd.id IS NULL OR {self._FIXED_COND_SQL})
-                    AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    AND sn.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     {project_filter}
                 GROUP BY p.name
                 HAVING COUNT(DISTINCT sd.id) FILTER (WHERE sn.eliminated_defect_count > 0) > 0
@@ -3059,7 +3059,7 @@ class CoverityMetrics:
                 JOIN snapshot sn       ON s.id  = sn.stream_id
                 WHERE p.deleted  = false
                   AND sn.deleted = false
-                  AND sn.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                  AND sn.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                   {project_filter_snap}
             ),
             snapshot_comparison AS (
@@ -3244,7 +3244,7 @@ class CoverityMetrics:
                     JOIN users u ON ts.user_created_id = u.id
                     WHERE u.username NOT IN ('system', 'System User')  -- Exclude system-generated actions
                         AND ts.date_created >= '1971-01-01'::timestamp  -- Exclude sentinel/default timestamps
-                        AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                        AND ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     ORDER BY fd.defect_triage_id, ts.date_created DESC
                 ),
                 user_fixes AS (
@@ -3295,7 +3295,7 @@ class CoverityMetrics:
                     JOIN users u ON ts.user_created_id = u.id
                     WHERE u.username NOT IN ('system', 'System User')  -- Exclude system-generated actions
                         AND ts.date_created >= '1971-01-01'::timestamp  -- Exclude sentinel/default timestamps
-                        AND ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                        AND ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     ORDER BY fd.defect_triage_id, ts.date_created DESC
                 ),
                 user_fixes AS (
@@ -3354,7 +3354,7 @@ class CoverityMetrics:
                     JOIN stream s ON se.stream_id = s.id
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
-                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                         AND p.name = ANY(%s)
                     GROUP BY u.id, u.username, u.given_name, u.family_name
                     HAVING COUNT(DISTINCT ts.id) > 0
@@ -3387,7 +3387,7 @@ class CoverityMetrics:
                         MAX(ts.date_created) as last_activity
                     FROM users u
                     JOIN triage_state ts ON u.id = ts.user_created_id
-                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                     GROUP BY u.id, u.username, u.given_name, u.family_name
                     HAVING COUNT(DISTINCT ts.id) > 0
                 )
@@ -3435,7 +3435,7 @@ class CoverityMetrics:
                     JOIN stream s ON se.stream_id = s.id
                     JOIN project_stream ps ON s.id = ps.stream_id
                     JOIN project p ON ps.project_id = p.id
-                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                         AND ts.cmnt IS NOT NULL 
                         AND ts.cmnt != ''
                         AND p.name = ANY(%s)
@@ -3466,7 +3466,7 @@ class CoverityMetrics:
                         MAX(ts.date_created) as last_activity
                     FROM users u
                     JOIN triage_state ts ON u.id = ts.user_created_id
-                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '%s days'
+                    WHERE ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s
                         AND ts.cmnt IS NOT NULL 
                         AND ts.cmnt != ''
                     GROUP BY u.id, u.username, u.given_name, u.family_name
