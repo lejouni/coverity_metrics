@@ -209,3 +209,6 @@ _no_snap/*
 _snap_ctl/*
 .github/copilot-instructions.md
 scans/*
+acrhive_q2/*
+acrhive_q1/*
+delta_out/*

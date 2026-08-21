@@ -827,7 +827,12 @@ customer-adoption story:
 - **Active-user Δ** — licensed, logged-in, active user counts + %Δ.
 - **Scan-activity Δ** — snapshots taken, files analyzed, defects
   introduced, defects eliminated inside each `--days` window.
-- **Snapshot-cadence Δ** — per-stream cadence + mean scan duration.
+- **Stream activity** — set diff on the recent-snapshot sample: streams
+  newly active (present in the current sample only) and streams that
+  went dark (present in the previous sample only). Deliberately reports
+  set membership rather than per-stream counts — the underlying
+  `snapshot_performance` metric is a top-100 sample, so count deltas
+  from it are dominated by top-N sliding, not by real activity.
 - **Defects-by-project Δ** — outstanding / fixed counts + ranking movement
   (▲ climbed the outstanding-defects ranking, ▼ dropped, `new` /
   `dropped` for projects only present in one snapshot).

@@ -270,48 +270,59 @@
         </table>
     </section>
 
-    {# -------- Section 4: Snapshot cadence (per-stream) -------- #}
+    {# -------- Section 4: Stream activity (from recent snapshot sample) -------- #}
     <section class="delta-section">
-        <h2>Snapshot cadence — per stream</h2>
-        {% if inst.snapshot_cadence.per_stream %}
-        <p style="color: #7f8c8d; font-size: 0.9rem;">
-            Aggregated from the recent-snapshot sample in each export
-            (<code>snapshot_performance.json</code>). Streams that appear in
-            only one snapshot show <code>—</code> on the missing side.
-        </p>
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Stream</th>
-                    <th>Snapshots prev</th>
-                    <th>Snapshots curr</th>
-                    <th>Δ</th>
-                    <th>Mean duration prev (s)</th>
-                    <th>Mean duration curr (s)</th>
-                    <th>Δ duration</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for r in inst.snapshot_cadence.per_stream %}
-                <tr>
-                    <td><code>{{ r.stream_name }}</code></td>
-                    <td>{{ r.snapshot_count_prev if r.snapshot_count_prev is not none else '—' }}</td>
-                    <td>{{ r.snapshot_count_curr if r.snapshot_count_curr is not none else '—' }}</td>
-                    <td class="{% if r.snapshot_count_delta and r.snapshot_count_delta > 0 %}delta-pos{% elif r.snapshot_count_delta and r.snapshot_count_delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
-                        {% if r.snapshot_count_delta is not none %}{{ '{:+d}'.format(r.snapshot_count_delta|int) }}{% else %}—{% endif %}
-                    </td>
-                    <td>{% if r.mean_duration_seconds_prev is not none %}{{ '%.1f'|format(r.mean_duration_seconds_prev) }}{% else %}—{% endif %}</td>
-                    <td>{% if r.mean_duration_seconds_curr is not none %}{{ '%.1f'|format(r.mean_duration_seconds_curr) }}{% else %}—{% endif %}</td>
-                    <td class="{% if r.mean_duration_seconds_delta and r.mean_duration_seconds_delta > 0 %}delta-neg{% elif r.mean_duration_seconds_delta and r.mean_duration_seconds_delta < 0 %}delta-pos{% else %}delta-zero{% endif %}">
-                        {% if r.mean_duration_seconds_delta is not none %}{{ '{:+.1f}'.format(r.mean_duration_seconds_delta) }}{% else %}—{% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <em>No per-stream snapshot cadence data available in either snapshot.</em>
+        <h2>Stream activity</h2>
+        {% set sa = inst.snapshot_cadence.stream_activity %}
+        {% set ss = inst.snapshot_cadence.sample_size %}
+        <div class="tile-grid">
+            {% set stream_delta = sa.curr_stream_count - sa.prev_stream_count %}
+            <div class="tile {% if stream_delta > 0 %}delta-up{% elif stream_delta < 0 %}delta-down{% else %}delta-neutral{% endif %}">
+                <div class="tile-label">Active streams</div>
+                <div class="tile-value">{{ sa.curr_stream_count }}</div>
+                <div class="tile-sub">
+                    was {{ sa.prev_stream_count }}
+                    (<span class="{% if stream_delta > 0 %}delta-pos{% elif stream_delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
+                        {{ '{:+d}'.format(stream_delta) }}
+                    </span>)
+                </div>
+            </div>
+            <div class="tile delta-up">
+                <div class="tile-label">Newly active</div>
+                <div class="tile-value">{{ sa.added|length }}</div>
+                <div class="tile-sub">had recent scans in {{ delta.current.label }} only</div>
+            </div>
+            <div class="tile delta-down">
+                <div class="tile-label">Went dark</div>
+                <div class="tile-value">{{ sa.dropped|length }}</div>
+                <div class="tile-sub">had recent scans in {{ delta.previous.label }} only</div>
+            </div>
+            <div class="tile delta-neutral">
+                <div class="tile-label">Retained</div>
+                <div class="tile-value">{{ sa.retained_count }}</div>
+                <div class="tile-sub">active in both quarters</div>
+            </div>
+        </div>
+        {% if sa.added or sa.dropped %}
+        <div class="project-lists">
+            <div>
+                <h4>Newly active</h4>
+                {% if sa.added %}
+                    <ul>{% for name in sa.added %}<li><code>{{ name }}</code></li>{% endfor %}</ul>
+                {% else %}<em>None.</em>{% endif %}
+            </div>
+            <div>
+                <h4>Went dark</h4>
+                {% if sa.dropped %}
+                    <ul>{% for name in sa.dropped %}<li><code>{{ name }}</code></li>{% endfor %}</ul>
+                {% else %}<em>None.</em>{% endif %}
+            </div>
+        </div>
         {% endif %}
+        <p style="color: #7f8c8d; font-size: 0.85rem; margin-top: 0.75rem;">
+            <em>How this is computed:</em> {{ inst.snapshot_cadence.note }}
+            Underlying window: {{ ss.prev }} vs {{ ss.curr }} most recent snapshot rows.
+        </p>
     </section>
 
     {# -------- Section 5: Defects by project (with ranking movement) -------- #}

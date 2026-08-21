@@ -17,7 +17,7 @@
   - **Projects added / dropped / retained** from `total_defects_by_project.json`.
   - **Active-user Δ** from `user_license_statistics.json` — licensed users, users with login, active users, plus percentage columns; optionally augmented by a set diff on the top-fixers list from `top_users_by_fixes.json` (both prev and curr must have the metric).
   - **Scan-activity Δ** from `scan_activity_trend.json` — snapshots taken, files analyzed, defects introduced, defects eliminated in each window.
-  - **Per-stream snapshot-cadence Δ** from `snapshot_performance.json` — snapshots seen in the recent sample + mean scan duration.
+  - **Stream activity** from `snapshot_performance.json` — set diff on which streams have any activity in the recent-snapshot sample. Reports `newly active` and `went dark` streams only, not per-stream count deltas: the source is a top-N-recent sample (limit=100 at instance scope), so per-stream count deltas from it are dominated by top-N sliding rather than real activity (a stream can drop from 97 → 96 rows in the sample because one new snapshot on any other stream evicts the oldest row). Set membership survives that noise; per-stream counts do not.
   - **Defects-by-project Δ** from `total_defects_by_project.json` — `active_defects` / `fixed_defects` numeric deltas + ranking movement (▲ climbed, ▼ dropped, `new` / `dropped` for one-sided rows).
 - Security-focused deltas (OWASP / CWE), cross-instance aggregated deltas, and >2-way historical comparison are deliberately out of scope for v1.1.4. The `delta_metrics.py` primitives (`diff_project_set` / `diff_numeric` / `diff_ranking`) are generic and will extend to those in a later release.
 

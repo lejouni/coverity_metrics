@@ -346,41 +346,57 @@ def compute_scan_activity_delta(prev: SnapshotLoader, curr: SnapshotLoader,
 
 def compute_snapshot_cadence_delta(prev: SnapshotLoader, curr: SnapshotLoader,
                                    instance: str) -> dict:
-    """Per-stream snapshot cadence aggregated from ``snapshot_performance.json``.
+    """Which streams have activity in each snapshot's recent-sample.
 
-    ``snapshot_performance`` is a top-N-recent sample (limit=20 by default,
-    100 at project scope), not the full history — so ``snapshot_count`` here
-    is "snapshots seen in the recent sample", useful for spotting streams
-    that went dark or newly-active.
+    Source: ``snapshot_performance.json`` — a top-N-recent sample (default
+    ``limit=100`` at instance scope) of the most recent snapshots across all
+    streams. This is a perf-inspection sample, **not** a full snapshot
+    history, so per-stream *count* deltas from this source are dominated by
+    top-N sliding: one new snapshot on any stream evicts the oldest one,
+    so Checker's count can drop from 97 → 96 without any real change on
+    Checkers. We therefore only surface a **set diff** on stream names
+    ("did this stream have any activity in the recent sample?") — the
+    noise cancels out and the surviving signal is genuinely useful
+    ("stream X went dark", "stream Y newly active").
     """
     prev_df = prev.load_records(instance, "snapshot_performance")
     curr_df = curr.load_records(instance, "snapshot_performance")
-    prev_agg = _agg_snapshot_perf(prev_df)
-    curr_agg = _agg_snapshot_perf(curr_df)
-    merged = diff_numeric(
-        prev_agg, curr_agg, key="stream_name",
-        value_cols=["snapshot_count", "mean_duration_seconds", "mean_new_defect_count"],
-    )
-    return {"per_stream": _df_to_records(merged)}
+
+    prev_streams = _unique_streams(prev_df)
+    curr_streams = _unique_streams(curr_df)
+
+    added = sorted(curr_streams - prev_streams)
+    dropped = sorted(prev_streams - curr_streams)
+    retained = sorted(curr_streams & prev_streams)
+
+    return {
+        "stream_activity": {
+            "added": added,
+            "dropped": dropped,
+            "retained_count": len(retained),
+            "prev_stream_count": len(prev_streams),
+            "curr_stream_count": len(curr_streams),
+        },
+        "sample_size": {
+            "prev": int(len(prev_df)) if isinstance(prev_df, pd.DataFrame) else 0,
+            "curr": int(len(curr_df)) if isinstance(curr_df, pd.DataFrame) else 0,
+        },
+        "note": (
+            "Streams count as \"active\" here if they had at least one scan "
+            "in the recent-activity window each export captured (the 100 most "
+            "recent snapshots across all streams at the moment of export). "
+            "Per-stream scan-count deltas from this source are noisy — one "
+            "new scan on any stream evicts the oldest row for another — so "
+            "only the set of streams with any recent scans is reported."
+        ),
+    }
 
 
-def _agg_snapshot_perf(df: pd.DataFrame) -> pd.DataFrame:
-    empty_cols = ["stream_name", "snapshot_count",
-                  "mean_duration_seconds", "mean_new_defect_count"]
+def _unique_streams(df: pd.DataFrame) -> set:
     if not isinstance(df, pd.DataFrame) or df.empty or "stream_name" not in df.columns:
-        return pd.DataFrame({c: pd.Series(dtype="float64") for c in empty_cols})
+        return set()
+    return set(df["stream_name"].dropna().astype(str).unique())
 
-    agg_spec: dict = {"snapshot_count": ("stream_name", "count")}
-    if "duration_seconds" in df.columns:
-        agg_spec["mean_duration_seconds"] = ("duration_seconds", "mean")
-    if "new_defect_count" in df.columns:
-        agg_spec["mean_new_defect_count"] = ("new_defect_count", "mean")
-
-    grouped = df.groupby("stream_name", dropna=True).agg(**agg_spec).reset_index()
-    for col in ("mean_duration_seconds", "mean_new_defect_count"):
-        if col not in grouped.columns:
-            grouped[col] = pd.NA
-    return grouped
 
 
 def compute_defects_by_project_delta(prev: SnapshotLoader, curr: SnapshotLoader,
