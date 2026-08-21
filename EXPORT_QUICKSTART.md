@@ -250,6 +250,87 @@ work when reading from a ZIP:
 - `--cache` / `--cache-dir` / `--cache-ttl` — cache the derived DataFrames
   between renders; see [CACHING_GUIDE.md](CACHING_GUIDE.md).
 
+## Quarterly comparison (`coverity-delta`)
+
+Once you have two archived exports — e.g. `archive/2026-Q1/*.zip` and
+`archive/2026-Q2/*.zip` — you can produce an adoption-focused
+quarter-over-quarter delta report. The `coverity-delta` subcommand is
+part of the same standalone binary, so no extra download is required.
+
+**Prerequisites for a clean comparison**:
+
+1. Both exports were run with the **same `--days` value** (usually `90`
+   for a quarter; whatever number matches your fiscal quarter).
+2. Both exports were run with the **same `--mapping-file`** if you
+   anonymized. Otherwise `project_001` in Q1 might refer to a different
+   real project than `project_001` in Q2, and the delta refuses to run.
+
+### Linux / macOS
+
+```bash
+# End of Q1 (recorded at the time)
+./scripts/bin/coverity-metrics-linux-v1.1.4 export \
+    --days 90 \
+    --anonymize --mapping-file archive/quarterly-mapping.json \
+    --output archive/2026-Q1
+
+# End of Q2 — same --days, same --mapping-file
+./scripts/bin/coverity-metrics-linux-v1.1.4 export \
+    --days 90 \
+    --anonymize --mapping-file archive/quarterly-mapping.json \
+    --output archive/2026-Q2
+
+# Compare the two snapshots. Runs entirely offline.
+./scripts/bin/coverity-metrics-linux-v1.1.4 delta \
+    --previous archive/2026-Q1/coverity_export_Production_*.zip \
+    --current  archive/2026-Q2/coverity_export_Production_*.zip \
+    --output   delta/2026-Q1_vs_Q2
+```
+
+### Windows
+
+```powershell
+& .\scripts\bin\coverity-metrics-windows-v1.1.4.exe export `
+    --days 90 `
+    --anonymize --mapping-file archive\quarterly-mapping.json `
+    --output archive\2026-Q1
+
+& .\scripts\bin\coverity-metrics-windows-v1.1.4.exe export `
+    --days 90 `
+    --anonymize --mapping-file archive\quarterly-mapping.json `
+    --output archive\2026-Q2
+
+& .\scripts\bin\coverity-metrics-windows-v1.1.4.exe delta `
+    --previous archive\2026-Q1\coverity_export_Production_*.zip `
+    --current  archive\2026-Q2\coverity_export_Production_*.zip `
+    --output   delta\2026-Q1_vs_Q2
+```
+
+### Output
+
+The command produces two artifacts under `--output`:
+
+- `delta.json` — machine-readable delta (schema v1) with per-instance
+  sections for projects, active users, scan activity, snapshot cadence,
+  and defects-by-project (with ranking movement).
+- `dashboard_delta.html` — self-contained HTML report with tile cards
+  for the top-level scalar deltas and sortable tables for the per-project
+  breakdowns.
+
+### Guardrails
+
+`coverity-delta` refuses to compare snapshots that would produce
+misleading numbers:
+
+- **Different `--days` windows** → hard fail. Rerun one export with a
+  matching `--days`. Override with `--allow-window-mismatch` for testing
+  only; the report will carry ⚠ markers and a `normalized_per_day` view.
+- **Different anonymization mappings** → hard fail. Rerun both exports
+  with the same `--mapping-file`. There is no override.
+- **Different instance lists** → hard fail. The two ZIPs must cover the
+  same set of Coverity Connect instances.
+
+
 Trend-window options (`--days`) are still accepted in dashboard-from-ZIP
 mode but are capped by what the export baked in: if you exported with
 `--days 365`, passing `--days 730` at dashboard time can't invent extra
@@ -323,3 +404,4 @@ directory.
   fleets of Coverity Connect instances.
 - [MULTI_ZIP_GUIDE.md](MULTI_ZIP_GUIDE.md) — aggregating dashboards from
   multiple ZIP exports.
+

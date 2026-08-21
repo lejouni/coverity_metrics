@@ -1,0 +1,462 @@
+{#-
+    Delta dashboard for quarter-over-quarter Coverity metrics comparison.
+
+    Rendered by ``coverity_metrics/cli/delta.py`` with a single ``delta`` dict
+    (schema v1) plus ``inline_css``. Deliberately dependency-free — no Plotly,
+    no external JS. Tables use the ``data-table`` class so the sortable-header
+    autoloader below wires ▲▼ arrows onto every column at load time (repo
+    convention, see .github/copilot-instructions.md).
+-#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coverity Delta Report — {{ delta.previous.label }} → {{ delta.current.label }}</title>
+    <style>
+{{ inline_css }}
+    .delta-header {
+        padding: 1rem 0;
+        border-bottom: 2px solid #e2e2e2;
+        margin-bottom: 1.5rem;
+    }
+    .delta-header .compare-line {
+        font-size: 1.4rem;
+        font-weight: 600;
+        color: #2c3e50;
+    }
+    .delta-header .window-line {
+        color: #7f8c8d;
+        margin-top: 0.35rem;
+        font-size: 0.95rem;
+    }
+    .warnings-ribbon {
+        background: #fff3cd;
+        border: 1px solid #ffe08a;
+        border-left: 4px solid #e0a800;
+        padding: 0.75rem 1rem;
+        margin: 1rem 0;
+        border-radius: 4px;
+        color: #856404;
+    }
+    .warnings-ribbon strong { display: block; margin-bottom: 0.35rem; }
+    .warnings-ribbon ul { margin: 0.25rem 0 0 1.25rem; padding: 0; }
+    .warn-marker {
+        display: inline-block;
+        background: #fff3cd;
+        color: #856404;
+        border: 1px solid #ffe08a;
+        border-radius: 3px;
+        padding: 0 0.4rem;
+        font-size: 0.8rem;
+        font-weight: 700;
+        margin-left: 0.5rem;
+    }
+    .tile-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+        margin: 1rem 0 1.5rem;
+    }
+    .tile {
+        background: #fff;
+        border: 1px solid #e2e2e2;
+        border-radius: 6px;
+        padding: 1rem;
+        text-align: center;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    .tile .tile-label { color: #7f8c8d; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    .tile .tile-value { font-size: 1.8rem; font-weight: 700; color: #2c3e50; margin: 0.35rem 0; }
+    .tile .tile-sub { color: #7f8c8d; font-size: 0.85rem; }
+    .tile.delta-up { border-color: #a3d9a5; background: #f2fbf3; }
+    .tile.delta-down { border-color: #f5b7b1; background: #fdf3f2; }
+    .tile.delta-neutral { border-color: #e2e2e2; }
+    .delta-pos { color: #27ae60; font-weight: 600; }
+    .delta-neg { color: #c0392b; font-weight: 600; }
+    .delta-zero { color: #7f8c8d; }
+    .project-lists { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+    @media (max-width: 720px) { .project-lists { grid-template-columns: 1fr; } }
+    .project-lists h4 { margin: 0 0 0.35rem; }
+    .project-lists ul { max-height: 260px; overflow: auto; margin: 0; padding-left: 1.25rem; }
+    section.delta-section { margin: 2rem 0; padding-top: 0.5rem; border-top: 1px solid #e2e2e2; }
+    section.delta-section h2 { margin: 0.5rem 0 0.75rem; }
+    .rank-arrow-up { color: #27ae60; }
+    .rank-arrow-down { color: #c0392b; }
+    .rank-new { color: #2980b9; font-weight: 600; }
+    .rank-dropped { color: #7f8c8d; font-style: italic; }
+    </style>
+</head>
+<body>
+<header>
+    <div class="container">
+        <h1>Coverity Delta Report</h1>
+        <div class="subtitle">Quarter-over-quarter adoption comparison</div>
+    </div>
+</header>
+
+<div class="container">
+    <div class="delta-header">
+        <div class="compare-line">
+            <strong>{{ delta.previous.label }}</strong>
+            <span style="color: #7f8c8d;">→</span>
+            <strong>{{ delta.current.label }}</strong>
+        </div>
+        <div class="window-line">
+            Windows: previous <code>--days {{ delta.previous.days }}</code>
+            (exported {{ delta.previous.export_date[:10] }}) &nbsp;→&nbsp;
+            current <code>--days {{ delta.current.days }}</code>
+            (exported {{ delta.current.export_date[:10] }})
+        </div>
+        <div class="window-line">Generated: {{ generated }}</div>
+    </div>
+
+    {% if delta.warnings %}
+    <div class="warnings-ribbon">
+        <strong>⚠ {{ delta.warnings|length }} warning{{ '' if delta.warnings|length == 1 else 's' }} — read before interpreting deltas</strong>
+        <ul>
+            {% for w in delta.warnings %}
+            <li><code>{{ w.code }}</code>: {{ w.message }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {% set window_mismatch = delta.warnings|selectattr('code', 'equalto', 'window_mismatch')|list|length > 0 %}
+
+    {% for instance_name, inst in delta.instances.items() %}
+    <h2 style="margin-top: 2.5rem; color: #34495e;">Instance: <code>{{ instance_name }}</code></h2>
+
+    {# -------- Section 1: Projects -------- #}
+    <section class="delta-section">
+        <h2>Projects</h2>
+        <div class="tile-grid">
+            {% set p = inst.projects %}
+            {% set p_delta = p.curr_count - p.prev_count %}
+            <div class="tile {% if p_delta > 0 %}delta-up{% elif p_delta < 0 %}delta-down{% else %}delta-neutral{% endif %}">
+                <div class="tile-label">Projects</div>
+                <div class="tile-value">{{ p.curr_count }}</div>
+                <div class="tile-sub">
+                    was {{ p.prev_count }}
+                    (<span class="{% if p_delta > 0 %}delta-pos{% elif p_delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
+                        {{ '{:+d}'.format(p_delta) }}
+                    </span>)
+                </div>
+            </div>
+            <div class="tile delta-up">
+                <div class="tile-label">Added</div>
+                <div class="tile-value">{{ p.added|length }}</div>
+                <div class="tile-sub">new projects</div>
+            </div>
+            <div class="tile delta-down">
+                <div class="tile-label">Dropped</div>
+                <div class="tile-value">{{ p.dropped|length }}</div>
+                <div class="tile-sub">no longer present</div>
+            </div>
+            <div class="tile delta-neutral">
+                <div class="tile-label">Retained</div>
+                <div class="tile-value">{{ p.retained_count }}</div>
+                <div class="tile-sub">present in both</div>
+            </div>
+        </div>
+        {% if p.added or p.dropped %}
+        <div class="project-lists">
+            <div>
+                <h4>Added</h4>
+                {% if p.added %}
+                    <ul>{% for name in p.added %}<li><code>{{ name }}</code></li>{% endfor %}</ul>
+                {% else %}<em>None.</em>{% endif %}
+            </div>
+            <div>
+                <h4>Dropped</h4>
+                {% if p.dropped %}
+                    <ul>{% for name in p.dropped %}<li><code>{{ name }}</code></li>{% endfor %}</ul>
+                {% else %}<em>None.</em>{% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </section>
+
+    {# -------- Section 2: Active users -------- #}
+    <section class="delta-section">
+        <h2>Active users</h2>
+        <div class="tile-grid">
+            {% for key, label in [
+                ('total_licensed_users', 'Licensed users'),
+                ('users_with_login', 'Users with login'),
+                ('active_users', 'Active users'),
+                ('active_user_percentage', 'Active user %'),
+                ('login_user_percentage', 'Login user %'),
+            ] %}
+                {% set s = inst.active_users.stats[key] %}
+                {% set is_pct = key.endswith('_percentage') %}
+                <div class="tile {% if s.delta and s.delta > 0 %}delta-up{% elif s.delta and s.delta < 0 %}delta-down{% else %}delta-neutral{% endif %}">
+                    <div class="tile-label">{{ label }}</div>
+                    <div class="tile-value">
+                        {% if s.curr is none %}—{% else %}{{ '%.1f'|format(s.curr) if is_pct else s.curr }}{% endif %}
+                    </div>
+                    <div class="tile-sub">
+                        was {% if s.prev is none %}—{% else %}{{ '%.1f'|format(s.prev) if is_pct else s.prev }}{% endif %}
+                        {% if s.delta is not none %}
+                        (<span class="{% if s.delta > 0 %}delta-pos{% elif s.delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
+                            {{ '{:+.1f}'.format(s.delta) if is_pct else '{:+d}'.format(s.delta|int) }}
+                        </span>)
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        {% set tup = inst.active_users.get('top_users_by_fixes') %}
+        {% if tup and (tup.added or tup.dropped) %}
+        <div class="project-lists">
+            <div>
+                <h4>Top fixers — new entrants</h4>
+                {% if tup.added %}
+                    <ul>{% for u in tup.added %}<li><code>{{ u }}</code></li>{% endfor %}</ul>
+                {% else %}<em>None.</em>{% endif %}
+            </div>
+            <div>
+                <h4>Top fixers — dropped out</h4>
+                {% if tup.dropped %}
+                    <ul>{% for u in tup.dropped %}<li><code>{{ u }}</code></li>{% endfor %}</ul>
+                {% else %}<em>None.</em>{% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </section>
+
+    {# -------- Section 3: Scan activity -------- #}
+    <section class="delta-section">
+        <h2>Scan activity {% if window_mismatch %}<span class="warn-marker">⚠ WINDOW MISMATCH</span>{% endif %}</h2>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Previous ({{ delta.previous.days }}d)</th>
+                    <th>Current ({{ delta.current.days }}d)</th>
+                    <th>Δ</th>
+                    <th>%Δ</th>
+                    {% if window_mismatch %}
+                    <th>Prev/day</th>
+                    <th>Curr/day</th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for key, label in [
+                    ('scan_count', 'Snapshots (scans)'),
+                    ('total_files_analyzed', 'Files analyzed'),
+                    ('total_new_defects', 'New defects introduced'),
+                    ('total_eliminated_defects', 'Defects eliminated'),
+                ] %}
+                    {% set t = inst.scan_activity.totals[key] %}
+                    <tr>
+                        <td>{{ label }}</td>
+                        <td>{{ t.prev|int }}</td>
+                        <td>{{ t.curr|int }}</td>
+                        <td class="{% if t.delta > 0 %}delta-pos{% elif t.delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
+                            {{ '{:+d}'.format(t.delta|int) }}
+                        </td>
+                        <td>{% if t.pct_delta is not none %}{{ '{:+.1f}%'.format(t.pct_delta) }}{% else %}—{% endif %}</td>
+                        {% if window_mismatch %}
+                        {% set n = inst.scan_activity.normalized_per_day[key] %}
+                        <td>{{ n.prev }}</td>
+                        <td>{{ n.curr }}</td>
+                        {% endif %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    {# -------- Section 4: Snapshot cadence (per-stream) -------- #}
+    <section class="delta-section">
+        <h2>Snapshot cadence — per stream</h2>
+        {% if inst.snapshot_cadence.per_stream %}
+        <p style="color: #7f8c8d; font-size: 0.9rem;">
+            Aggregated from the recent-snapshot sample in each export
+            (<code>snapshot_performance.json</code>). Streams that appear in
+            only one snapshot show <code>—</code> on the missing side.
+        </p>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Stream</th>
+                    <th>Snapshots prev</th>
+                    <th>Snapshots curr</th>
+                    <th>Δ</th>
+                    <th>Mean duration prev (s)</th>
+                    <th>Mean duration curr (s)</th>
+                    <th>Δ duration</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in inst.snapshot_cadence.per_stream %}
+                <tr>
+                    <td><code>{{ r.stream_name }}</code></td>
+                    <td>{{ r.snapshot_count_prev if r.snapshot_count_prev is not none else '—' }}</td>
+                    <td>{{ r.snapshot_count_curr if r.snapshot_count_curr is not none else '—' }}</td>
+                    <td class="{% if r.snapshot_count_delta and r.snapshot_count_delta > 0 %}delta-pos{% elif r.snapshot_count_delta and r.snapshot_count_delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
+                        {% if r.snapshot_count_delta is not none %}{{ '{:+d}'.format(r.snapshot_count_delta|int) }}{% else %}—{% endif %}
+                    </td>
+                    <td>{% if r.mean_duration_seconds_prev is not none %}{{ '%.1f'|format(r.mean_duration_seconds_prev) }}{% else %}—{% endif %}</td>
+                    <td>{% if r.mean_duration_seconds_curr is not none %}{{ '%.1f'|format(r.mean_duration_seconds_curr) }}{% else %}—{% endif %}</td>
+                    <td class="{% if r.mean_duration_seconds_delta and r.mean_duration_seconds_delta > 0 %}delta-neg{% elif r.mean_duration_seconds_delta and r.mean_duration_seconds_delta < 0 %}delta-pos{% else %}delta-zero{% endif %}">
+                        {% if r.mean_duration_seconds_delta is not none %}{{ '{:+.1f}'.format(r.mean_duration_seconds_delta) }}{% else %}—{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <em>No per-stream snapshot cadence data available in either snapshot.</em>
+        {% endif %}
+    </section>
+
+    {# -------- Section 5: Defects by project (with ranking movement) -------- #}
+    <section class="delta-section">
+        <h2>Defects by project</h2>
+        {% if inst.defects_by_project.per_project %}
+        <p style="color: #7f8c8d; font-size: 0.9rem;">
+            Ranking is on outstanding <em>active</em> defects (#1 = most active
+            defects). ▲ means the project moved up in the ranking
+            (better = fewer active defects than before), ▼ means it moved
+            down (more active defects).
+        </p>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Project</th>
+                    <th>Active prev</th>
+                    <th>Active curr</th>
+                    <th>Δ active</th>
+                    <th>%Δ</th>
+                    <th>Fixed prev</th>
+                    <th>Fixed curr</th>
+                    <th>Δ fixed</th>
+                    <th>Rank prev</th>
+                    <th>Rank curr</th>
+                    <th>Δ rank</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in inst.defects_by_project.per_project %}
+                <tr>
+                    <td><code>{{ r.project_name }}</code></td>
+                    <td>{{ r.active_defects_prev if r.active_defects_prev is not none else '—' }}</td>
+                    <td>{{ r.active_defects_curr if r.active_defects_curr is not none else '—' }}</td>
+                    <td class="{% if r.active_defects_delta and r.active_defects_delta > 0 %}delta-neg{% elif r.active_defects_delta and r.active_defects_delta < 0 %}delta-pos{% else %}delta-zero{% endif %}">
+                        {% if r.active_defects_delta is not none %}{{ '{:+d}'.format(r.active_defects_delta|int) }}{% else %}—{% endif %}
+                    </td>
+                    <td>
+                        {% if r.active_defects_pct_delta is not none %}{{ '{:+.1f}%'.format(r.active_defects_pct_delta) }}{% else %}—{% endif %}
+                    </td>
+                    <td>{{ r.fixed_defects_prev if r.fixed_defects_prev is not none else '—' }}</td>
+                    <td>{{ r.fixed_defects_curr if r.fixed_defects_curr is not none else '—' }}</td>
+                    <td class="{% if r.fixed_defects_delta and r.fixed_defects_delta > 0 %}delta-pos{% elif r.fixed_defects_delta and r.fixed_defects_delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
+                        {% if r.fixed_defects_delta is not none %}{{ '{:+d}'.format(r.fixed_defects_delta|int) }}{% else %}—{% endif %}
+                    </td>
+                    <td>{{ r.rank_prev if r.rank_prev is not none else '—' }}</td>
+                    <td>{{ r.rank_curr if r.rank_curr is not none else '—' }}</td>
+                    <td>
+                        {% if r.rank_prev is none and r.rank_curr is not none %}
+                            <span class="rank-new">new</span>
+                        {% elif r.rank_prev is not none and r.rank_curr is none %}
+                            <span class="rank-dropped">dropped</span>
+                        {% elif r.rank_delta is not none and r.rank_delta > 0 %}
+                            <span class="rank-arrow-up">▲{{ r.rank_delta|int }}</span>
+                        {% elif r.rank_delta is not none and r.rank_delta < 0 %}
+                            <span class="rank-arrow-down">▼{{ (r.rank_delta * -1)|int }}</span>
+                        {% else %}
+                            <span class="delta-zero">0</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <em>No per-project defect data available.</em>
+        {% endif %}
+    </section>
+    {% endfor %}
+</div>
+
+<script>
+    // Copied from templates/dashboard.html so this template stays self-contained.
+    let sortDirections = {};
+
+    function sortTable(columnIndex, tableId, dataType) {
+        const table = document.getElementById(tableId);
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const sortKey = tableId + '-' + columnIndex;
+        if (!sortDirections[sortKey]) sortDirections[sortKey] = 'asc';
+        const isAscending = sortDirections[sortKey] === 'asc';
+        sortDirections[sortKey] = isAscending ? 'desc' : 'asc';
+        rows.sort((a, b) => {
+            let aValue = a.cells[columnIndex].textContent.trim();
+            let bValue = b.cells[columnIndex].textContent.trim();
+            if (dataType === 'number') {
+                aValue = parseFloat(aValue.replace(/[^0-9.\-]/g, '')) || 0;
+                bValue = parseFloat(bValue.replace(/[^0-9.\-]/g, '')) || 0;
+                return isAscending ? aValue - bValue : bValue - aValue;
+            } else if (dataType === 'date') {
+                aValue = new Date(aValue);
+                bValue = new Date(bValue);
+                return isAscending ? aValue - bValue : bValue - aValue;
+            } else {
+                return isAscending ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+            }
+        });
+        rows.forEach(row => tbody.appendChild(row));
+    }
+
+    function detectColumnType(table, colIndex) {
+        const rows = table.querySelectorAll('tbody tr');
+        for (let i = 0; i < Math.min(rows.length, 5); i++) {
+            const cell = rows[i].cells[colIndex];
+            if (!cell) continue;
+            const txt = cell.textContent.trim();
+            if (!txt || txt === 'N/A' || txt === '-' || txt === '—') continue;
+            if (/^\d{4}-\d{2}-\d{2}/.test(txt)) return 'date';
+            const stripped = txt.replace(/[,%+]/g, '').replace(/\s*(min|sec|hrs?|h|days?|d|ms|MB|KB|GB|s)\s*$/i, '').trim();
+            if (stripped !== '' && !isNaN(parseFloat(stripped)) && isFinite(stripped)) return 'number';
+            return 'text';
+        }
+        return 'text';
+    }
+
+    let autoSortableTableSeq = 0;
+    function makeTableSortable(table) {
+        if (!table || table.dataset.sortableInitialized === '1') return;
+        const headerRow = table.querySelector('thead tr');
+        if (!headerRow) return;
+        if (!table.id) {
+            autoSortableTableSeq += 1;
+            table.id = 'delta-sortable-table-' + autoSortableTableSeq;
+        }
+        const ths = headerRow.querySelectorAll('th');
+        ths.forEach((th, i) => {
+            if (th.classList.contains('sortable') || th.getAttribute('onclick')) return;
+            const dataType = detectColumnType(table, i);
+            th.classList.add('sortable');
+            th.setAttribute('onclick', "sortTable(" + i + ", '" + table.id + "', '" + dataType + "')");
+            if (!/[▲▼]/.test(th.textContent)) {
+                th.insertAdjacentHTML('beforeend', ' <span class="sort-arrow">▲▼</span>');
+            }
+        });
+        table.dataset.sortableInitialized = '1';
+    }
+
+    function makeAllTablesSortable() {
+        document.querySelectorAll('table.data-table').forEach(makeTableSortable);
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(makeAllTablesSortable, 0);
+    });
+</script>
+</body>
+</html>

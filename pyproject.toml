@@ -63,6 +63,7 @@ Repository = "https://github.com/lejouni/coverity_metrics"
 coverity-dashboard = "coverity_metrics.cli.dashboard:main"
 coverity-metrics = "coverity_metrics.cli.report:main"
 coverity-export = "coverity_metrics.cli.export:main"
+coverity-delta = "coverity_metrics.cli.delta:main"
 
 [tool.setuptools]
 packages = ["coverity_metrics", "coverity_metrics.cli"]

@@ -2,6 +2,39 @@
 
 ## Version History
 
+### Version 1.1.4 - YYYY-MM-DD
+
+**New `coverity-delta` CLI: Quarter-over-Quarter Comparison Report from Two `coverity-export` ZIPs**
+
+#### Added
+
+##### 📊 `coverity-delta` — compare two archived exports and emit adoption-focused delta report
+- New standalone CLI ships alongside `coverity-dashboard` / `coverity-metrics` / `coverity-export`. Also exposed as the `delta` subcommand on `python -m coverity_metrics` and on the standalone binary (`coverity-metrics delta ...`). Runs entirely offline — no database access.
+- Consumes two ZIPs produced by `coverity-export` (a "previous" and a "current" snapshot) and emits two artifacts under `--output`:
+  - `delta.json` — machine-readable, schema v1, per-instance sections for projects, active users, scan activity, snapshot cadence, and defects-by-project (with ranking movement). Round-trips through `json.dumps` for downstream tooling.
+  - `dashboard_delta.html` — self-contained HTML report (inline CSS, no external CDN, no Plotly). Header banner with previous/current labels + `--days` windows + generated timestamp + warnings ribbon. Tile cards for scalar deltas, sortable tables for per-project breakdowns using the repo's `data-table` autoloader convention.
+- **Adoption-focused metric families in v1.1.4** (five total, sourced from the JSONs `coverity-export` already writes):
+  - **Projects added / dropped / retained** from `total_defects_by_project.json`.
+  - **Active-user Δ** from `user_license_statistics.json` — licensed users, users with login, active users, plus percentage columns; optionally augmented by a set diff on the top-fixers list from `top_users_by_fixes.json` (both prev and curr must have the metric).
+  - **Scan-activity Δ** from `scan_activity_trend.json` — snapshots taken, files analyzed, defects introduced, defects eliminated in each window.
+  - **Per-stream snapshot-cadence Δ** from `snapshot_performance.json` — snapshots seen in the recent sample + mean scan duration.
+  - **Defects-by-project Δ** from `total_defects_by_project.json` — `active_defects` / `fixed_defects` numeric deltas + ranking movement (▲ climbed, ▼ dropped, `new` / `dropped` for one-sided rows).
+- Security-focused deltas (OWASP / CWE), cross-instance aggregated deltas, and >2-way historical comparison are deliberately out of scope for v1.1.4. The `delta_metrics.py` primitives (`diff_project_set` / `diff_numeric` / `diff_ranking`) are generic and will extend to those in a later release.
+
+##### 🛡️ Guardrails
+- Two snapshots being compared must cover the **same instance list** and the **same `--days` window**. Windowed metrics (scan activity, snapshot cadence) are meaningless when the windows differ; the CLI hard-fails with an actionable message pointing at the fix.
+- `--allow-window-mismatch` escape hatch is provided for **testing / advanced use only** (documented as such in `--help` and in this changelog). When set, the report is emitted anyway with a `window_mismatch` entry in `delta.json.warnings`, ⚠ markers on affected sections in the HTML, and a `normalized_per_day` block alongside raw totals so the numbers stay meaningful.
+- Anonymization-mapping fingerprints must match across the two ZIPs. Fingerprint is a SHA-256 over the sorted (real → anon) pairs in each sibling `<zip>.mapping.json` — so two exports run with the same `--mapping-file` share the fingerprint, and two exports run with different mapping files don't. No override — fix the workflow by rerunning both exports with the same `--mapping-file`. Missing mapping on one side only is downgraded to a warning (so users trying delta without anonymization still get a report).
+
+##### 📝 Recommended quarterly workflow (documented in `README.md` and `EXPORT_QUICKSTART.md`)
+- Run `coverity-export --days 90 --anonymize --mapping-file archive/quarterly-mapping.json --output archive/2026-QN` at the **end of every quarter** with the **same** `--days` value and `--mapping-file` — same value across every quarter you ever intend to compare. Non-overlapping 90-day windows give the cleanest story ("Q1 activity" vs "Q2 activity"); the shared mapping file keeps `project_001` pointing at the same real project quarter after quarter.
+- Then `coverity-delta --previous archive/2026-Q1/*.zip --current archive/2026-Q2/*.zip --output delta/2026-Q1_vs_Q2` produces the report.
+- Both `README.md` (new "Quarterly Comparison Workflow" section) and `EXPORT_QUICKSTART.md` (appended "Quarterly comparison (`coverity-delta`)" section) walk through the workflow end to end, including the standalone-binary invocations.
+
+##### 🧪 Test coverage
+- 21 unit + end-to-end tests across `test_delta_metrics.py` (15 tests: diff primitives, `SnapshotLoader`, each compute function, orchestration) and `test_delta_cli.py` (6 tests: happy path, window-mismatch hard-fail, `--allow-window-mismatch` escape hatch produces warning + `normalized_per_day`, anonymization-mismatch hard-fail, matching-mapping happy path, instance-list mismatch hard-fail).
+- Existing `test_anonymizer.py` (12 tests) continues to pass — no changes to `anonymizer.py` needed for this feature.
+
 ### Version 1.1.3 - 2026-08-20
 
 **Linux Binary Bundles Pristine OpenSSL 3.5.7 + zlib 1.3.2 Built From Source, PowerShell Quickstart Uses `Bypass`**
