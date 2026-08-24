@@ -250,41 +250,50 @@ work when reading from a ZIP:
 - `--cache` / `--cache-dir` / `--cache-ttl` — cache the derived DataFrames
   between renders; see [CACHING_GUIDE.md](CACHING_GUIDE.md).
 
-## Quarterly comparison (`coverity-delta`)
+## Trend comparison (`coverity-delta`)
 
-Once you have two archived exports — e.g. `archive/2026-Q1/*.zip` and
-`archive/2026-Q2/*.zip` — you can produce an adoption-focused
-quarter-over-quarter delta report. The `coverity-delta` subcommand is
-part of the same standalone binary, so no extra download is required.
+Once you have two or more archived exports accumulating in a folder —
+e.g. `archive/*.zip` — you can produce an adoption-focused trend
+report. The `coverity-delta` subcommand is part of the same standalone
+binary, so no extra download is required.
 
-**Prerequisites for a clean comparison**:
+**Prerequisites for a clean trend**:
 
-1. Both exports were run with the **same `--days` value** (usually `90`
-   for a quarter; whatever number matches your fiscal quarter).
-2. Both exports were run with the **same `--mapping-file`** if you
+1. Every export in the folder was run with the **same `--days` value**
+   (usually `90` for a quarter; whatever number matches your reporting
+   period).
+2. Every export was run with the **same `--mapping-file`** if you
    anonymized. Otherwise `project_001` in Q1 might refer to a different
    real project than `project_001` in Q2, and the delta refuses to run.
+3. At least **two** ZIPs are in the folder. There is no upper bound; a
+   3-, 4-, or N-snapshot trend is rendered identically.
 
 ### Linux / macOS
 
 ```bash
-# End of Q1 (recorded at the time)
+# End of Q1 — write straight into the shared archive folder.
 ./scripts/bin/coverity-metrics-linux-v1.1.4 export \
     --days 90 \
-    --anonymize --mapping-file archive/quarterly-mapping.json \
-    --output archive/2026-Q1
+    --anonymize --mapping-file archive/shared-mapping.json \
+    --output archive/
 
-# End of Q2 — same --days, same --mapping-file
+# End of Q2 — same --days, same --mapping-file, same --output folder.
 ./scripts/bin/coverity-metrics-linux-v1.1.4 export \
     --days 90 \
-    --anonymize --mapping-file archive/quarterly-mapping.json \
-    --output archive/2026-Q2
+    --anonymize --mapping-file archive/shared-mapping.json \
+    --output archive/
 
-# Compare the two snapshots. Runs entirely offline.
+# End of Q3 — repeat.
+./scripts/bin/coverity-metrics-linux-v1.1.4 export \
+    --days 90 \
+    --anonymize --mapping-file archive/shared-mapping.json \
+    --output archive/
+
+# Point coverity-delta at the folder. Every ZIP is picked up in
+# chronological order (by metadata.export_timestamp inside each ZIP).
 ./scripts/bin/coverity-metrics-linux-v1.1.4 delta \
-    --previous archive/2026-Q1/coverity_export_Production_*.zip \
-    --current  archive/2026-Q2/coverity_export_Production_*.zip \
-    --output   delta/2026-Q1_vs_Q2
+    --archive-dir archive/ \
+    --output delta/latest
 ```
 
 ### Windows
@@ -292,43 +301,65 @@ part of the same standalone binary, so no extra download is required.
 ```powershell
 & .\scripts\bin\coverity-metrics-windows-v1.1.4.exe export `
     --days 90 `
-    --anonymize --mapping-file archive\quarterly-mapping.json `
-    --output archive\2026-Q1
+    --anonymize --mapping-file archive\shared-mapping.json `
+    --output archive\
 
 & .\scripts\bin\coverity-metrics-windows-v1.1.4.exe export `
     --days 90 `
-    --anonymize --mapping-file archive\quarterly-mapping.json `
-    --output archive\2026-Q2
+    --anonymize --mapping-file archive\shared-mapping.json `
+    --output archive\
+
+& .\scripts\bin\coverity-metrics-windows-v1.1.4.exe export `
+    --days 90 `
+    --anonymize --mapping-file archive\shared-mapping.json `
+    --output archive\
 
 & .\scripts\bin\coverity-metrics-windows-v1.1.4.exe delta `
-    --previous archive\2026-Q1\coverity_export_Production_*.zip `
-    --current  archive\2026-Q2\coverity_export_Production_*.zip `
-    --output   delta\2026-Q1_vs_Q2
+    --archive-dir archive\ `
+    --output delta\latest
 ```
 
 ### Output
 
 The command produces two artifacts under `--output`:
 
-- `delta.json` — machine-readable delta (schema v1) with per-instance
+- `delta.json` — machine-readable trend (schema v1) with per-instance
   sections for projects, active users, scan activity, snapshot cadence,
-  and defects-by-project (with ranking movement).
-- `dashboard_delta.html` — self-contained HTML report with tile cards
-  for the top-level scalar deltas and sortable tables for the per-project
-  breakdowns.
+  and defects-by-project. Every metric family carries a per-snapshot
+  `series` array (length = number of ZIPs) plus first→last summary
+  values.
+- `dashboard_delta.html` — self-contained HTML report with hand-rolled
+  inline SVG line charts for every metric family, a per-project
+  sparkline table (sortable by first→last active-defect Δ by default),
+  and the full snapshot chain shown in the header
+  (`2026-Q1 → 2026-Q2 → 2026-Q3 → ...`). Hover any chart or sparkline
+  data point for a native `{label}: {value}` tooltip. Added / Dropped
+  entries in the Projects and Stream Activity lists carry timing tags
+  (`joined Q2/26`, `last seen Q3/26`, or
+  `Q1/26 → Q3/26 (came & went)` for projects that appeared and were
+  removed inside the window). No JavaScript, no external CDN — one
+  self-contained HTML file that opens in any browser.
+
+Snapshot labels auto-derive to `YYYY-QN` from each ZIP's `export_date`;
+pass `--labels a,b,c,...` to override them positionally in
+chronological order.
 
 ### Guardrails
 
 `coverity-delta` refuses to compare snapshots that would produce
-misleading numbers:
+misleading numbers, and applies every rule **across the whole archive**
+(not just adjacent pairs):
 
-- **Different `--days` windows** → hard fail. Rerun one export with a
-  matching `--days`. Override with `--allow-window-mismatch` for testing
-  only; the report will carry ⚠ markers and a `normalized_per_day` view.
-- **Different anonymization mappings** → hard fail. Rerun both exports
-  with the same `--mapping-file`. There is no override.
-- **Different instance lists** → hard fail. The two ZIPs must cover the
-  same set of Coverity Connect instances.
+- **Different `--days` windows** on any ZIP → hard fail. Rerun the odd
+  export with a matching `--days`. Override with
+  `--allow-window-mismatch` for testing only; the report will carry ⚠
+  markers and a `normalized_per_day` view.
+- **Different anonymization mappings** on any ZIP → hard fail. Rerun
+  every export with the same `--mapping-file`. There is no override.
+- **Different instance lists** on any ZIP → hard fail. Every ZIP must
+  cover the same set of Coverity Connect instances.
+- **Empty folder, single-ZIP folder, missing folder** → clear error
+  message with fix hints, not a Python traceback.
 
 
 Trend-window options (`--days`) are still accepted in dashboard-from-ZIP

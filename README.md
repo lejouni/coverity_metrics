@@ -789,65 +789,94 @@ coverity-export --days 365
 # - ZIP file (exports/*.zip) for offline dashboards and archiving
 ```
 
-**Quarterly Comparison Workflow (NEW!):**
+**Trend Comparison Workflow (NEW!):**
 
-Run `coverity-export` at the end of each quarter with the **same `--days`
-value and the same `--mapping-file`**, archive the resulting ZIPs, then
-use `coverity-delta` to produce an adoption-focused delta report:
+Run `coverity-export` at the end of each period with the **same `--days`
+value and the same `--mapping-file`**, letting the resulting ZIPs
+accumulate in a shared archive folder. Then point `coverity-delta` at
+the folder to get a multi-snapshot trend report:
 
 ```bash
 # End of Q1: export with a shared mapping file so anonymized project ids
-# stay stable across every future quarterly snapshot.
+# stay stable across every future snapshot.
 coverity-export --days 90 \
-    --anonymize --mapping-file archive/quarterly-mapping.json \
-    --output archive/2026-Q1
+    --anonymize --mapping-file archive/shared-mapping.json \
+    --output archive/
 
-# End of Q2: same --days, same --mapping-file. The mapping file is
-# extended in-place for any new projects; existing projects keep their
-# ids.
+# End of Q2: same --days, same --mapping-file, same --output folder.
+# The mapping file is extended in-place for any new projects; existing
+# projects keep their ids.
 coverity-export --days 90 \
-    --anonymize --mapping-file archive/quarterly-mapping.json \
-    --output archive/2026-Q2
+    --anonymize --mapping-file archive/shared-mapping.json \
+    --output archive/
 
-# Compare the two snapshots. Runs entirely offline — no database access.
-coverity-delta \
-    --previous archive/2026-Q1/coverity_export_Production_*.zip \
-    --current  archive/2026-Q2/coverity_export_Production_*.zip \
-    --output delta/2026-Q1_vs_Q2
+# End of Q3: repeat. archive/ now holds three ZIPs.
+coverity-export --days 90 \
+    --anonymize --mapping-file archive/shared-mapping.json \
+    --output archive/
+
+# Point coverity-delta at the folder — every ZIP is picked up in
+# chronological order (by metadata.export_timestamp inside each ZIP)
+# and rendered as a trend across the whole window. Runs entirely
+# offline — no database access.
+coverity-delta --archive-dir archive/ --output delta/latest
 
 # Produces:
-#   delta/2026-Q1_vs_Q2/delta.json           (schema v1, machine-readable)
-#   delta/2026-Q1_vs_Q2/dashboard_delta.html (self-contained HTML report)
+#   delta/latest/delta.json           (schema v1, per-snapshot series)
+#   delta/latest/dashboard_delta.html (self-contained inline-SVG trend charts)
 ```
 
-The delta report focuses on the metrics that matter for a quarterly
-customer-adoption story:
+Two or more ZIPs are required; there is no upper bound. Snapshot labels
+auto-derive to `YYYY-QN` from each ZIP's `export_date`; override them
+positionally with `--labels a,b,c,...` if the auto-derived labels
+collide (multiple exports inside the same quarter, custom period names).
 
-- **Projects added / dropped / retained** between the two snapshots.
-- **Active-user Δ** — licensed, logged-in, active user counts + %Δ.
-- **Scan-activity Δ** — snapshots taken, files analyzed, defects
-  introduced, defects eliminated inside each `--days` window.
-- **Stream activity** — set diff on the recent-snapshot sample: streams
-  newly active (present in the current sample only) and streams that
-  went dark (present in the previous sample only). Deliberately reports
-  set membership rather than per-stream counts — the underlying
-  `snapshot_performance` metric is a top-100 sample, so count deltas
-  from it are dominated by top-N sliding, not by real activity.
-- **Defects-by-project Δ** — outstanding / fixed counts + ranking movement
-  (▲ climbed the outstanding-defects ranking, ▼ dropped, `new` /
-  `dropped` for projects only present in one snapshot).
+The trend report focuses on the metrics that matter for an
+adoption-over-time story:
+
+- **Projects** — count series per snapshot + across-window Added /
+  Dropped / Retained set diff. Every Added / Dropped entry carries a
+  timing tag (`joined Q2/26`, `last seen Q3/26`, or
+  `Q1/26 → Q3/26 (came & went)` for projects that appeared and were
+  removed inside the window).
+- **Active users** — per-stat time series (licensed, logged-in, active
+  users, plus the two percentage columns) + first→last Δ + %Δ, all
+  fronted by a tile-grid summary.
+- **Scan activity** — per-snapshot window totals for snapshots taken,
+  files analyzed, defects introduced, defects eliminated. Raw-numbers
+  table with a column per snapshot alongside the trend charts.
+- **Stream activity** — per-snapshot active-stream count series +
+  Newly active / Went dark stream lists (with the same timing tags as
+  Projects). Deliberately reports set membership rather than per-stream
+  counts — the underlying `snapshot_performance` metric is a top-100
+  sample, so count deltas from it are dominated by top-N sliding, not
+  by real activity.
+- **Defects by project** — one row per project with an inline SVG
+  sparkline of active-defect counts across every snapshot (nulls break
+  the line where the project was absent), first / last / Δ / %Δ, and
+  rank movement (▲ climbed, ▼ dropped, `new` / `dropped` /
+  `came & went` for projects only present at one end of the window or
+  absent from both ends).
+
+**HTML polish.** All chart and sparkline data points expose a native
+SVG `<title>` tooltip — hover any point to see `{label}: {value}`
+(e.g. `Q3/26: 4`). The three top sections (Projects, Active users,
+Stream activity) share a consistent layout: tile-grid summary →
+line chart → detail lists.
 
 **Guardrails.** `coverity-delta` refuses to compare snapshots that used
-different `--days` windows or different anonymization mappings — those
-comparisons are almost always meaningless. Two escape hatches exist:
+different `--days` windows or different anonymization mappings across
+the whole archive — those trends are almost always meaningless. Two
+escape hatches exist:
 
 - `--allow-window-mismatch` — for testing / advanced use only. Every
   windowed metric is tagged with a ⚠ marker in the report and a
   `window_mismatch` entry appears in `delta.json.warnings`. Also emits a
-  `normalized_per_day` view alongside the raw totals so the numbers stay
-  meaningful.
+  `normalized_per_day` series alongside the raw totals so the numbers
+  stay meaningful.
 - Anonymization mismatch has no override: fix the workflow by re-running
-  both exports with the same `--mapping-file`.
+  every export with the same `--mapping-file`. Missing mapping on a
+  subset of the archive is downgraded to a warning.
 
 ### Python Library Usage
 

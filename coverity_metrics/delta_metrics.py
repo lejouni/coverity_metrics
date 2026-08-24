@@ -1,24 +1,26 @@
-"""Quarter-over-quarter delta computation over ``coverity-export`` ZIPs.
+"""Trend computation over ``coverity-export`` ZIPs.
 
-Consumes two snapshot ZIPs produced by :mod:`coverity_metrics.cli.export` and
-returns per-instance adoption deltas: projects added/dropped, active users,
-scan activity, snapshot cadence, and defects-by-project (with ranking
-movement). Nothing here talks to the database — every input comes from
-the per-metric JSONs bundled inside the export ZIP.
+Consumes an ordered list of snapshot ZIPs (oldest → newest) produced by
+:mod:`coverity_metrics.cli.export` and returns per-instance time series
+for adoption metrics: projects, active users, scan activity, snapshot
+cadence (stream activity), and defects-by-project (with per-snapshot
+ranking movement). Nothing here talks to the database — every input
+comes from the per-metric JSONs bundled inside the export ZIPs.
 
 Kept separate from ``multi_instance_metrics.py`` because that module owns
 cross-instance aggregation at a single point in time, while this module
-owns single-instance comparison across two points in time. They will
-eventually meet, but not in v1.1.4.
+owns single-instance comparison across N points in time.
 """
 from __future__ import annotations
 
+import glob
 import hashlib
 import json
 import os
+import re
 import zipfile
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import pandas as pd
 
@@ -26,6 +28,11 @@ from coverity_metrics.anonymizer import default_mapping_path
 
 
 DELTA_SCHEMA_VERSION = 1
+
+
+# Recognizes the timestamp trailer that ``export.py`` appends to every ZIP
+# filename: ``coverity_export_<sanitized_name>_YYYYMMDD_HHMMSS.zip``.
+_FILENAME_TIMESTAMP_RE = re.compile(r"(\d{8})_(\d{6})(?:\.zip)?$", re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
@@ -53,8 +60,11 @@ class SnapshotLoader:
     @property
     def metadata(self) -> dict:
         if self._metadata is None:
-            with self._zf.open("metadata.json") as f:
-                self._metadata = json.load(f)
+            try:
+                with self._zf.open("metadata.json") as f:
+                    self._metadata = json.load(f)
+            except (KeyError, json.JSONDecodeError):
+                self._metadata = {}
         return self._metadata
 
     @property
@@ -77,6 +87,18 @@ class SnapshotLoader:
     @property
     def export_timestamp(self) -> str:
         return str(self.metadata.get("export_timestamp") or "")
+
+    @property
+    def order_key(self) -> datetime:
+        """Chronological sort key: ``export_timestamp`` → filename → mtime."""
+        for source in (self.export_timestamp, os.path.basename(self.zip_path)):
+            dt = _parse_filename_timestamp(source)
+            if dt is not None:
+                return dt
+        try:
+            return datetime.fromtimestamp(os.path.getmtime(self.zip_path))
+        except OSError:
+            return datetime.min
 
     # -- Per-metric loading -----------------------------------------------
 
@@ -134,19 +156,14 @@ class SnapshotLoader:
     def mapping_fingerprint(self) -> Optional[str]:
         """Hash of the (real → anon) pairs in the sibling mapping file.
 
-        Two snapshots produced with the same ``--mapping-file`` share this
-        fingerprint. Returns ``None`` when no mapping exists (non-anonymized
-        export).
+        Snapshots produced with the same ``--mapping-file`` share this
+        fingerprint. Returns ``None`` when no mapping exists.
         """
         path = self.mapping_path()
         if path is None:
             return None
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        # Only the (anon → real) pairs affect ID stability; ignore
-        # ``created`` timestamp and ``instance`` (the latter can legitimately
-        # differ across snapshots that reuse the same shared mapping file
-        # across multiple instances).
         parts = []
         for anon, real in sorted((data.get("projects") or {}).items()):
             parts.append(f"P:{real}={anon}")
@@ -171,6 +188,41 @@ class SnapshotLoader:
         self.close()
 
 
+def _parse_filename_timestamp(source: str) -> Optional[datetime]:
+    """Parse a ``YYYYMMDD_HHMMSS`` fragment out of a metadata field or filename."""
+    if not source:
+        return None
+    m = _FILENAME_TIMESTAMP_RE.search(source)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(f"{m.group(1)}_{m.group(2)}", "%Y%m%d_%H%M%S")
+    except ValueError:
+        return None
+
+
+def load_archive_dir(dir_path: str) -> List[SnapshotLoader]:
+    """Open every ``*.zip`` in ``dir_path`` (non-recursive) and return them in chronological order.
+
+    Ordering key: ``metadata.export_timestamp`` → filename ``YYYYMMDD_HHMMSS``
+    → filesystem mtime. Caller is responsible for closing each loader (use
+    ``contextlib.ExitStack``). Raises ``ValueError`` if the directory holds
+    fewer than 2 ZIPs — a trend needs at least two data points.
+    """
+    if not os.path.isdir(dir_path):
+        raise ValueError(f"Archive directory does not exist or is not a directory: {dir_path}")
+    zip_paths = sorted(glob.glob(os.path.join(dir_path, "*.zip")))
+    if len(zip_paths) < 2:
+        raise ValueError(
+            f"Archive directory must contain at least 2 export ZIPs to build a trend "
+            f"({len(zip_paths)} found in {dir_path}). "
+            "Add more coverity-export ZIPs to the folder and retry."
+        )
+    loaders = [SnapshotLoader(p) for p in zip_paths]
+    loaders.sort(key=lambda ldr: ldr.order_key)
+    return loaders
+
+
 # ---------------------------------------------------------------------------
 # Diff primitives
 # ---------------------------------------------------------------------------
@@ -188,199 +240,182 @@ def diff_project_set(prev_df: pd.DataFrame, curr_df: pd.DataFrame,
     }
 
 
-def diff_numeric(prev_df: pd.DataFrame, curr_df: pd.DataFrame,
-                 key: str, value_cols: List[str]) -> pd.DataFrame:
-    """Outer-join two frames on *key* and add per-value-col ``delta`` / ``pct_delta``.
-
-    Keys that appear in only one snapshot get NaN on the missing side and
-    the delta is computed with the missing side treated as 0 (so an "added"
-    project shows ``curr - 0``). ``pct_delta`` is NaN when the previous
-    value is 0 or missing — avoids div-by-zero without dropping the row.
-    """
-    prev = _ensure_key_frame(prev_df, key, value_cols)
-    curr = _ensure_key_frame(curr_df, key, value_cols)
-    merged = prev.merge(curr, on=key, how="outer", suffixes=("_prev", "_curr"))
-    for col in value_cols:
-        prev_col = f"{col}_prev"
-        curr_col = f"{col}_curr"
-        merged[prev_col] = pd.to_numeric(merged.get(prev_col), errors="coerce")
-        merged[curr_col] = pd.to_numeric(merged.get(curr_col), errors="coerce")
-        merged[f"{col}_delta"] = merged[curr_col].sub(merged[prev_col], fill_value=0)
-        prev_safe = merged[prev_col].where(merged[prev_col] != 0)
-        merged[f"{col}_pct_delta"] = (merged[f"{col}_delta"] / prev_safe) * 100.0
-    return merged
-
-
-def diff_ranking(prev_df: pd.DataFrame, curr_df: pd.DataFrame,
-                 key: str, rank_col: str) -> pd.DataFrame:
-    """Compute ``rank_prev`` / ``rank_curr`` (1 = highest ``rank_col``) and
-    ``rank_delta`` = ``rank_prev - rank_curr`` (positive = climbed).
-
-    Ties get the same rank via dense ranking so a two-way tie for #1 is
-    reported as rank 1 twice, not 1 and 2.
-    """
-    prev = _rank_frame(prev_df, key, rank_col, suffix="_prev")
-    curr = _rank_frame(curr_df, key, rank_col, suffix="_curr")
-    merged = prev.merge(curr, on=key, how="outer")
-    merged["rank_prev"] = merged["rank_prev"].astype("Int64")
-    merged["rank_curr"] = merged["rank_curr"].astype("Int64")
-    merged["rank_delta"] = merged["rank_prev"] - merged["rank_curr"]
-    return merged
-
-
-def _ensure_key_frame(df: pd.DataFrame, key: str, value_cols: List[str]) -> pd.DataFrame:
-    if not isinstance(df, pd.DataFrame) or key not in df.columns:
-        return pd.DataFrame({key: pd.Series(dtype="object"),
-                             **{c: pd.Series(dtype="float64") for c in value_cols}})
-    cols = [key] + [c for c in value_cols if c in df.columns]
-    return df[cols].copy()
-
-
-def _rank_frame(df: pd.DataFrame, key: str, col: str, suffix: str) -> pd.DataFrame:
-    rank_col = f"rank{suffix}"
-    if (not isinstance(df, pd.DataFrame) or df.empty
-            or key not in df.columns or col not in df.columns):
-        return pd.DataFrame({key: pd.Series(dtype="object"),
-                             rank_col: pd.Series(dtype="Int64")})
-    out = df[[key, col]].copy()
-    out[col] = pd.to_numeric(out[col], errors="coerce")
-    out[rank_col] = out[col].rank(ascending=False, method="dense")
-    return out[[key, rank_col]]
-
-
 # ---------------------------------------------------------------------------
-# MVP metric-family compute functions
+# Time-series compute functions (one per metric family)
 # ---------------------------------------------------------------------------
 
 
-def compute_projects_delta(prev: SnapshotLoader, curr: SnapshotLoader,
-                           instance: str) -> dict:
-    """Projects present in each snapshot — added / dropped / retained.
+def compute_projects_series(snapshots: Sequence[SnapshotLoader], instance: str) -> dict:
+    """Per-snapshot project count series + across-window added/dropped set diff.
 
-    Source: ``total_defects_by_project.json`` (instance-scope rows keyed by
-    ``project_name``).
+    Source: ``total_defects_by_project.json`` (one row per project).
+
+    ``added_first_to_last`` = projects present in *any* snapshot but absent
+    from the first snapshot (i.e. entered the window at some point).
+    ``dropped_first_to_last`` = projects present in *any* snapshot but
+    absent from the last snapshot (i.e. left the window at some point).
+    This "ever appeared / ever removed" semantic catches projects that
+    were created and then deleted between the endpoints — which
+    ``first - last`` would miss but the count series line chart makes
+    visible. Each entry in the two lists is a dict carrying the
+    ``first_seen_index`` / ``last_seen_index`` (into ``delta.snapshots``)
+    plus a ``snapshot_count`` so the HTML can show when the project
+    joined and when it left.
     """
-    prev_df = prev.load_records(instance, "total_defects_by_project")
-    curr_df = curr.load_records(instance, "total_defects_by_project")
-    partition = diff_project_set(prev_df, curr_df, key="project_name")
+    per_snapshot: List[dict] = []
+    project_sets: List[set] = []
+    for ldr in snapshots:
+        df = ldr.load_records(instance, "total_defects_by_project")
+        names = set(df["project_name"].dropna().astype(str)) if "project_name" in df.columns else set()
+        project_sets.append(names)
+        per_snapshot.append({"count": len(names), "projects": sorted(names)})
+
+    first = project_sets[0]
+    last = project_sets[-1]
+    union_all: set = set().union(*project_sets)
     return {
-        "prev_count": _project_count(prev_df),
-        "curr_count": _project_count(curr_df),
-        "added": partition["added"],
-        "dropped": partition["dropped"],
-        "retained_count": len(partition["retained"]),
+        "series": per_snapshot,
+        "count_series": [row["count"] for row in per_snapshot],
+        "added_first_to_last": _timeline_events(project_sets, sorted(union_all - first)),
+        "dropped_first_to_last": _timeline_events(project_sets, sorted(union_all - last)),
+        "retained_count": len(first & last),
+        "first_count": len(first),
+        "last_count": len(last),
+        "count_delta": len(last) - len(first),
     }
 
 
-def _project_count(df: pd.DataFrame) -> int:
-    if not isinstance(df, pd.DataFrame) or "project_name" not in df.columns:
-        return 0
-    return int(df["project_name"].dropna().astype(str).nunique())
+def compute_active_users_series(snapshots: Sequence[SnapshotLoader], instance: str) -> dict:
+    """Per-stat time series for user-license metrics + first→last top-fixers diff."""
+    stat_keys = ("total_licensed_users", "users_with_login", "active_users",
+                 "active_user_percentage", "login_user_percentage")
 
+    per_stat_series: Dict[str, List[Optional[float]]] = {k: [] for k in stat_keys}
+    for ldr in snapshots:
+        d = ldr.load_dict(instance, "user_license_statistics") or {}
+        for k in stat_keys:
+            per_stat_series[k].append(_to_number(d.get(k)))
 
-def compute_active_users_delta(prev: SnapshotLoader, curr: SnapshotLoader,
-                               instance: str) -> dict:
-    """Active-user scalar delta from ``user_license_statistics.json``.
-
-    Optionally augmented by a set diff on the ``top_users_by_fixes.json``
-    ``username`` column when that metric is present in both snapshots.
-    """
-    p = prev.load_dict(instance, "user_license_statistics") or {}
-    c = curr.load_dict(instance, "user_license_statistics") or {}
-    stats = {}
-    for key in ("total_licensed_users", "users_with_login", "active_users",
-                "active_user_percentage", "login_user_percentage"):
-        stats[key] = _scalar_delta(p.get(key), c.get(key))
+    stats: Dict[str, dict] = {}
+    for k in stat_keys:
+        series = per_stat_series[k]
+        stats[k] = {
+            "series": series,
+            "first": series[0],
+            "last": series[-1],
+            "delta": None if series[0] is None or series[-1] is None else series[-1] - series[0],
+            "pct_delta": _pct(series[0], series[-1]),
+        }
 
     result: dict = {"stats": stats}
 
-    tup_prev = prev.load_records(instance, "top_users_by_fixes")
-    tup_curr = curr.load_records(instance, "top_users_by_fixes")
-    if "username" in tup_prev.columns or "username" in tup_curr.columns:
-        result["top_users_by_fixes"] = diff_project_set(tup_prev, tup_curr, key="username")
+    # Top-fixers set diff uses the same union-based "ever appeared / ever
+    # dropped" semantic as compute_projects_series — catches fixers who
+    # entered the leaderboard mid-window and later fell off.
+    all_top: List[pd.DataFrame] = [
+        ldr.load_records(instance, "top_users_by_fixes") for ldr in snapshots
+    ]
+    if any("username" in df.columns for df in all_top):
+        first_set = _column_set(all_top[0], "username")
+        last_set = _column_set(all_top[-1], "username")
+        union_set: set = set()
+        for df in all_top:
+            union_set |= _column_set(df, "username")
+        result["top_users_by_fixes_first_to_last"] = {
+            "added": sorted(union_set - first_set),
+            "dropped": sorted(union_set - last_set),
+            "retained": sorted(first_set & last_set),
+        }
     return result
 
 
-def compute_scan_activity_delta(prev: SnapshotLoader, curr: SnapshotLoader,
-                                instance: str, window_mismatch: bool) -> dict:
-    """Scan-activity totals across each snapshot's window.
+def compute_scan_activity_series(snapshots: Sequence[SnapshotLoader], instance: str,
+                                 window_mismatch: bool) -> dict:
+    """Per-snapshot window totals for scan activity + first→last summary.
 
-    Source: ``scan_activity_trend.json`` (time-series of per-period totals).
-    We sum each numeric column across the whole series and report the raw
-    total delta. When the two snapshots' ``days`` windows differ the caller
-    passes ``window_mismatch=True`` and this function surfaces a
-    ``normalized_per_day`` block so the numbers stay meaningful.
+    Source: ``scan_activity_trend.json``. Values are summed across each
+    snapshot's whole window. When ``window_mismatch=True`` a
+    ``normalized_per_day`` block is returned alongside raw totals.
     """
-    p = prev.load_records(instance, "scan_activity_trend")
-    c = curr.load_records(instance, "scan_activity_trend")
     metric_keys = ("scan_count", "total_files_analyzed",
                    "total_new_defects", "total_eliminated_defects")
-    totals_prev = {k: _sum_col(p, k) for k in metric_keys}
-    totals_curr = {k: _sum_col(c, k) for k in metric_keys}
 
-    out = {
-        "window_days_prev": prev.days,
-        "window_days_curr": curr.days,
-        "totals": {
-            k: {
-                "prev": totals_prev[k],
-                "curr": totals_curr[k],
-                "delta": totals_curr[k] - totals_prev[k],
-                "pct_delta": _pct(totals_prev[k], totals_curr[k]),
-            }
-            for k in metric_keys
-        },
+    per_metric_series: Dict[str, List[float]] = {k: [] for k in metric_keys}
+    per_metric_per_day: Dict[str, List[float]] = {k: [] for k in metric_keys}
+    window_days = [ldr.days for ldr in snapshots]
+
+    for ldr in snapshots:
+        df = ldr.load_records(instance, "scan_activity_trend")
+        days = max(ldr.days, 1)
+        for k in metric_keys:
+            total = _sum_col(df, k)
+            per_metric_series[k].append(total)
+            per_metric_per_day[k].append(round(total / days, 3))
+
+    totals: Dict[str, dict] = {}
+    for k in metric_keys:
+        series = per_metric_series[k]
+        totals[k] = {
+            "series": series,
+            "first": series[0],
+            "last": series[-1],
+            "delta": series[-1] - series[0],
+            "pct_delta": _pct(series[0], series[-1]),
+        }
+
+    out: dict = {
+        "window_days_per_snapshot": window_days,
+        "totals": totals,
     }
     if window_mismatch:
-        pd_days = max(prev.days, 1)
-        cd_days = max(curr.days, 1)
         out["normalized_per_day"] = {
             k: {
-                "prev": round(totals_prev[k] / pd_days, 3),
-                "curr": round(totals_curr[k] / cd_days, 3),
+                "series": per_metric_per_day[k],
+                "first": per_metric_per_day[k][0],
+                "last": per_metric_per_day[k][-1],
             }
             for k in metric_keys
         }
+    else:
+        out["normalized_per_day"] = None
     return out
 
 
-def compute_snapshot_cadence_delta(prev: SnapshotLoader, curr: SnapshotLoader,
-                                   instance: str) -> dict:
-    """Which streams have activity in each snapshot's recent-sample.
+def compute_snapshot_cadence_series(snapshots: Sequence[SnapshotLoader], instance: str) -> dict:
+    """Per-snapshot active-stream count + across-window stream set diff.
 
-    Source: ``snapshot_performance.json`` — a top-N-recent sample (default
-    ``limit=100`` at instance scope) of the most recent snapshots across all
-    streams. This is a perf-inspection sample, **not** a full snapshot
-    history, so per-stream *count* deltas from this source are dominated by
-    top-N sliding: one new snapshot on any stream evicts the oldest one,
-    so Checker's count can drop from 97 → 96 without any real change on
-    Checkers. We therefore only surface a **set diff** on stream names
-    ("did this stream have any activity in the recent sample?") — the
-    noise cancels out and the surviving signal is genuinely useful
-    ("stream X went dark", "stream Y newly active").
+    Source: ``snapshot_performance.json`` — a top-N-recent sample. Per-stream
+    scan-count deltas from this sample are noisy (see v1.1.4 note), so we
+    only surface which streams had *any* activity in the sample.
+
+    ``newly_active_first_to_last`` = streams active in any snapshot but not
+    the first (entered the window). ``went_dark_first_to_last`` = streams
+    active in any snapshot but not the last (left the window). Symmetric
+    with ``compute_projects_series`` so streams that briefly appeared and
+    then went silent are captured.
     """
-    prev_df = prev.load_records(instance, "snapshot_performance")
-    curr_df = curr.load_records(instance, "snapshot_performance")
+    per_snapshot: List[dict] = []
+    stream_sets: List[set] = []
+    for ldr in snapshots:
+        df = ldr.load_records(instance, "snapshot_performance")
+        streams = _unique_streams(df)
+        stream_sets.append(streams)
+        per_snapshot.append({
+            "active_stream_count": len(streams),
+            "sample_size": int(len(df)) if isinstance(df, pd.DataFrame) else 0,
+        })
 
-    prev_streams = _unique_streams(prev_df)
-    curr_streams = _unique_streams(curr_df)
-
-    added = sorted(curr_streams - prev_streams)
-    dropped = sorted(prev_streams - curr_streams)
-    retained = sorted(curr_streams & prev_streams)
-
+    first = stream_sets[0]
+    last = stream_sets[-1]
+    union_all: set = set().union(*stream_sets)
     return {
-        "stream_activity": {
-            "added": added,
-            "dropped": dropped,
-            "retained_count": len(retained),
-            "prev_stream_count": len(prev_streams),
-            "curr_stream_count": len(curr_streams),
-        },
-        "sample_size": {
-            "prev": int(len(prev_df)) if isinstance(prev_df, pd.DataFrame) else 0,
-            "curr": int(len(curr_df)) if isinstance(curr_df, pd.DataFrame) else 0,
-        },
+        "stream_activity_series": per_snapshot,
+        "active_stream_count_series": [row["active_stream_count"] for row in per_snapshot],
+        "newly_active_first_to_last": _timeline_events(stream_sets, sorted(union_all - first)),
+        "went_dark_first_to_last": _timeline_events(stream_sets, sorted(union_all - last)),
+        "retained_count": len(first & last),
+        "first_stream_count": len(first),
+        "last_stream_count": len(last),
         "note": (
             "Streams count as \"active\" here if they had at least one scan "
             "in the recent-activity window each export captured (the 100 most "
@@ -398,27 +433,117 @@ def _unique_streams(df: pd.DataFrame) -> set:
     return set(df["stream_name"].dropna().astype(str).unique())
 
 
+def _column_set(df: pd.DataFrame, col: str) -> set:
+    if not isinstance(df, pd.DataFrame) or df.empty or col not in df.columns:
+        return set()
+    return set(df[col].dropna().astype(str))
 
-def compute_defects_by_project_delta(prev: SnapshotLoader, curr: SnapshotLoader,
-                                     instance: str) -> dict:
-    """Per-project defect Δ + %Δ + ranking movement.
 
-    Source: ``total_defects_by_project.json``. Ranking is on
-    ``active_defects`` (dense rank, highest count = #1). ``rank_delta > 0``
-    means the project climbed the outstanding-defects ranking; ``< 0`` means
-    it dropped. Rows added or dropped between snapshots carry ``<NA>`` on
-    the missing side.
+def _timeline_events(sets_by_snapshot: Sequence[set], names: Sequence[str]) -> List[dict]:
+    """Build ``{name, first_seen_index, last_seen_index, snapshot_count}``
+    entries so the HTML can render "joined Q2/26" / "last seen Q3/26"
+    tags on added/dropped lists.
+
+    Indices reference positions in ``delta.snapshots`` (0-based). The
+    HTML resolves them to labels at render time. Order preserves the
+    input ``names`` sequence.
     """
-    prev_df = prev.load_records(instance, "total_defects_by_project")
-    curr_df = curr.load_records(instance, "total_defects_by_project")
-    numeric = diff_numeric(
-        prev_df, curr_df, key="project_name",
-        value_cols=["defect_count", "active_defects", "fixed_defects"],
-    )
-    ranking = diff_ranking(prev_df, curr_df, key="project_name",
-                           rank_col="active_defects")
-    merged = numeric.merge(ranking, on="project_name", how="outer")
-    return {"per_project": _df_to_records(merged)}
+    events: List[dict] = []
+    for name in names:
+        first_i: Optional[int] = None
+        last_i: Optional[int] = None
+        count = 0
+        for i, s in enumerate(sets_by_snapshot):
+            if name in s:
+                if first_i is None:
+                    first_i = i
+                last_i = i
+                count += 1
+        events.append({
+            "name": name,
+            "first_seen_index": first_i,
+            "last_seen_index": last_i,
+            "snapshot_count": count,
+        })
+    return events
+
+
+def compute_defects_by_project_series(snapshots: Sequence[SnapshotLoader], instance: str) -> dict:
+    """One row per project (union across the window) with active/rank series.
+
+    Missing snapshots for a given project → ``None`` in that slot in
+    ``active_series`` and ``rank_series``. Ranking is recomputed per
+    snapshot via dense-rank on ``active_defects``.
+    """
+    per_snap_active: List[Dict[str, Optional[float]]] = []
+    per_snap_ranks: List[Dict[str, int]] = []
+
+    for ldr in snapshots:
+        df = ldr.load_records(instance, "total_defects_by_project")
+        active_map: Dict[str, Optional[float]] = {}
+        ranks_map: Dict[str, int] = {}
+        if isinstance(df, pd.DataFrame) and not df.empty and "project_name" in df.columns:
+            work = df.copy()
+            work["project_name"] = work["project_name"].astype(str)
+            if "active_defects" in work.columns:
+                work["active_defects"] = pd.to_numeric(work["active_defects"], errors="coerce")
+                for _, row in work.iterrows():
+                    active_map[row["project_name"]] = _to_number(row["active_defects"])
+                work["_rank"] = work["active_defects"].rank(ascending=False, method="dense")
+                for _, row in work.iterrows():
+                    r = row["_rank"]
+                    if pd.notna(r):
+                        ranks_map[row["project_name"]] = int(r)
+            else:
+                for name in work["project_name"]:
+                    active_map[name] = None
+        per_snap_active.append(active_map)
+        per_snap_ranks.append(ranks_map)
+
+    all_projects: set = set()
+    for m in per_snap_active:
+        all_projects.update(m.keys())
+
+    per_project: List[dict] = []
+    n = len(snapshots)
+    for name in sorted(all_projects):
+        active_series: List[Optional[float]] = [per_snap_active[i].get(name) for i in range(n)]
+        rank_series: List[Optional[int]] = [per_snap_ranks[i].get(name) for i in range(n)]
+
+        # Endpoints reflect the actual first and last snapshot slots — a
+        # project absent at either end reports None there. This is what
+        # drives the "new" / "dropped" / "came & went" indicators in the
+        # HTML; using the first/last *observed* values would hide
+        # transient projects.
+        first_active = active_series[0]
+        last_active = active_series[-1]
+        first_rank = rank_series[0]
+        last_rank = rank_series[-1]
+
+        appeared_at = _first_present_index(active_series)
+        # ``dropped_at`` only meaningful if the project is absent at the end.
+        dropped_index = None
+        if active_series[-1] is None:
+            dropped_index = _last_present_index(active_series)
+
+        per_project.append({
+            "project_name": name,
+            "active_series": active_series,
+            "rank_series": rank_series,
+            "active_first": first_active,
+            "active_last": last_active,
+            "active_delta": (None if first_active is None or last_active is None
+                             else last_active - first_active),
+            "active_pct_delta": _pct(first_active, last_active),
+            "rank_first": first_rank,
+            "rank_last": last_rank,
+            "rank_delta": (None if first_rank is None or last_rank is None
+                           else first_rank - last_rank),
+            "appeared_at_index": appeared_at if appeared_at not in (None, 0) else None,
+            "dropped_at_index": dropped_index,
+        })
+
+    return {"per_project": per_project}
 
 
 # ---------------------------------------------------------------------------
@@ -426,46 +551,51 @@ def compute_defects_by_project_delta(prev: SnapshotLoader, curr: SnapshotLoader,
 # ---------------------------------------------------------------------------
 
 
-def build_delta(prev: SnapshotLoader, curr: SnapshotLoader,
-                label_prev: str, label_curr: str,
+def build_trend(snapshots: Sequence[SnapshotLoader],
+                labels: Sequence[str],
                 warnings: List[dict],
                 allow_window_mismatch: bool) -> dict:
-    """Assemble the top-level ``delta.json`` document across all instances.
+    """Assemble the top-level trend document across all instances.
 
-    ``warnings`` is a mutable list already populated by the validation gate
-    (window mismatch, mapping mismatch, missing mapping on one side); this
-    function may append its own entries as it walks each instance.
+    ``snapshots`` must be in chronological order (oldest first) and
+    ``labels`` must be the same length. All loaders are guaranteed to
+    share the same instance list by the validation gate.
     """
-    window_mismatch = prev.days != curr.days
+    if len(snapshots) < 2:
+        raise ValueError("build_trend requires at least 2 snapshots")
+    if len(labels) != len(snapshots):
+        raise ValueError(
+            f"labels length {len(labels)} does not match snapshots length {len(snapshots)}"
+        )
+
+    days_values = {ldr.days for ldr in snapshots}
+    window_mismatch = len(days_values) > 1
+
     instances_out: Dict[str, dict] = {}
-    # Both loaders must agree on instance list (guarded by validate_snapshots),
-    # so it's safe to iterate either side.
-    for instance in prev.instance_names:
+    for instance in snapshots[0].instance_names:
         instances_out[instance] = {
-            "projects": compute_projects_delta(prev, curr, instance),
-            "active_users": compute_active_users_delta(prev, curr, instance),
-            "scan_activity": compute_scan_activity_delta(
-                prev, curr, instance, window_mismatch=window_mismatch
+            "projects": compute_projects_series(snapshots, instance),
+            "active_users": compute_active_users_series(snapshots, instance),
+            "scan_activity": compute_scan_activity_series(
+                snapshots, instance, window_mismatch=window_mismatch
             ),
-            "snapshot_cadence": compute_snapshot_cadence_delta(prev, curr, instance),
-            "defects_by_project": compute_defects_by_project_delta(prev, curr, instance),
+            "snapshot_cadence": compute_snapshot_cadence_series(snapshots, instance),
+            "defects_by_project": compute_defects_by_project_series(snapshots, instance),
         }
 
     return {
         "schema_version": DELTA_SCHEMA_VERSION,
         "generated": datetime.now().isoformat(timespec="seconds"),
-        "previous": {
-            "label": label_prev,
-            "zip": os.path.basename(prev.zip_path),
-            "export_date": prev.export_date,
-            "days": prev.days,
-        },
-        "current": {
-            "label": label_curr,
-            "zip": os.path.basename(curr.zip_path),
-            "export_date": curr.export_date,
-            "days": curr.days,
-        },
+        "snapshots": [
+            {
+                "label": labels[i],
+                "zip": os.path.basename(snapshots[i].zip_path),
+                "export_date": snapshots[i].export_date,
+                "export_timestamp": snapshots[i].export_timestamp,
+                "days": snapshots[i].days,
+            }
+            for i in range(len(snapshots))
+        ],
         "instances": instances_out,
         "warnings": list(warnings),
     }
@@ -481,17 +611,6 @@ def _sum_col(df: pd.DataFrame, col: str) -> float:
         return 0.0
     total = pd.to_numeric(df[col], errors="coerce").fillna(0).sum()
     return float(total)
-
-
-def _scalar_delta(prev, curr) -> dict:
-    pv = _to_number(prev)
-    cv = _to_number(curr)
-    return {
-        "prev": pv,
-        "curr": cv,
-        "delta": None if pv is None or cv is None else cv - pv,
-        "pct_delta": _pct(pv, cv),
-    }
 
 
 def _to_number(v):
@@ -516,12 +635,15 @@ def _pct(prev, curr) -> Optional[float]:
     return round((cv - pv) / pv * 100.0, 2)
 
 
-def _df_to_records(df: pd.DataFrame) -> List[dict]:
-    """Serialize a DataFrame to a JSON-safe list of dicts.
+def _first_present_index(series):
+    for i, v in enumerate(series):
+        if v is not None:
+            return i
+    return None
 
-    Replaces ``NaN`` / ``<NA>`` with ``None`` so ``json.dumps`` accepts the
-    payload without a custom encoder.
-    """
-    if not isinstance(df, pd.DataFrame) or df.empty:
-        return []
-    return json.loads(df.to_json(orient="records"))
+
+def _last_present_index(series):
+    for i in range(len(series) - 1, -1, -1):
+        if series[i] is not None:
+            return i
+    return None

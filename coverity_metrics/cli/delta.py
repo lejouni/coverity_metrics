@@ -1,7 +1,8 @@
-"""``coverity-delta`` — quarter-over-quarter comparison report.
+"""``coverity-delta`` — multi-snapshot trend comparison report.
 
-Consumes two ZIPs produced by :mod:`coverity_metrics.cli.export` and emits an
-adoption-focused delta report as JSON (``delta.json``) and an HTML dashboard
+Consumes every ``*.zip`` inside a folder produced by iterated
+:mod:`coverity_metrics.cli.export` runs and emits an adoption-focused
+trend report as JSON (``delta.json``) and an HTML dashboard
 (``dashboard_delta.html``). Runs entirely offline — no database access.
 
 See ``coverity_metrics/delta_metrics.py`` for the compute engine and
@@ -10,27 +11,24 @@ See ``coverity_metrics/delta_metrics.py`` for the compute engine and
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
 from datetime import date, datetime
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from jinja2 import Environment, FileSystemLoader
 
 from coverity_metrics.delta_metrics import (
     SnapshotLoader,
-    build_delta,
+    build_trend,
+    load_archive_dir,
 )
 
 
 def _load_inline_css() -> str:
-    """Return the dashboard CSS so the delta HTML is self-contained.
-
-    Follows the same "read once, inline into ``<style>``" pattern used by
-    :mod:`coverity_metrics.cli.dashboard`. Falls back to an empty string
-    when the CSS is missing (unusual — bundled with the package).
-    """
+    """Return the dashboard CSS so the delta HTML is self-contained."""
     css_path = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
         "static", "css", "dashboard.css",
@@ -52,72 +50,84 @@ def _template_env() -> Environment:
 # ---------------------------------------------------------------------------
 
 
-def _validate(prev: SnapshotLoader, curr: SnapshotLoader,
+def _validate(snapshots: Sequence[SnapshotLoader],
               allow_window_mismatch: bool) -> List[dict]:
-    """Enforce cross-snapshot compatibility rules.
+    """Enforce cross-snapshot compatibility rules across the whole archive.
 
     Hard-fails on incompatible snapshots (differing instance sets,
     conflicting anonymization mappings, mismatched windows without opt-in).
-    Returns a warnings list for conditions we choose to surface but not
-    block on (missing mapping on one side, opt-in window mismatch).
+    Returns a warnings list for conditions we surface but not block on
+    (missing mapping on a subset, opt-in window mismatch).
     """
     warnings: List[dict] = []
 
-    prev_instances = set(prev.instance_names)
-    curr_instances = set(curr.instance_names)
-    if prev_instances != curr_instances:
-        only_prev = sorted(prev_instances - curr_instances)
-        only_curr = sorted(curr_instances - prev_instances)
-        raise SystemExit(
-            "[ERROR] Snapshot instance lists differ — cannot compare.\n"
-            f"        Only in --previous: {only_prev or '<none>'}\n"
-            f"        Only in --current:  {only_curr or '<none>'}\n"
-            "        Re-run both exports against the same config.json."
-        )
+    # Instance list must be identical across every snapshot.
+    baseline_names = set(snapshots[0].instance_names)
+    for ldr in snapshots[1:]:
+        other = set(ldr.instance_names)
+        if other != baseline_names:
+            only_baseline = sorted(baseline_names - other)
+            only_other = sorted(other - baseline_names)
+            raise SystemExit(
+                "[ERROR] Snapshot instance lists differ across the archive — cannot compare.\n"
+                f"        Baseline ({os.path.basename(snapshots[0].zip_path)}): "
+                f"{sorted(baseline_names)}\n"
+                f"        Offender ({os.path.basename(ldr.zip_path)}): {sorted(other)}\n"
+                f"        Only in baseline: {only_baseline or '<none>'}\n"
+                f"        Only in offender: {only_other or '<none>'}\n"
+                "        Re-run every export against the same config.json."
+            )
 
-    if prev.days != curr.days:
+    # ``--days`` window must match across every snapshot.
+    days_values = {ldr.days for ldr in snapshots}
+    if len(days_values) > 1:
+        per_snapshot = ", ".join(
+            f"{os.path.basename(ldr.zip_path)}:--days {ldr.days}" for ldr in snapshots
+        )
         if not allow_window_mismatch:
             raise SystemExit(
-                f"[ERROR] Snapshot windows differ — previous used --days {prev.days}, "
-                f"current used --days {curr.days}.\n"
-                "        Windowed metrics (scan activity, snapshot cadence) are not "
-                "directly comparable.\n"
-                "        Recommended: re-export one snapshot with matching --days.\n"
+                "[ERROR] Snapshot windows differ across the archive — windowed metrics "
+                "(scan activity, snapshot cadence) are not directly comparable.\n"
+                f"        Per snapshot: {per_snapshot}\n"
+                "        Recommended: re-export the odd-one-out with matching --days.\n"
                 "        Testing / advanced: re-run with --allow-window-mismatch to "
                 "produce a report anyway; affected metrics will be tagged."
             )
         warnings.append({
             "code": "window_mismatch",
             "message": (
-                f"Snapshot windows differ (previous --days {prev.days}, current --days {curr.days}). "
-                "Windowed metric deltas are not directly comparable; a normalized per-day view "
-                "is included alongside the raw totals."
+                f"Snapshot windows differ across the archive ({per_snapshot}). "
+                "Windowed metric series are not directly comparable; a normalized "
+                "per-day view is included alongside the raw totals."
             ),
-            "previous_days": prev.days,
-            "current_days": curr.days,
+            "days_per_snapshot": [ldr.days for ldr in snapshots],
         })
 
-    prev_fp = prev.mapping_fingerprint()
-    curr_fp = curr.mapping_fingerprint()
-    if prev_fp is not None and curr_fp is not None:
-        if prev_fp != curr_fp:
+    # Anonymization mapping fingerprints must match across every snapshot that has one.
+    fingerprints = [ldr.mapping_fingerprint() for ldr in snapshots]
+    present = [(i, fp) for i, fp in enumerate(fingerprints) if fp is not None]
+    absent = [i for i, fp in enumerate(fingerprints) if fp is None]
+    if present:
+        distinct_fps = {fp for _, fp in present}
+        if len(distinct_fps) > 1:
             raise SystemExit(
                 "[ERROR] Anonymization mappings differ between snapshots — "
-                "anonymized ids in the two ZIPs point at different real names, "
-                "so a delta report would be meaningless.\n"
-                "        Fix: re-run both exports with the same --mapping-file "
-                "so the id assignments stay stable across quarters."
+                "anonymized ids point at different real names, so a trend "
+                "report would be meaningless.\n"
+                "        Fix: re-run every export with the same --mapping-file "
+                "so the id assignments stay stable across time."
             )
-    elif (prev_fp is None) != (curr_fp is None):
-        side = "current" if prev_fp is not None else "previous"
-        warnings.append({
-            "code": "mapping_missing_one_side",
-            "message": (
-                f"Anonymization mapping present on one side only ({side} snapshot lacks a sibling "
-                "<zip>.mapping.json). Identifier stability across the two snapshots cannot be "
-                "verified; treat added/dropped project lists with caution."
-            ),
-        })
+        if absent:
+            missing_names = [os.path.basename(snapshots[i].zip_path) for i in absent]
+            warnings.append({
+                "code": "mapping_missing_some",
+                "message": (
+                    "Anonymization mapping present on some snapshots but missing on "
+                    f"{len(absent)}: {missing_names}. Identifier stability across the "
+                    "archive cannot be verified for those; treat added/dropped project "
+                    "lists with caution."
+                ),
+            })
 
     return warnings
 
@@ -128,23 +138,50 @@ def _validate(prev: SnapshotLoader, curr: SnapshotLoader,
 
 
 def _derive_label(export_date: str, fallback: str) -> str:
-    """Turn an ISO ``export_date`` into a ``YYYY-QN`` label.
-
-    ``2026-04-01T12:34:56`` → ``2026-Q2``. Falls back to the raw string or
-    ``fallback`` when the date can't be parsed.
-    """
+    """Turn an ISO ``export_date`` into a ``YYYY-QN`` label."""
     if not export_date:
         return fallback
     try:
         dt = datetime.fromisoformat(export_date)
     except ValueError:
-        # Some ISO strings include timezone info; try trimming to seconds.
         try:
             dt = datetime.fromisoformat(export_date[:19])
         except ValueError:
             return export_date or fallback
     quarter = (dt.month - 1) // 3 + 1
     return f"{dt.year}-Q{quarter}"
+
+
+def _derive_labels(snapshots: Sequence[SnapshotLoader],
+                   cli_labels: Optional[Sequence[str]]) -> List[str]:
+    """Merge CLI-supplied labels with auto-derived ``YYYY-QN`` labels.
+
+    ``cli_labels`` map positionally to snapshots in chronological order.
+    Fewer labels than snapshots → the tail is auto-derived. Extras are
+    ignored with a note in stderr.
+    """
+    labels: List[str] = []
+    supplied = list(cli_labels or [])
+    if len(supplied) > len(snapshots):
+        print(
+            f"[WARN] {len(supplied)} labels supplied for {len(snapshots)} snapshots — "
+            f"ignoring the last {len(supplied) - len(snapshots)}.",
+            file=sys.stderr,
+        )
+        supplied = supplied[: len(snapshots)]
+
+    used_defaults: set = set()
+    for i, ldr in enumerate(snapshots):
+        if i < len(supplied) and supplied[i]:
+            labels.append(supplied[i])
+            continue
+        default = _derive_label(ldr.export_date, f"snapshot_{i + 1}")
+        # Disambiguate duplicate auto-labels by appending an index suffix.
+        if default in used_defaults:
+            default = f"{default} #{i + 1}"
+        used_defaults.add(default)
+        labels.append(default)
+    return labels
 
 
 # ---------------------------------------------------------------------------
@@ -184,26 +221,33 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="coverity-delta",
         description=(
-            "Compare two coverity-export snapshot ZIPs and emit a quarter-over-quarter "
-            "delta report (JSON + HTML). Runs offline; no database access."
+            "Compare every coverity-export snapshot ZIP in a folder and emit a "
+            "trend report (JSON + HTML). Snapshots are ordered chronologically by "
+            "the export_timestamp inside each ZIP. Runs offline; no database access."
         ),
     )
-    parser.add_argument("--previous", "-p", required=False,
-                        help="Path to the earlier snapshot ZIP (e.g. archive/2026-Q1/...)")
-    parser.add_argument("--current", "-c", required=False,
-                        help="Path to the later snapshot ZIP (e.g. archive/2026-Q2/...)")
+    parser.add_argument(
+        "--archive-dir", "-a", required=False,
+        help=("Folder containing two or more coverity-export ZIPs. Ordering key: "
+              "metadata.export_timestamp inside each ZIP, then filename YYYYMMDD_HHMMSS, "
+              "then filesystem mtime."),
+    )
     parser.add_argument("--output", "-o", default="delta",
                         help="Output directory (default: delta/)")
     parser.add_argument("--format", "-f", choices=("json", "html", "both"), default="both",
                         help="Which artifact(s) to produce (default: both)")
-    parser.add_argument("--label-previous", dest="label_previous", default=None,
-                        help="Label for the previous snapshot (default: derived YYYY-QN from export_date)")
-    parser.add_argument("--label-current", dest="label_current", default=None,
-                        help="Label for the current snapshot (default: derived YYYY-QN from export_date)")
-    parser.add_argument("--allow-window-mismatch", action="store_true",
-                        help=("Allow comparing snapshots whose --days windows differ. "
-                              "Windowed metrics are tagged with a warning in the output. "
-                              "Intended for testing / advanced use, not production reports."))
+    parser.add_argument(
+        "--labels", default=None,
+        help=("Comma-separated labels for snapshots in chronological order. "
+              "Fewer labels than snapshots → the tail is auto-derived from export_date "
+              "(YYYY-QN). Example: --labels 2026-Q1,2026-Q2,2026-Q3"),
+    )
+    parser.add_argument(
+        "--allow-window-mismatch", action="store_true",
+        help=("Allow comparing snapshots whose --days windows differ. Windowed metrics "
+              "are tagged with a warning in the output and a normalized per-day series "
+              "is included. Intended for testing / advanced use, not production reports."),
+    )
     parser.add_argument("--version", action="store_true", help="Print version and exit")
     return parser.parse_args(argv)
 
@@ -219,27 +263,38 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("coverity-metrics delta version: unknown")
         return 0
 
-    if not args.previous or not args.current:
-        print("[ERROR] --previous and --current are required.", file=sys.stderr)
+    if not args.archive_dir:
+        print("[ERROR] --archive-dir is required. Point it at a folder of coverity-export "
+              "ZIPs (2 or more).", file=sys.stderr)
         return 2
 
-    for label, path in (("--previous", args.previous), ("--current", args.current)):
-        if not os.path.exists(path):
-            print(f"[ERROR] {label} snapshot not found: {path}", file=sys.stderr)
-            return 2
+    if not os.path.isdir(args.archive_dir):
+        print(f"[ERROR] Archive directory not found or not a directory: {args.archive_dir}",
+              file=sys.stderr)
+        return 2
 
     os.makedirs(args.output, exist_ok=True)
 
-    with SnapshotLoader(args.previous) as prev, SnapshotLoader(args.current) as curr:
-        warnings = _validate(prev, curr, allow_window_mismatch=args.allow_window_mismatch)
+    try:
+        loaders = load_archive_dir(args.archive_dir)
+    except ValueError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        return 2
 
-        label_prev = args.label_previous or _derive_label(prev.export_date, "previous")
-        label_curr = args.label_current or _derive_label(curr.export_date, "current")
+    cli_labels: Optional[List[str]] = None
+    if args.labels:
+        cli_labels = [s.strip() for s in args.labels.split(",") if s.strip()]
 
-        delta = build_delta(
-            prev, curr,
-            label_prev=label_prev,
-            label_curr=label_curr,
+    with contextlib.ExitStack() as stack:
+        for ldr in loaders:
+            stack.callback(ldr.close)
+
+        warnings = _validate(loaders, allow_window_mismatch=args.allow_window_mismatch)
+        labels = _derive_labels(loaders, cli_labels)
+
+        delta = build_trend(
+            loaders,
+            labels=labels,
             warnings=warnings,
             allow_window_mismatch=args.allow_window_mismatch,
         )
@@ -254,7 +309,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         _render_html(delta, html_path)
         written.append(html_path)
 
-    print(f"[OK] Delta report generated ({label_prev} → {label_curr}):")
+    chain = " → ".join(labels)
+    print(f"[OK] Delta trend report generated across {len(loaders)} snapshots ({chain}):")
     for p in written:
         print(f"     {p}")
     if warnings:

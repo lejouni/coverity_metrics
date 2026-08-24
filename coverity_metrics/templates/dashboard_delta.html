@@ -1,71 +1,172 @@
 {#-
-    Delta dashboard for quarter-over-quarter Coverity metrics comparison.
+    Trend dashboard for multi-snapshot Coverity metrics comparison.
 
     Rendered by ``coverity_metrics/cli/delta.py`` with a single ``delta`` dict
-    (schema v1) plus ``inline_css``. Deliberately dependency-free — no Plotly,
-    no external JS. Tables use the ``data-table`` class so the sortable-header
-    autoloader below wires ▲▼ arrows onto every column at load time (repo
-    convention, see .github/copilot-instructions.md).
+    (schema v1, trend shape) plus ``inline_css``. Deliberately dependency-free
+    — no Plotly, no external JS, no CDN. Line charts and sparklines are
+    hand-rolled inline SVG. Tables use the ``data-table`` class so the
+    sortable-header autoloader at the bottom wires ▲▼ arrows onto every
+    column at load time (repo convention, see .github/copilot-instructions.md).
+
+    The ``per_project`` sparkline column exposes a numeric
+    ``data-sort-value`` (the first→last active_defects Δ) so the autoloader's
+    generic sort still produces a meaningful order on that column.
 -#}
+
+{#- ---------- Reusable SVG chart macros ---------- -#}
+
+{% macro line_chart(series, labels, width=520, height=140, color='#4a90e2', y_label='') -%}
+    {#- Renders a fixed-viewBox SVG line chart. ``series`` may contain None
+        to represent missing data points; the polyline is broken into
+        segments at those positions. Y-axis min/max labels sit outside the
+        plot area on the left. Each marker gets a native SVG <title>
+        tooltip showing "label: value" on hover. -#}
+    {% set numeric = [] %}
+    {% for v in series %}{% if v is not none %}{% set _ = numeric.append(v) %}{% endif %}{% endfor %}
+    {% if not numeric %}
+        <div class="chart-empty">No data.</div>
+    {% else %}
+        {% set y_min = numeric|min %}
+        {% set y_max = numeric|max %}
+        {% set span = (y_max - y_min) if y_max != y_min else 1 %}
+        {% set pad_left = 44 %}
+        {% set pad_right = 12 %}
+        {% set pad_top = 12 %}
+        {% set pad_bottom = 28 %}
+        {% set plot_w = width - pad_left - pad_right %}
+        {% set plot_h = height - pad_top - pad_bottom %}
+        {% set n = series|length %}
+        {% set step = (plot_w / (n - 1)) if n > 1 else 0 %}
+        <svg class="line-chart" viewBox="0 0 {{ width }} {{ height }}" preserveAspectRatio="xMidYMid meet"
+             xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Line chart">
+            {#- Axes -#}
+            <line x1="{{ pad_left }}" y1="{{ pad_top }}" x2="{{ pad_left }}" y2="{{ pad_top + plot_h }}" stroke="#cfd8dc" stroke-width="1"/>
+            <line x1="{{ pad_left }}" y1="{{ pad_top + plot_h }}" x2="{{ pad_left + plot_w }}" y2="{{ pad_top + plot_h }}" stroke="#cfd8dc" stroke-width="1"/>
+            {#- Y-axis labels (top = max, bottom = min) -#}
+            <text x="{{ pad_left - 6 }}" y="{{ pad_top + 4 }}" font-size="10" text-anchor="end" fill="#7f8c8d">{{ '{:g}'.format(y_max) }}</text>
+            <text x="{{ pad_left - 6 }}" y="{{ pad_top + plot_h + 3 }}" font-size="10" text-anchor="end" fill="#7f8c8d">{{ '{:g}'.format(y_min) }}</text>
+            {#- Points kept as (x, y, value, label) so tooltips can access them.
+                Segments are lists of point indices into ``points``. -#}
+            {% set points = [] %}
+            {% set segments = [] %}
+            {% set current = [] %}
+            {% for v in series %}
+                {% if v is none %}
+                    {% if current %}{% set _ = segments.append(current) %}{% set current = [] %}{% endif %}
+                {% else %}
+                    {% set x = pad_left + (loop.index0 * step) %}
+                    {% set y = pad_top + plot_h - ((v - y_min) / span * plot_h) %}
+                    {% set lbl = labels[loop.index0] if loop.index0 < labels|length else '' %}
+                    {% set _ = points.append((x, y, v, lbl)) %}
+                    {% set _ = current.append(points|length - 1) %}
+                {% endif %}
+            {% endfor %}
+            {% if current %}{% set _ = segments.append(current) %}{% endif %}
+            {% for seg in segments %}
+                {% if seg|length > 1 %}
+                    <polyline fill="none" stroke="{{ color }}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"
+                              points="{% for idx in seg %}{{ '%.1f,%.1f'|format(points[idx][0], points[idx][1]) }} {% endfor %}"/>
+                {% endif %}
+            {% endfor %}
+            {#- Markers rendered last so they sit on top of the polyline
+                and their <title> tooltips always win the hover test. A
+                larger transparent hit-area behind each visible dot makes
+                the tooltip easier to trigger. -#}
+            {% for pt in points %}
+                {% set x, y, v, lbl = pt %}
+                <g>
+                    <title>{{ lbl }}{% if lbl %}: {% endif %}{{ '{:g}'.format(v) }}</title>
+                    <circle cx="{{ '%.1f'|format(x) }}" cy="{{ '%.1f'|format(y) }}" r="8" fill="transparent"/>
+                    <circle cx="{{ '%.1f'|format(x) }}" cy="{{ '%.1f'|format(y) }}" r="3" fill="{{ color }}"/>
+                </g>
+            {% endfor %}
+            {#- X-axis labels below the plot -#}
+            {% for lbl in labels %}
+                {% set x = pad_left + (loop.index0 * step) %}
+                <text x="{{ '%.1f'|format(x) }}" y="{{ pad_top + plot_h + 16 }}" font-size="10" text-anchor="middle" fill="#7f8c8d">{{ lbl }}</text>
+            {% endfor %}
+        </svg>
+    {% endif %}
+{%- endmacro %}
+
+
+{% macro sparkline(series, labels=[], width=140, height=28, color='#4a90e2') -%}
+    {#- Compact inline SVG sparkline for use inside table cells. Missing
+        data points break the line into segments. No axes, no labels.
+        Each marker gets a native SVG <title> tooltip so hovering a data
+        point reveals the label and value. -#}
+    {% set numeric = [] %}
+    {% for v in series %}{% if v is not none %}{% set _ = numeric.append(v) %}{% endif %}{% endfor %}
+    {% if not numeric %}
+        <span class="spark-empty">—</span>
+    {% else %}
+        {% set y_min = numeric|min %}
+        {% set y_max = numeric|max %}
+        {% set span = (y_max - y_min) if y_max != y_min else 1 %}
+        {% set pad = 3 %}
+        {% set plot_w = width - 2 * pad %}
+        {% set plot_h = height - 2 * pad %}
+        {% set n = series|length %}
+        {% set step = (plot_w / (n - 1)) if n > 1 else 0 %}
+        <svg class="sparkline" viewBox="0 0 {{ width }} {{ height }}" preserveAspectRatio="none"
+             xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sparkline">
+            {% set points = [] %}
+            {% set segments = [] %}
+            {% set current = [] %}
+            {% for v in series %}
+                {% if v is none %}
+                    {% if current %}{% set _ = segments.append(current) %}{% set current = [] %}{% endif %}
+                {% else %}
+                    {% set x = pad + (loop.index0 * step) %}
+                    {% set y = pad + plot_h - ((v - y_min) / span * plot_h) %}
+                    {% set lbl = labels[loop.index0] if loop.index0 < labels|length else '' %}
+                    {% set _ = points.append((x, y, v, lbl)) %}
+                    {% set _ = current.append(points|length - 1) %}
+                {% endif %}
+            {% endfor %}
+            {% if current %}{% set _ = segments.append(current) %}{% endif %}
+            {% for seg in segments %}
+                {% if seg|length > 1 %}
+                    <polyline fill="none" stroke="{{ color }}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"
+                              points="{% for idx in seg %}{{ '%.1f,%.1f'|format(points[idx][0], points[idx][1]) }} {% endfor %}"/>
+                {% endif %}
+            {% endfor %}
+            {% for pt in points %}
+                {% set x, y, v, lbl = pt %}
+                <g>
+                    <title>{{ lbl }}{% if lbl %}: {% endif %}{{ '{:g}'.format(v) }}</title>
+                    <circle cx="{{ '%.1f'|format(x) }}" cy="{{ '%.1f'|format(y) }}" r="6" fill="transparent"/>
+                    <circle cx="{{ '%.1f'|format(x) }}" cy="{{ '%.1f'|format(y) }}" r="1.5" fill="{{ color }}"/>
+                </g>
+            {% endfor %}
+        </svg>
+    {% endif %}
+{%- endmacro %}
+
+
+{%- set snap_labels = delta.snapshots | map(attribute='label') | list -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Coverity Delta Report — {{ delta.previous.label }} → {{ delta.current.label }}</title>
+    <title>Coverity Delta Report — {{ snap_labels[0] }} → {{ snap_labels[-1] }}</title>
     <style>
 {{ inline_css }}
-    .delta-header {
-        padding: 1rem 0;
-        border-bottom: 2px solid #e2e2e2;
-        margin-bottom: 1.5rem;
-    }
-    .delta-header .compare-line {
-        font-size: 1.4rem;
-        font-weight: 600;
-        color: #2c3e50;
-    }
-    .delta-header .window-line {
-        color: #7f8c8d;
-        margin-top: 0.35rem;
-        font-size: 0.95rem;
-    }
-    .warnings-ribbon {
-        background: #fff3cd;
-        border: 1px solid #ffe08a;
-        border-left: 4px solid #e0a800;
-        padding: 0.75rem 1rem;
-        margin: 1rem 0;
-        border-radius: 4px;
-        color: #856404;
-    }
+    .delta-header { padding: 1rem 0; border-bottom: 2px solid #e2e2e2; margin-bottom: 1.5rem; }
+    .delta-header .compare-line { font-size: 1.3rem; font-weight: 600; color: #2c3e50; word-break: break-word; }
+    .delta-header .compare-line .arrow { color: #7f8c8d; margin: 0 0.35rem; }
+    .delta-header .window-line { color: #7f8c8d; margin-top: 0.35rem; font-size: 0.95rem; }
+    .warnings-ribbon { background: #fff3cd; border: 1px solid #ffe08a; border-left: 4px solid #e0a800;
+        padding: 0.75rem 1rem; margin: 1rem 0; border-radius: 4px; color: #856404; }
     .warnings-ribbon strong { display: block; margin-bottom: 0.35rem; }
     .warnings-ribbon ul { margin: 0.25rem 0 0 1.25rem; padding: 0; }
-    .warn-marker {
-        display: inline-block;
-        background: #fff3cd;
-        color: #856404;
-        border: 1px solid #ffe08a;
-        border-radius: 3px;
-        padding: 0 0.4rem;
-        font-size: 0.8rem;
-        font-weight: 700;
-        margin-left: 0.5rem;
-    }
-    .tile-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 1rem;
-        margin: 1rem 0 1.5rem;
-    }
-    .tile {
-        background: #fff;
-        border: 1px solid #e2e2e2;
-        border-radius: 6px;
-        padding: 1rem;
-        text-align: center;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-    }
+    .warn-marker { display: inline-block; background: #fff3cd; color: #856404; border: 1px solid #ffe08a;
+        border-radius: 3px; padding: 0 0.4rem; font-size: 0.8rem; font-weight: 700; margin-left: 0.5rem; }
+    .tile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem; margin: 1rem 0 1.5rem; }
+    .tile { background: #fff; border: 1px solid #e2e2e2; border-radius: 6px; padding: 1rem;
+        text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
     .tile .tile-label { color: #7f8c8d; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; }
     .tile .tile-value { font-size: 1.8rem; font-weight: 700; color: #2c3e50; margin: 0.35rem 0; }
     .tile .tile-sub { color: #7f8c8d; font-size: 0.85rem; }
@@ -85,35 +186,56 @@
     .rank-arrow-down { color: #c0392b; }
     .rank-new { color: #2980b9; font-weight: 600; }
     .rank-dropped { color: #7f8c8d; font-style: italic; }
+    .timeline-tag { display: inline-block; margin-left: 0.4rem; padding: 0.05rem 0.4rem;
+        font-size: 0.75rem; color: #34495e; background: #ecf0f1; border-radius: 3px;
+        border: 1px solid #d5dbdb; }
+    .timeline-tag.transient { color: #856404; background: #fff3cd; border-color: #ffe08a; }
+    .chart-block { display: block; margin: 0.5rem 0 1rem; }
+    .chart-block .chart-title { font-size: 0.9rem; color: #34495e; font-weight: 600; margin: 0.5rem 0 0.25rem; }
+    .chart-empty { color: #7f8c8d; font-style: italic; padding: 0.5rem 0; }
+    .line-chart { width: 100%; max-width: 560px; height: auto; }
+    .sparkline { display: inline-block; vertical-align: middle; width: 140px; height: 28px; }
+    .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin: 1rem 0; }
+    .spark-empty { color: #bdc3c7; }
+    .snapshot-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem;
+        font-family: 'Courier New', monospace; font-size: 0.85rem; color: #34495e; margin-top: 0.5rem; }
+    .snapshot-chain .chain-arrow { color: #7f8c8d; }
     </style>
 </head>
 <body>
 <header>
     <div class="container">
-        <h1>Coverity Delta Report</h1>
-        <div class="subtitle">Quarter-over-quarter adoption comparison</div>
+        <h1>Coverity Delta Trend Report</h1>
+        <div class="subtitle">Multi-snapshot adoption comparison</div>
     </div>
 </header>
 
 <div class="container">
     <div class="delta-header">
         <div class="compare-line">
-            <strong>{{ delta.previous.label }}</strong>
-            <span style="color: #7f8c8d;">→</span>
-            <strong>{{ delta.current.label }}</strong>
+            {% for lbl in snap_labels %}
+                <strong>{{ lbl }}</strong>{% if not loop.last %}<span class="arrow">→</span>{% endif %}
+            {% endfor %}
         </div>
         <div class="window-line">
-            Windows: previous <code>--days {{ delta.previous.days }}</code>
-            (exported {{ delta.previous.export_date[:10] }}) &nbsp;→&nbsp;
-            current <code>--days {{ delta.current.days }}</code>
-            (exported {{ delta.current.export_date[:10] }})
+            {{ delta.snapshots | length }} snapshots &nbsp;•&nbsp;
+            windows:
+            {% for s in delta.snapshots %}
+                <code>--days {{ s.days }}</code>{% if not loop.last %},{% endif %}
+            {% endfor %}
+        </div>
+        <div class="snapshot-chain">
+            {% for s in delta.snapshots %}
+                <span title="{{ s.zip }}">{{ s.label }} <em style="color:#95a5a6;">({{ s.export_date[:10] }})</em></span>
+                {% if not loop.last %}<span class="chain-arrow">→</span>{% endif %}
+            {% endfor %}
         </div>
         <div class="window-line">Generated: {{ generated }}</div>
     </div>
 
     {% if delta.warnings %}
     <div class="warnings-ribbon">
-        <strong>⚠ {{ delta.warnings|length }} warning{{ '' if delta.warnings|length == 1 else 's' }} — read before interpreting deltas</strong>
+        <strong>⚠ {{ delta.warnings|length }} warning{{ '' if delta.warnings|length == 1 else 's' }} — read before interpreting the trend</strong>
         <ul>
             {% for w in delta.warnings %}
             <li><code>{{ w.code }}</code>: {{ w.message }}</li>
@@ -130,47 +252,78 @@
     {# -------- Section 1: Projects -------- #}
     <section class="delta-section">
         <h2>Projects</h2>
+        {% set p = inst.projects %}
         <div class="tile-grid">
-            {% set p = inst.projects %}
-            {% set p_delta = p.curr_count - p.prev_count %}
-            <div class="tile {% if p_delta > 0 %}delta-up{% elif p_delta < 0 %}delta-down{% else %}delta-neutral{% endif %}">
-                <div class="tile-label">Projects</div>
-                <div class="tile-value">{{ p.curr_count }}</div>
+            <div class="tile {% if p.count_delta > 0 %}delta-up{% elif p.count_delta < 0 %}delta-down{% else %}delta-neutral{% endif %}">
+                <div class="tile-label">Projects (last)</div>
+                <div class="tile-value">{{ p.last_count }}</div>
                 <div class="tile-sub">
-                    was {{ p.prev_count }}
-                    (<span class="{% if p_delta > 0 %}delta-pos{% elif p_delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
-                        {{ '{:+d}'.format(p_delta) }}
+                    was {{ p.first_count }}
+                    (<span class="{% if p.count_delta > 0 %}delta-pos{% elif p.count_delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
+                        {{ '{:+d}'.format(p.count_delta) }}
                     </span>)
                 </div>
             </div>
             <div class="tile delta-up">
                 <div class="tile-label">Added</div>
-                <div class="tile-value">{{ p.added|length }}</div>
-                <div class="tile-sub">new projects</div>
+                <div class="tile-value">{{ p.added_first_to_last|length }}</div>
+                <div class="tile-sub">appeared during the window</div>
             </div>
             <div class="tile delta-down">
                 <div class="tile-label">Dropped</div>
-                <div class="tile-value">{{ p.dropped|length }}</div>
-                <div class="tile-sub">no longer present</div>
+                <div class="tile-value">{{ p.dropped_first_to_last|length }}</div>
+                <div class="tile-sub">removed during the window</div>
             </div>
             <div class="tile delta-neutral">
                 <div class="tile-label">Retained</div>
                 <div class="tile-value">{{ p.retained_count }}</div>
-                <div class="tile-sub">present in both</div>
+                <div class="tile-sub">present in both ends</div>
             </div>
         </div>
-        {% if p.added or p.dropped %}
+        <div class="chart-block">
+            <div class="chart-title">Project count over time</div>
+            {{ line_chart(p.count_series, snap_labels) }}
+        </div>
+        {% if p.added_first_to_last or p.dropped_first_to_last %}
         <div class="project-lists">
             <div>
-                <h4>Added</h4>
-                {% if p.added %}
-                    <ul>{% for name in p.added %}<li><code>{{ name }}</code></li>{% endfor %}</ul>
+                <h4>Added during window</h4>
+                {% if p.added_first_to_last %}
+                    <ul>
+                    {% for evt in p.added_first_to_last %}
+                        {% set joined = snap_labels[evt.first_seen_index] %}
+                        {% set last_seen = snap_labels[evt.last_seen_index] %}
+                        {% set still_present = evt.last_seen_index == snap_labels|length - 1 %}
+                        <li>
+                            <code>{{ evt.name }}</code>
+                            {% if still_present %}
+                                <span class="timeline-tag">joined {{ joined }}</span>
+                            {% else %}
+                                <span class="timeline-tag transient">{{ joined }} → {{ last_seen }} (came &amp; went)</span>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                    </ul>
                 {% else %}<em>None.</em>{% endif %}
             </div>
             <div>
-                <h4>Dropped</h4>
-                {% if p.dropped %}
-                    <ul>{% for name in p.dropped %}<li><code>{{ name }}</code></li>{% endfor %}</ul>
+                <h4>Dropped during window</h4>
+                {% if p.dropped_first_to_last %}
+                    <ul>
+                    {% for evt in p.dropped_first_to_last %}
+                        {% set joined = snap_labels[evt.first_seen_index] %}
+                        {% set last_seen = snap_labels[evt.last_seen_index] %}
+                        {% set was_at_start = evt.first_seen_index == 0 %}
+                        <li>
+                            <code>{{ evt.name }}</code>
+                            {% if was_at_start %}
+                                <span class="timeline-tag">last seen {{ last_seen }}</span>
+                            {% else %}
+                                <span class="timeline-tag transient">{{ joined }} → {{ last_seen }} (came &amp; went)</span>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                    </ul>
                 {% else %}<em>None.</em>{% endif %}
             </div>
         </div>
@@ -193,31 +346,50 @@
                 <div class="tile {% if s.delta and s.delta > 0 %}delta-up{% elif s.delta and s.delta < 0 %}delta-down{% else %}delta-neutral{% endif %}">
                     <div class="tile-label">{{ label }}</div>
                     <div class="tile-value">
-                        {% if s.curr is none %}—{% else %}{{ '%.1f'|format(s.curr) if is_pct else s.curr }}{% endif %}
+                        {% if s.last is none %}—
+                        {% elif is_pct %}{{ '%.1f'|format(s.last) }}
+                        {% else %}{{ s.last|int }}{% endif %}
                     </div>
                     <div class="tile-sub">
-                        was {% if s.prev is none %}—{% else %}{{ '%.1f'|format(s.prev) if is_pct else s.prev }}{% endif %}
+                        was {% if s.first is none %}—
+                             {% elif is_pct %}{{ '%.1f'|format(s.first) }}
+                             {% else %}{{ s.first|int }}{% endif %}
                         {% if s.delta is not none %}
                         (<span class="{% if s.delta > 0 %}delta-pos{% elif s.delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
                             {{ '{:+.1f}'.format(s.delta) if is_pct else '{:+d}'.format(s.delta|int) }}
-                        </span>)
+                        </span>{% if s.pct_delta is not none %}, {{ '{:+.1f}%'.format(s.pct_delta) }}{% endif %})
                         {% endif %}
                     </div>
                 </div>
             {% endfor %}
         </div>
+        <div class="chart-grid">
+            {% for key, label in [
+                ('total_licensed_users', 'Licensed users'),
+                ('users_with_login', 'Users with login'),
+                ('active_users', 'Active users'),
+                ('active_user_percentage', 'Active user %'),
+                ('login_user_percentage', 'Login user %'),
+            ] %}
+                {% set s = inst.active_users.stats[key] %}
+                <div class="chart-block">
+                    <div class="chart-title">{{ label }}</div>
+                    {{ line_chart(s.series, snap_labels) }}
+                </div>
+            {% endfor %}
+        </div>
 
-        {% set tup = inst.active_users.get('top_users_by_fixes') %}
+        {% set tup = inst.active_users.get('top_users_by_fixes_first_to_last') %}
         {% if tup and (tup.added or tup.dropped) %}
         <div class="project-lists">
             <div>
-                <h4>Top fixers — new entrants</h4>
+                <h4>Top fixers — new entrants ({{ snap_labels[0] }} → {{ snap_labels[-1] }})</h4>
                 {% if tup.added %}
                     <ul>{% for u in tup.added %}<li><code>{{ u }}</code></li>{% endfor %}</ul>
                 {% else %}<em>None.</em>{% endif %}
             </div>
             <div>
-                <h4>Top fixers — dropped out</h4>
+                <h4>Top fixers — dropped out ({{ snap_labels[0] }} → {{ snap_labels[-1] }})</h4>
                 {% if tup.dropped %}
                     <ul>{% for u in tup.dropped %}<li><code>{{ u }}</code></li>{% endfor %}</ul>
                 {% else %}<em>None.</em>{% endif %}
@@ -229,18 +401,33 @@
     {# -------- Section 3: Scan activity -------- #}
     <section class="delta-section">
         <h2>Scan activity {% if window_mismatch %}<span class="warn-marker">⚠ WINDOW MISMATCH</span>{% endif %}</h2>
+        <div class="chart-grid">
+            {% for key, label in [
+                ('scan_count', 'Snapshots (scans)'),
+                ('total_files_analyzed', 'Files analyzed'),
+                ('total_new_defects', 'New defects introduced'),
+                ('total_eliminated_defects', 'Defects eliminated'),
+            ] %}
+                {% set t = inst.scan_activity.totals[key] %}
+                <div class="chart-block">
+                    <div class="chart-title">{{ label }}</div>
+                    {{ line_chart(t.series, snap_labels) }}
+                    <div style="font-size: 0.85rem; color: #7f8c8d;">
+                        first {{ t.first|int }} → last {{ t.last|int }}
+                        (<span class="{% if t.delta > 0 %}delta-pos{% elif t.delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
+                            {{ '{:+d}'.format(t.delta|int) }}
+                        </span>{% if t.pct_delta is not none %}, {{ '{:+.1f}%'.format(t.pct_delta) }}{% endif %})
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
         <table class="data-table">
             <thead>
                 <tr>
                     <th>Metric</th>
-                    <th>Previous ({{ delta.previous.days }}d)</th>
-                    <th>Current ({{ delta.current.days }}d)</th>
-                    <th>Δ</th>
+                    {% for lbl in snap_labels %}<th>{{ lbl }}</th>{% endfor %}
+                    <th>First → Last Δ</th>
                     <th>%Δ</th>
-                    {% if window_mismatch %}
-                    <th>Prev/day</th>
-                    <th>Curr/day</th>
-                    {% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -253,35 +440,46 @@
                     {% set t = inst.scan_activity.totals[key] %}
                     <tr>
                         <td>{{ label }}</td>
-                        <td>{{ t.prev|int }}</td>
-                        <td>{{ t.curr|int }}</td>
+                        {% for v in t.series %}<td>{{ v|int }}</td>{% endfor %}
                         <td class="{% if t.delta > 0 %}delta-pos{% elif t.delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
                             {{ '{:+d}'.format(t.delta|int) }}
                         </td>
                         <td>{% if t.pct_delta is not none %}{{ '{:+.1f}%'.format(t.pct_delta) }}{% else %}—{% endif %}</td>
-                        {% if window_mismatch %}
-                        {% set n = inst.scan_activity.normalized_per_day[key] %}
-                        <td>{{ n.prev }}</td>
-                        <td>{{ n.curr }}</td>
-                        {% endif %}
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
+        {% if window_mismatch and inst.scan_activity.normalized_per_day %}
+        <h3 style="margin-top: 1.5rem;">Normalized per day <span class="warn-marker">⚠ window mismatch</span></h3>
+        <div class="chart-grid">
+            {% for key, label in [
+                ('scan_count', 'Snapshots / day'),
+                ('total_files_analyzed', 'Files analyzed / day'),
+                ('total_new_defects', 'New defects / day'),
+                ('total_eliminated_defects', 'Defects eliminated / day'),
+            ] %}
+                {% set n = inst.scan_activity.normalized_per_day[key] %}
+                <div class="chart-block">
+                    <div class="chart-title">{{ label }}</div>
+                    {{ line_chart(n.series, snap_labels, color='#8e44ad') }}
+                    <div style="font-size: 0.85rem; color: #7f8c8d;">first {{ n.first }} → last {{ n.last }}</div>
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
     </section>
 
-    {# -------- Section 4: Stream activity (from recent snapshot sample) -------- #}
+    {# -------- Section 4: Stream activity -------- #}
     <section class="delta-section">
         <h2>Stream activity</h2>
-        {% set sa = inst.snapshot_cadence.stream_activity %}
-        {% set ss = inst.snapshot_cadence.sample_size %}
+        {% set sc = inst.snapshot_cadence %}
         <div class="tile-grid">
-            {% set stream_delta = sa.curr_stream_count - sa.prev_stream_count %}
+            {% set stream_delta = sc.last_stream_count - sc.first_stream_count %}
             <div class="tile {% if stream_delta > 0 %}delta-up{% elif stream_delta < 0 %}delta-down{% else %}delta-neutral{% endif %}">
-                <div class="tile-label">Active streams</div>
-                <div class="tile-value">{{ sa.curr_stream_count }}</div>
+                <div class="tile-label">Active streams (last)</div>
+                <div class="tile-value">{{ sc.last_stream_count }}</div>
                 <div class="tile-sub">
-                    was {{ sa.prev_stream_count }}
+                    was {{ sc.first_stream_count }}
                     (<span class="{% if stream_delta > 0 %}delta-pos{% elif stream_delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
                         {{ '{:+d}'.format(stream_delta) }}
                     </span>)
@@ -289,91 +487,118 @@
             </div>
             <div class="tile delta-up">
                 <div class="tile-label">Newly active</div>
-                <div class="tile-value">{{ sa.added|length }}</div>
-                <div class="tile-sub">had recent scans in {{ delta.current.label }} only</div>
+                <div class="tile-value">{{ sc.newly_active_first_to_last|length }}</div>
+                <div class="tile-sub">appeared during the window</div>
             </div>
             <div class="tile delta-down">
                 <div class="tile-label">Went dark</div>
-                <div class="tile-value">{{ sa.dropped|length }}</div>
-                <div class="tile-sub">had recent scans in {{ delta.previous.label }} only</div>
+                <div class="tile-value">{{ sc.went_dark_first_to_last|length }}</div>
+                <div class="tile-sub">no longer active by {{ snap_labels[-1] }}</div>
             </div>
             <div class="tile delta-neutral">
                 <div class="tile-label">Retained</div>
-                <div class="tile-value">{{ sa.retained_count }}</div>
-                <div class="tile-sub">active in both quarters</div>
+                <div class="tile-value">{{ sc.retained_count }}</div>
+                <div class="tile-sub">present at both ends</div>
             </div>
         </div>
-        {% if sa.added or sa.dropped %}
+        <div class="chart-block">
+            <div class="chart-title">Active streams over time</div>
+            {{ line_chart(sc.active_stream_count_series, snap_labels) }}
+        </div>
+        {% if sc.newly_active_first_to_last or sc.went_dark_first_to_last %}
         <div class="project-lists">
             <div>
-                <h4>Newly active</h4>
-                {% if sa.added %}
-                    <ul>{% for name in sa.added %}<li><code>{{ name }}</code></li>{% endfor %}</ul>
+                <h4>Newly active during window</h4>
+                {% if sc.newly_active_first_to_last %}
+                    <ul>
+                    {% for evt in sc.newly_active_first_to_last %}
+                        {% set joined = snap_labels[evt.first_seen_index] %}
+                        {% set last_seen = snap_labels[evt.last_seen_index] %}
+                        {% set still_present = evt.last_seen_index == snap_labels|length - 1 %}
+                        <li>
+                            <code>{{ evt.name }}</code>
+                            {% if still_present %}
+                                <span class="timeline-tag">first active {{ joined }}</span>
+                            {% else %}
+                                <span class="timeline-tag transient">{{ joined }} → {{ last_seen }} (came &amp; went)</span>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                    </ul>
                 {% else %}<em>None.</em>{% endif %}
             </div>
             <div>
-                <h4>Went dark</h4>
-                {% if sa.dropped %}
-                    <ul>{% for name in sa.dropped %}<li><code>{{ name }}</code></li>{% endfor %}</ul>
+                <h4>Went dark during window</h4>
+                {% if sc.went_dark_first_to_last %}
+                    <ul>
+                    {% for evt in sc.went_dark_first_to_last %}
+                        {% set joined = snap_labels[evt.first_seen_index] %}
+                        {% set last_seen = snap_labels[evt.last_seen_index] %}
+                        {% set was_at_start = evt.first_seen_index == 0 %}
+                        <li>
+                            <code>{{ evt.name }}</code>
+                            {% if was_at_start %}
+                                <span class="timeline-tag">last active {{ last_seen }}</span>
+                            {% else %}
+                                <span class="timeline-tag transient">{{ joined }} → {{ last_seen }} (came &amp; went)</span>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                    </ul>
                 {% else %}<em>None.</em>{% endif %}
             </div>
         </div>
         {% endif %}
         <p style="color: #7f8c8d; font-size: 0.85rem; margin-top: 0.75rem;">
-            <em>How this is computed:</em> {{ inst.snapshot_cadence.note }}
-            Underlying window: {{ ss.prev }} vs {{ ss.curr }} most recent snapshot rows.
+            <em>How this is computed:</em> {{ sc.note }}
         </p>
     </section>
 
-    {# -------- Section 5: Defects by project (with ranking movement) -------- #}
+    {# -------- Section 5: Defects by project (with sparkline + ranking movement) -------- #}
     <section class="delta-section">
         <h2>Defects by project</h2>
         {% if inst.defects_by_project.per_project %}
         <p style="color: #7f8c8d; font-size: 0.9rem;">
-            Ranking is on outstanding <em>active</em> defects (#1 = most active
-            defects). ▲ means the project moved up in the ranking
-            (better = fewer active defects than before), ▼ means it moved
-            down (more active defects).
+            Sparkline shows active-defect count across the {{ delta.snapshots|length }} snapshots
+            ({{ snap_labels[0] }} → {{ snap_labels[-1] }}). Ranking is on outstanding
+            active defects per snapshot (#1 = most active defects). ▲ means the project
+            moved <em>up</em> the ranking (better, fewer active defects than before),
+            ▼ means it moved down. Sort is by first→last active-defect Δ by default.
         </p>
         <table class="data-table">
             <thead>
                 <tr>
                     <th>Project</th>
-                    <th>Active prev</th>
-                    <th>Active curr</th>
+                    <th>Active trend ({{ snap_labels|length }} points)</th>
+                    <th>Active first</th>
+                    <th>Active last</th>
                     <th>Δ active</th>
                     <th>%Δ</th>
-                    <th>Fixed prev</th>
-                    <th>Fixed curr</th>
-                    <th>Δ fixed</th>
-                    <th>Rank prev</th>
-                    <th>Rank curr</th>
+                    <th>Rank first</th>
+                    <th>Rank last</th>
                     <th>Δ rank</th>
                 </tr>
             </thead>
             <tbody>
                 {% for r in inst.defects_by_project.per_project %}
+                {% set sort_val = r.active_delta if r.active_delta is not none else 0 %}
                 <tr>
                     <td><code>{{ r.project_name }}</code></td>
-                    <td>{{ r.active_defects_prev if r.active_defects_prev is not none else '—' }}</td>
-                    <td>{{ r.active_defects_curr if r.active_defects_curr is not none else '—' }}</td>
-                    <td class="{% if r.active_defects_delta and r.active_defects_delta > 0 %}delta-neg{% elif r.active_defects_delta and r.active_defects_delta < 0 %}delta-pos{% else %}delta-zero{% endif %}">
-                        {% if r.active_defects_delta is not none %}{{ '{:+d}'.format(r.active_defects_delta|int) }}{% else %}—{% endif %}
+                    <td data-sort-value="{{ sort_val }}">{{ sparkline(r.active_series, snap_labels) }}</td>
+                    <td>{{ r.active_first if r.active_first is not none else '—' }}</td>
+                    <td>{{ r.active_last if r.active_last is not none else '—' }}</td>
+                    <td class="{% if r.active_delta and r.active_delta > 0 %}delta-neg{% elif r.active_delta and r.active_delta < 0 %}delta-pos{% else %}delta-zero{% endif %}">
+                        {% if r.active_delta is not none %}{{ '{:+d}'.format(r.active_delta|int) }}{% else %}—{% endif %}
                     </td>
+                    <td>{% if r.active_pct_delta is not none %}{{ '{:+.1f}%'.format(r.active_pct_delta) }}{% else %}—{% endif %}</td>
+                    <td>{{ r.rank_first if r.rank_first is not none else '—' }}</td>
+                    <td>{{ r.rank_last if r.rank_last is not none else '—' }}</td>
                     <td>
-                        {% if r.active_defects_pct_delta is not none %}{{ '{:+.1f}%'.format(r.active_defects_pct_delta) }}{% else %}—{% endif %}
-                    </td>
-                    <td>{{ r.fixed_defects_prev if r.fixed_defects_prev is not none else '—' }}</td>
-                    <td>{{ r.fixed_defects_curr if r.fixed_defects_curr is not none else '—' }}</td>
-                    <td class="{% if r.fixed_defects_delta and r.fixed_defects_delta > 0 %}delta-pos{% elif r.fixed_defects_delta and r.fixed_defects_delta < 0 %}delta-neg{% else %}delta-zero{% endif %}">
-                        {% if r.fixed_defects_delta is not none %}{{ '{:+d}'.format(r.fixed_defects_delta|int) }}{% else %}—{% endif %}
-                    </td>
-                    <td>{{ r.rank_prev if r.rank_prev is not none else '—' }}</td>
-                    <td>{{ r.rank_curr if r.rank_curr is not none else '—' }}</td>
-                    <td>
-                        {% if r.rank_prev is none and r.rank_curr is not none %}
+                        {% if r.rank_first is none and r.rank_last is none %}
+                            <span class="rank-dropped" title="Appeared and was removed during the window">came &amp; went</span>
+                        {% elif r.rank_first is none and r.rank_last is not none %}
                             <span class="rank-new">new</span>
-                        {% elif r.rank_prev is not none and r.rank_curr is none %}
+                        {% elif r.rank_first is not none and r.rank_last is none %}
                             <span class="rank-dropped">dropped</span>
                         {% elif r.rank_delta is not none and r.rank_delta > 0 %}
                             <span class="rank-arrow-up">▲{{ r.rank_delta|int }}</span>
@@ -395,8 +620,23 @@
 </div>
 
 <script>
-    // Copied from templates/dashboard.html so this template stays self-contained.
+    // Sortable-table autoloader (copied from templates/dashboard.html so this
+    // template stays self-contained). Cells with a data-sort-value attribute
+    // take precedence over the text content — used by the sparkline column
+    // to sort on the underlying numeric Δ.
     let sortDirections = {};
+
+    function cellSortValue(cell, dataType) {
+        const explicit = cell.dataset.sortValue;
+        const raw = explicit !== undefined ? explicit : cell.textContent.trim();
+        if (dataType === 'number') {
+            const num = parseFloat(String(raw).replace(/[^0-9.\-]/g, ''));
+            return isNaN(num) ? 0 : num;
+        } else if (dataType === 'date') {
+            return new Date(raw);
+        }
+        return String(raw);
+    }
 
     function sortTable(columnIndex, tableId, dataType) {
         const table = document.getElementById(tableId);
@@ -407,19 +647,12 @@
         const isAscending = sortDirections[sortKey] === 'asc';
         sortDirections[sortKey] = isAscending ? 'desc' : 'asc';
         rows.sort((a, b) => {
-            let aValue = a.cells[columnIndex].textContent.trim();
-            let bValue = b.cells[columnIndex].textContent.trim();
-            if (dataType === 'number') {
-                aValue = parseFloat(aValue.replace(/[^0-9.\-]/g, '')) || 0;
-                bValue = parseFloat(bValue.replace(/[^0-9.\-]/g, '')) || 0;
+            const aValue = cellSortValue(a.cells[columnIndex], dataType);
+            const bValue = cellSortValue(b.cells[columnIndex], dataType);
+            if (dataType === 'number' || dataType === 'date') {
                 return isAscending ? aValue - bValue : bValue - aValue;
-            } else if (dataType === 'date') {
-                aValue = new Date(aValue);
-                bValue = new Date(bValue);
-                return isAscending ? aValue - bValue : bValue - aValue;
-            } else {
-                return isAscending ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
             }
+            return isAscending ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
         });
         rows.forEach(row => tbody.appendChild(row));
     }
@@ -429,6 +662,10 @@
         for (let i = 0; i < Math.min(rows.length, 5); i++) {
             const cell = rows[i].cells[colIndex];
             if (!cell) continue;
+            if (cell.dataset.sortValue !== undefined) {
+                const num = parseFloat(cell.dataset.sortValue);
+                if (!isNaN(num) && isFinite(num)) return 'number';
+            }
             const txt = cell.textContent.trim();
             if (!txt || txt === 'N/A' || txt === '-' || txt === '—') continue;
             if (/^\d{4}-\d{2}-\d{2}/.test(txt)) return 'date';
