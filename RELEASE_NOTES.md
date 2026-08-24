@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.1.4 - YYYY-MM-DD
+### Version 1.1.4 - 2026-08-24
 
 **New `coverity-delta` CLI: Multi-Snapshot Trend Comparison Report from a Folder of `coverity-export` ZIPs**
 
