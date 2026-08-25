@@ -276,7 +276,7 @@
                 <div class="label">
                     Active Users
                     <span class="info-icon">ℹ
-                        <span class="tooltip">{% if current_project %}Number of unique users who have triage, comment, or snapshot commit activity on this project. Excludes 'system' and 'reporter' users.{% else %}Total number of user accounts in the Coverity system, excluding deleted and system users.{% endif %}</span>
+                        <span class="tooltip">{% if current_project %}Unique users with triage, comment, or snapshot commit activity on this project in the {{ trend_period_text|lower }}. Excludes 'system' and 'reporter' users.{% else %}Unique users with triage, login, or snapshot commit activity in the {{ trend_period_text|lower }}. Excludes 'system' and 'reporter' users.{% endif %}</span>
                     </span>
                 </div>
                 <div class="value">{{ summary.total_users|default(0) }}</div>

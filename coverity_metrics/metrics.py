@@ -1037,8 +1037,14 @@ class CoverityMetrics:
         # cumulative stream_file / stream_function history.
         if days is not None:
             files_date_filter = "AND sn.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s"
+            ts_users_date_filter = "AND ts.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s"
+            ul_users_date_filter = "AND ul.session_start >= CURRENT_DATE - INTERVAL '1 day' * %s"
+            sn_users_date_filter = "AND sn.date_created >= CURRENT_DATE - INTERVAL '1 day' * %s"
         else:
             files_date_filter = ""
+            ts_users_date_filter = ""
+            ul_users_date_filter = ""
+            sn_users_date_filter = ""
 
         if self.project_name:
             # Project-specific queries
@@ -1106,7 +1112,7 @@ class CoverityMetrics:
                         ORDER BY sn.stream_id, sn.id DESC
                     ) win
                 """, (self._project_names,) if days is None else (self._project_names, days)),
-                'total_users': ("""
+                'total_users': (f"""
                     SELECT COUNT(DISTINCT user_id) FROM (
                         -- Users with triage activity on this project's defects
                         SELECT DISTINCT ts.user_created_id as user_id
@@ -1121,6 +1127,7 @@ class CoverityMetrics:
                         WHERE ts.user_created_id IS NOT NULL
                             AND u.username NOT IN ('system', 'reporter')
                             AND p.name = ANY(%s)
+                            {ts_users_date_filter}
                         
                         UNION
                         
@@ -1139,6 +1146,7 @@ class CoverityMetrics:
                             AND ts.cmnt IS NOT NULL
                             AND ts.cmnt != ''
                             AND p.name = ANY(%s)
+                            {ts_users_date_filter}
                         
                         UNION
                         
@@ -1153,8 +1161,9 @@ class CoverityMetrics:
                             AND u.username NOT IN ('system', 'reporter')
                             AND sn.deleted = false
                             AND p.name = ANY(%s)
+                            {sn_users_date_filter}
                     ) active_users
-                """, (self._project_names, self._project_names, self._project_names)),
+                """, (self._project_names, self._project_names, self._project_names) if days is None else (self._project_names, days, self._project_names, days, self._project_names, days)),
                 'high_severity_defects': (f"""
                     SELECT COUNT(DISTINCT sd.id) FROM stream_defect sd 
                     JOIN checker_properties cp ON sd.checker_properties_id = cp.id
@@ -1224,34 +1233,34 @@ class CoverityMetrics:
                     ) win
                 """, None if days is None else (days,)),
                 # Deduplicated active users (triage, login, or commit activity, excluding system/reporter)
-                'total_users': ("""
+                'total_users': (f"""
                     SELECT COUNT(DISTINCT user_id) FROM (
                         -- Users who performed triage actions
                         SELECT DISTINCT ts.user_created_id as user_id
                         FROM triage_state ts
                         JOIN users u ON ts.user_created_id = u.id
-                        WHERE ts.date_created >= CURRENT_DATE - INTERVAL '90 days'
-                            AND ts.user_created_id IS NOT NULL
+                        WHERE ts.user_created_id IS NOT NULL
                             AND u.username NOT IN ('system', 'reporter')
+                            {ts_users_date_filter}
                         UNION
                         -- Users who had login activity
                         SELECT DISTINCT ul.user_id
                         FROM user_login ul
                         JOIN users u ON ul.user_id = u.id
-                        WHERE ul.session_start >= CURRENT_DATE - INTERVAL '90 days'
-                            AND ul.user_id IS NOT NULL
+                        WHERE ul.user_id IS NOT NULL
                             AND u.username NOT IN ('system', 'reporter')
+                            {ul_users_date_filter}
                         UNION
                         -- Users who committed snapshots
                         SELECT DISTINCT sn.committer_user_id as user_id
                         FROM snapshot sn
                         JOIN users u ON sn.committer_user_id = u.id
-                        WHERE sn.date_created >= CURRENT_DATE - INTERVAL '90 days'
-                            AND sn.committer_user_id IS NOT NULL
+                        WHERE sn.committer_user_id IS NOT NULL
                             AND u.username NOT IN ('system', 'reporter')
                             AND sn.deleted = false
+                            {sn_users_date_filter}
                     ) active_user_list
-                """, None),
+                """, None if days is None else (days, days, days)),
                 'high_severity_defects': (f"""
                     SELECT COUNT(DISTINCT sd.id) FROM stream_defect sd 
                     JOIN checker_properties cp ON sd.checker_properties_id = cp.id 
