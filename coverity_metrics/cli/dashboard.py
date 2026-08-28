@@ -189,6 +189,34 @@ def _get_template(template_name):
     return _CACHED_TEMPLATES[template_name]
 
 
+def _sanitize_for_template(value):
+    """Recursively replace float NaN with None inside dicts / lists / tuples.
+
+    Jinja interpolates ``float('nan')`` as the bare token ``nan``, which is
+    an undefined reference in JavaScript. When such a value lands inside a
+    Plotly chart's ``y: [...]`` literal at the top of the ``<script>`` block,
+    parsing raises ``ReferenceError: nan is not defined`` and aborts the
+    entire script — killing every listener registered lower down (tab
+    switching, sortable headers, filters). Sanitizing NaN → None at render
+    time means ``{{ row.foo or 0 }}`` collapses to ``0`` as originally
+    intended (``nan or 0`` returns ``nan`` because NaN is truthy).
+    """
+    if isinstance(value, dict):
+        return {k: _sanitize_for_template(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_for_template(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_sanitize_for_template(v) for v in value)
+    if isinstance(value, float) and value != value:
+        return None
+    return value
+
+
+def _render_template(template, **kwargs):
+    """Render ``template`` with NaN values scrubbed from every kwarg."""
+    return template.render(**{k: _sanitize_for_template(v) for k, v in kwargs.items()})
+
+
 def detect_multi_instance_config(config_file='config.json'):
     """
     Detect if multi-instance configuration exists and has multiple instances
@@ -493,8 +521,9 @@ def generate_html_dashboard(output_file="output/dashboard.html", project_name=No
         or top_users_by_fixes or top_triagers or most_collaborative_users
     )
 
-    # Render template with data
-    html_content = template.render(
+    # Render template with data (NaN scrubbed to None — see _sanitize_for_template)
+    html_content = _render_template(
+        template,
         inline_css=inline_css,
         timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         summary=summary,
@@ -778,8 +807,9 @@ def generate_aggregated_dashboard(multi_metrics, output_file="output/dashboard_a
     # Load aggregated template (module-cached — Environment created once)
     template = _get_template('dashboard_aggregated.html')
 
-    # Render template with data
-    html_content = template.render(
+    # Render template with data (NaN scrubbed to None — see _sanitize_for_template)
+    html_content = _render_template(
+        template,
         inline_css=inline_css,
         timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         summary=summary,
@@ -1352,8 +1382,9 @@ def generate_aggregated_dashboard_from_zips(zip_loaders, instance_configs, outpu
     # Load aggregated template (module-cached — Environment created once)
     template = _get_template('dashboard_aggregated.html')
 
-    # Render template with data
-    html_content = template.render(
+    # Render template with data (NaN scrubbed to None — see _sanitize_for_template)
+    html_content = _render_template(
+        template,
         inline_css=inline_css,
         timestamp=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         summary=summary,

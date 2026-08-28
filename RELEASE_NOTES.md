@@ -2,6 +2,23 @@
 
 ## Version History
 
+### Version 1.1.5 - 2026-08-XX
+
+**Fix: Dashboard tabs stuck on default view when any trend chart contained a NaN value**
+
+#### Fixed
+
+##### 🐞 Instance-level and project-level dashboard tabs sometimes did nothing when clicked
+- **Symptom** — On some dashboards, every tab except the default one was inert. Clicking Trends, Performance, Metadata, Compliance, etc. left the Overview tab visible with no error message. Sortable table headers and filter buttons also silently stopped working on the affected dashboards.
+- **Root cause** — Aggregate metrics that group by date (e.g. `get_defect_discovery_rate`, which runs `SUM(...) ... GROUP BY DATE(...)`) return `NULL` for empty groups. Pandas upcasts the resulting integer column to float and stores `NULL` as `numpy.nan`. `.to_dict('records')` preserved that `nan`, and the Jinja template interpolated it as the bare token `nan` inside a Plotly `y: [...]` array literal at the very top of the dashboard's `<script>` block. `nan` is an undefined reference in JavaScript, so the parser raised `ReferenceError: nan is not defined` on the first chart definition — aborting the entire script tag before any tab-click / sortable-header / filter listeners could register. The default tab was the only one that appeared to work because it's the tab that's already visible when the page loads.
+- The existing template idiom `{{ row.foo or 0 }}` did **not** rescue this because `float('nan')` is truthy in Python — `nan or 0` returns `nan`, not `0`. Every guard in the trend charts had the same hidden failure mode.
+- **Fix** — Single load-bearing point in `coverity_metrics/cli/dashboard.py` instead of patching every JS array literal in the template:
+  - New `_sanitize_for_template(value)` recursively walks dicts / lists / tuples and rewrites any `float` failing the `value == value` NaN check to `None`. Catches both `float('nan')` and `numpy.nan`.
+  - New `_render_template(template, **kwargs)` scrubs every kwarg through `_sanitize_for_template` before calling `template.render(...)`.
+  - All three dashboard render sites — per-project / per-instance `dashboard.html`, and both `dashboard_aggregated.html` renders (DB-mode and ZIP-mode) — now route through the wrapper.
+- After sanitization, `{{ row.foo or 0 }}` behaves as originally intended (`None or 0` returns `0`), so no template edits were required. Regenerated dashboards contain valid JavaScript, all tabs become clickable, and sortable table headers + filter buttons — which register in the same script block — start working again as a side effect. No behavioural change for datasets that never produced NaN.
+- **How to recover** — Regenerate the affected dashboards with `coverity-dashboard ...` on 1.1.5; no config or CLI-flag changes needed.
+
 ### Version 1.1.4 - 2026-08-24
 
 **New `coverity-delta` CLI: Multi-Snapshot Trend Comparison Report from a Folder of `coverity-export` ZIPs**

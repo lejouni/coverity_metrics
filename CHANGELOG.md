@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.5] - 2026-08-XX
+
+### Fixed
+- **Dashboard tabs (instance-level and project-level) sometimes did nothing when clicked — every non-default tab was stuck on the default view**
+  - Root cause: aggregate metrics that group by date (e.g. `get_defect_discovery_rate` — a `SUM(...) ... GROUP BY DATE(snapshot_date)` query) return `NULL` for empty groups. Pandas upcasts the resulting integer column to float and stores `NULL` as `numpy.nan`. `.to_dict('records')` preserved that `nan`, and the Jinja template interpolated it as the bare token `nan` inside a Plotly `y: [...]` array literal at the top of the dashboard's `<script>` block. `nan` is an undefined reference in JavaScript, so the parser raised `ReferenceError: nan is not defined` on the very first chart definition — aborting the entire script tag before any `DOMContentLoaded` listeners could register. Result: tab click handlers, sortable-header autoloader, and filter buttons all silently failed to attach; the default tab was the only one that appeared to work because it's the tab that's already visible.
+  - The template's existing `{{ row.foo or 0 }}` guards did **not** rescue this because `float('nan')` is truthy in Python (`nan or 0` returns `nan`, not `0`). Every guard in the trend charts had this hidden failure mode waiting for the first NaN-producing snapshot.
+  - Fix in `coverity_metrics/cli/dashboard.py` at a single, load-bearing point instead of patching every JS array literal in the template:
+    - New `_sanitize_for_template(value)` recursively walks dicts / lists / tuples and rewrites any `float` that fails the `value == value` NaN check to `None`. Catches both `float('nan')` and `numpy.nan` uniformly.
+    - New `_render_template(template, **kwargs)` scrubs every kwarg through `_sanitize_for_template` before calling `template.render(...)`.
+    - All three dashboard render sites now route through the wrapper: per-project / per-instance `dashboard.html`, and both `dashboard_aggregated.html` renders (DB-mode and ZIP-mode paths).
+  - After sanitization, `{{ row.foo or 0 }}` behaves as originally intended (`None or 0` returns `0`), so no template edits were required. Verified with smoke tests that both `float('nan')` and `numpy.nan` values inside nested `.to_dict('records')` output collapse to `None`, and Jinja emits `0` in the JS array position instead of the fatal `nan`.
+  - Existing dashboards regenerate with valid JavaScript, all tabs (Overview, Trends, Performance, Metadata, Compliance, etc.) become clickable again, and sortable table headers / filter buttons — which register in the same script block — start working again as a side effect. No behavioural change for datasets that never produced NaN.
+
 ## [1.1.4] - 2026-08-24
 
 ### Added
