@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.1.5 - 2026-08-XX
+### Version 1.1.5 - 2026-08-31
 
 **Fix: Dashboard tabs stuck on default view when any trend chart contained a NaN value**
 
