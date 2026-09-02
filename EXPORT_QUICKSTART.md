@@ -197,9 +197,11 @@ Then invoke it with the `dashboard` subcommand and `--zip-file`:
     --zip-file scripts/exports/Production.zip \
     --output dashboards/
 
-# Multiple ZIPs at once (one dashboard set per ZIP, plus an aggregated view)
+# Multiple ZIPs at once (one dashboard set per ZIP; add --aggregated-view to also
+# produce dashboard_aggregated.html — off by default in ZIP mode)
 ./scripts/bin/coverity-metrics-linux-v1.0.29 dashboard \
     --zip-file scripts/exports/Prod.zip scripts/exports/Staging.zip \
+    --aggregated-view \
     --output dashboards/
 
 # Skip the auto-open of the HTML in a browser (useful in headless / CI)

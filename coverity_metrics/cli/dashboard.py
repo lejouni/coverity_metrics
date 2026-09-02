@@ -7,10 +7,12 @@ Supports reading from database or exported ZIP files
 import os
 import sys
 import argparse
+import glob
 import logging
 import json
 import time
 from datetime import date, datetime
+from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from coverity_metrics.metrics import CoverityMetrics
 from coverity_metrics.zip_data_loader import ZipDataLoader
@@ -92,6 +94,133 @@ def assign_instance_colors(instance_names):
         # Cycle through colors if we have more instances than colors
         color_map[name] = INSTANCE_COLOR_PALETTE[i % len(INSTANCE_COLOR_PALETTE)]
     return color_map
+
+
+def _expand_zip_globs(zip_files, logger=None):
+    """Expand shell-style glob patterns in ``--zip-file`` arguments.
+
+    Windows shells (`cmd`, PowerShell) do not expand `*` / `?` / `[...]`
+    before invoking the tool, so patterns arrive verbatim in ``argv``.
+    Entries without glob metacharacters pass through unchanged. Each glob
+    is sorted for deterministic ordering; the overall list preserves the
+    argv order of the surrounding literal / glob entries. A pattern that
+    matches nothing is left in-place — the existing "ZIP file not found"
+    check reports it with the offending pattern.
+    """
+    if logger is None:
+        logger = tqdm.write
+
+    expanded = []
+    for entry in zip_files:
+        if any(ch in entry for ch in '*?['):
+            matches = sorted(glob.glob(entry))
+            if matches:
+                logger(f"  [OK] Glob '{entry}' matched {len(matches)} ZIP(s)")
+                expanded.extend(matches)
+            else:
+                # Preserve the pattern so the caller's existence check reports it clearly.
+                expanded.append(entry)
+        else:
+            expanded.append(entry)
+    return expanded
+
+
+def _build_zip_loader_map(zip_files, loader_cls=ZipDataLoader, logger=None):
+    """Load each ZIP, take its first instance name, and disambiguate collisions.
+
+    Multiple ZIPs can carry the same internal instance name (for example, all
+    labelled ``Production`` even when they come from different Coverity
+    servers). The previous implementation used the raw name as a dict key,
+    which silently overwrote earlier entries. Here we resolve collisions by
+    appending the ZIP filename's stem in parentheses — e.g.
+    ``Production (prod_us)`` — and, in the pathological case where two ZIPs
+    also share a stem, by appending an ordinal.
+
+    Each loader keeps ``instance_name`` at its raw (ZIP-metadata) value — that
+    attribute doubles as the folder prefix inside the ZIP, so overwriting it
+    with the display name would break every downstream metric read. The
+    disambiguated label is exposed as ``loader.display_name`` and also flows
+    through the returned dict key / list.
+
+    Args:
+        zip_files: List of ZIP file paths (argv order preserved).
+        loader_cls: Loader class to instantiate. Defaults to ``ZipDataLoader``;
+            tests override this with a stub.
+        logger: Callable used for progress / warning lines. Defaults to
+            ``tqdm.write`` so the caller sees the same output as before.
+
+    Returns:
+        tuple: ``(zip_loaders, all_instances, days)`` — a dict of
+        ``display_name -> loader`` (insertion-ordered), the display-name list
+        in argv order, and the last ``days`` value read from any ZIP's
+        metadata (or ``None`` when no ZIP contributed one).
+    """
+    if logger is None:
+        logger = tqdm.write
+
+    raw_entries = []
+    days = None
+    for zip_file in zip_files:
+        loader = loader_cls(zip_file)
+        metadata = loader.get_metadata()
+        available_instances = loader.list_available_instances()
+        if not available_instances:
+            logger(f"[WARNING] No instances found in {zip_file}, skipping")
+            continue
+        raw_entries.append({
+            'zip_file': zip_file,
+            'raw_name': available_instances[0],
+            'loader': loader,
+        })
+        d = metadata.get('days')
+        if d is not None:
+            days = d
+
+    name_counts = {}
+    for entry in raw_entries:
+        name_counts[entry['raw_name']] = name_counts.get(entry['raw_name'], 0) + 1
+
+    zip_loaders = {}
+    all_instances = []
+    collision_reported = set()
+    for entry in raw_entries:
+        raw_name = entry['raw_name']
+        zip_file = entry['zip_file']
+        loader = entry['loader']
+
+        if name_counts[raw_name] == 1:
+            display_name = raw_name
+        else:
+            stem = Path(zip_file).stem or 'zip'
+            candidate = f"{raw_name} ({stem})"
+            # Residual collision fallback: two ZIPs share both the raw name and
+            # the filename stem (someone passed the same ZIP twice or copies of
+            # it under different folders). Add an ordinal so display names are
+            # still unique.
+            if candidate in zip_loaders:
+                ordinal = 2
+                while f"{candidate} ({ordinal})" in zip_loaders:
+                    ordinal += 1
+                candidate = f"{candidate} ({ordinal})"
+            display_name = candidate
+            if raw_name not in collision_reported:
+                collision_reported.add(raw_name)
+                dupes = [os.path.basename(e['zip_file']) for e in raw_entries if e['raw_name'] == raw_name]
+                logger(
+                    f"  [INFO] Duplicate instance name '{raw_name}' across {len(dupes)} ZIP(s) "
+                    f"({', '.join(dupes)}); disambiguating by ZIP filename stem."
+                )
+
+        loader.display_name = display_name
+        # NOTE: do NOT overwrite loader.instance_name — ZipDataLoader uses it as
+        # the folder prefix inside the ZIP (see zip_data_loader.py::_get_filename).
+        # It must stay at the raw name from the ZIP metadata or every metric read
+        # returns empty.
+        zip_loaders[display_name] = loader
+        all_instances.append(display_name)
+        logger(f"  [OK] Loaded instance '{display_name}' from {os.path.basename(zip_file)}")
+
+    return zip_loaders, all_instances, days
 
 
 def _compute_avg_scans_per_week(scan_activity_trend, days):
@@ -1436,6 +1565,7 @@ def main():
                '  coverity-dashboard --instance Prod          # Specific instance only (database)\n'
                '  coverity-dashboard --zip-file export.zip    # Generate from ZIP export\n'
                '  coverity-dashboard --zip-file export1.zip export2.zip export3.zip  # Multi-ZIP aggregation\n'
+               '  coverity-dashboard --zip-file a.zip b.zip --aggregated-view  # Opt in to aggregated view without config.json\n'
                '  coverity-dashboard --zip-file export.zip --instance Prod --project MyApp\n'
                '  coverity-dashboard --days 365               # Change trend period\n'
                '  coverity-dashboard --instance-only           # Skip per-project dashboards, generate instance-level only\n',
@@ -1454,7 +1584,14 @@ def main():
     # Data source arguments
     parser.add_argument('--zip-file', '-z', type=str, nargs='+',
                        help='Use exported ZIP file(s) as data source instead of database (supports multiple files for aggregation)')
-    
+
+    parser.add_argument('--aggregated-view', action='store_true',
+                       help='Generate a cross-instance aggregated dashboard (dashboard_aggregated.html) in ZIP mode. '
+                            'Off by default. Also enabled if a passed --config has '
+                            '"zip_files_config.aggregated_view.enabled": true (either source is sufficient). '
+                            'Instance colors are auto-assigned; duplicate instance names across ZIPs are '
+                            'disambiguated by appending the ZIP filename stem in parentheses.')
+
     # Multi-instance arguments (mostly for backward compatibility and override)
     parser.add_argument('--config', '-c', type=str, default=None,
                        help=('Path to configuration file. If omitted (and --zip-file is also omitted), the following are '
@@ -1537,11 +1674,14 @@ def _run_main(args):
     # ========================================================================
     if args.zip_file:
         zip_files = args.zip_file if isinstance(args.zip_file, list) else [args.zip_file]
+        # Windows shells (cmd, PowerShell) do not expand globs — do it here so
+        # `--zip-file archive/*.zip` behaves the same on every platform.
+        zip_files = _expand_zip_globs(zip_files)
 
-        # Read aggregated_view setting from config (same flag used in database mode)
+        # Aggregated view opts in via CLI flag OR config; either source is enough.
         _, _, _zip_cfg = detect_multi_instance_config(args.config)
         _zip_agg_cfg = (_zip_cfg or {}).get('aggregated_view', {})
-        zip_aggregated_view_enabled = _zip_agg_cfg.get('enabled', False)
+        zip_aggregated_view_enabled = bool(args.aggregated_view) or bool(_zip_agg_cfg.get('enabled', False))
 
         # Validate all ZIP files exist
         for zip_file in zip_files:
@@ -1558,30 +1698,9 @@ def _run_main(args):
                 tqdm.write(f"  - {zip_file}")
             
             try:
-                # Load all ZIP files and extract instance information
-                zip_loaders = {}
-                all_instances = []
-                days = 365  # Default, will use from first ZIP
-                
-                for zip_file in zip_files:
-                    loader = ZipDataLoader(zip_file)
-                    metadata = loader.get_metadata()
-                    available_instances = loader.list_available_instances()
-                    
-                    if not available_instances:
-                        tqdm.write(f"[WARNING] No instances found in {zip_file}, skipping")
-                        continue
-                    
-                    # Use first instance from each ZIP file
-                    instance_name = available_instances[0]
-                    loader.instance_name = instance_name
-                   
-                    zip_loaders[instance_name] = loader
-                    all_instances.append(instance_name)
-                    days = metadata.get('days', days)
-                    
-                    tqdm.write(f"  [OK] Loaded instance '{instance_name}' from {os.path.basename(zip_file)}")
-                
+                zip_loaders, all_instances, loaded_days = _build_zip_loader_map(zip_files)
+                days = loaded_days if loaded_days is not None else 365
+
                 if not zip_loaders:
                     tqdm.write("[ERROR] No valid instances found in any ZIP file")
                     sys.exit(1)
@@ -1687,7 +1806,8 @@ def _run_main(args):
                             loader, 
                             cache=None, 
                             use_cache=False, 
-                            days=days
+                            days=days,
+                            has_aggregated_dashboard=zip_aggregated_view_enabled,
                         )
                         generated_files.append((f"{instance_name} - All Projects", dashboard_path))
                         
@@ -1704,7 +1824,8 @@ def _run_main(args):
                                     loader, 
                                     cache=None, 
                                     use_cache=False, 
-                                    days=days
+                                    days=days,
+                                    has_aggregated_dashboard=zip_aggregated_view_enabled,
                                 )
                                 generated_files.append((f"{instance_name} - {project_name}", dashboard_path))
                 
@@ -1849,7 +1970,8 @@ def _run_main(args):
                         zip_loader, 
                         cache=None, 
                         use_cache=False, 
-                        days=metadata.get('days', 365)
+                        days=metadata.get('days', 365),
+                        has_aggregated_dashboard=zip_aggregated_view_enabled,
                     )
                     generated_files.append((f"{args.instance} - All Projects", dashboard_path))
                     
@@ -1872,7 +1994,8 @@ def _run_main(args):
                                 zip_loader,
                                 cache=None,
                                 use_cache=False,
-                                days=metadata.get('days', 365)
+                                days=metadata.get('days', 365),
+                                has_aggregated_dashboard=zip_aggregated_view_enabled,
                             )
                             generated_files.append((f"{args.instance} - {project_name}", dashboard_path))
                     else:
@@ -1901,7 +2024,8 @@ def _run_main(args):
                                     loader,
                                     cache=None,
                                     use_cache=False,
-                                    days=metadata.get('days', 365)
+                                    days=metadata.get('days', 365),
+                                    has_aggregated_dashboard=zip_aggregated_view_enabled,
                                 )
                                 return project_name, path, None
                             except Exception as exc:

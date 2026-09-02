@@ -161,7 +161,7 @@
                     <select id="instance-selector" style="width: 100%; padding: 0.75rem; border-radius: 4px; border: none; font-size: 1rem; cursor: pointer; background: white; color: #2c3e50;">
                         <option value="">-- Select Instance --</option>
                         {% for inst in instance_configs %}
-                        <option value="{{ inst.name }}/dashboard.html" data-color="{{ inst.color }}">{{ inst.name }} - {{ inst.description }}</option>
+                        <option value="{{ inst.name.replace(' ', '_') }}/dashboard.html" data-color="{{ inst.color }}">{{ inst.name }} - {{ inst.description }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -171,7 +171,7 @@
         <!-- Quick Instance Cards -->
         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
             {% for inst in instance_configs %}
-            <a href="{{ inst.name }}/dashboard.html" style="text-decoration: none; color: inherit;">
+            <a href="{{ inst.name.replace(' ', '_') }}/dashboard.html" style="text-decoration: none; color: inherit;">
                 <div style="background: white; border-left: 4px solid {{ inst.color }}; padding: 1rem; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: all 0.3s; cursor: pointer;" 
                      onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)';"
                      onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)';">
@@ -250,12 +250,12 @@
                 </thead>
                 <tbody>
                     {% for inst in defects_by_instance %}
-                    <tr style="cursor: pointer;" onclick="window.location.href='{{ inst.instance_name }}/dashboard.html';" 
+                    <tr style="cursor: pointer;" onclick="window.location.href='{{ inst.instance_name.replace(' ', '_') }}/dashboard.html';" 
                         onmouseover="this.style.backgroundColor='#f8f9fa';" 
                         onmouseout="this.style.backgroundColor='';">
                         <td>
                             <span style="display: inline-block; width: 12px; height: 12px; background-color: {{ inst.color }}; border-radius: 2px; margin-right: 8px;"></span>
-                            <a href="{{ inst.instance_name }}/dashboard.html" style="text-decoration: none; color: #3498db; font-weight: bold;">{{ inst.instance_name }}</a>
+                            <a href="{{ inst.instance_name.replace(' ', '_') }}/dashboard.html" style="text-decoration: none; color: #3498db; font-weight: bold;">{{ inst.instance_name }}</a>
                         </td>
                         <td>{{ inst.description }}</td>
                         <td class="metric-number">{{ inst.total_defects }}</td>

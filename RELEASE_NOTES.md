@@ -2,6 +2,71 @@
 
 ## Version History
 
+### Version 1.1.6 - YYYY-MM-DD
+
+**Feature: opt-in aggregated view from the CLI in ZIP mode, plus a fix for silent overwrites when multiple ZIPs share an instance name. Also: a Jinja `TypeError` on null trend rows.**
+
+#### Added
+
+##### 🆕 `coverity-dashboard --aggregated-view` — opt in without `config.json`
+- The cross-instance `dashboard_aggregated.html` used to require `--config` pointing at a JSON file whose `zip_files_config.aggregated_view.enabled` was `true`. That effectively made `config.json` mandatory for behaviour that had nothing to do with database connection details, and users running fully offline ZIP-mode workflows had no way to opt in from the CLI.
+- New `--aggregated-view` flag (default off) enables the aggregated dashboard directly. The config switch still works — either source alone is enough. There is deliberately **no** `--no-aggregated-view`: to force off, omit the flag and/or set `enabled: false` in the config.
+- Instance colors on the aggregated dashboard remain auto-assigned from the built-in palette (no CLI or config knob for colors).
+- Scoped to ZIP mode. Database mode is unchanged — it already needs `config.json` for connection details, so the config-file switch stays authoritative there.
+
+#### Fixed
+
+##### 🐞 `--zip-file archive/*.zip` failed on Windows because PowerShell / `cmd` don't expand globs
+- **Symptom** — On Windows, running `coverity-dashboard --zip-file archive/*.zip ...` exited immediately with `[ERROR] ZIP file not found: archive/*.zip` and total execution time `0.0s`. Every multi-ZIP recipe documented in the README, [MULTI_ZIP_GUIDE.md](MULTI_ZIP_GUIDE.md), and [EXPORT_QUICKSTART.md](EXPORT_QUICKSTART.md) that relied on `*.zip` was effectively broken on Windows.
+- **Root cause** — POSIX shells (bash, zsh) expand `*` / `?` / `[…]` before invoking the tool, so the argv already contains the concrete file list. PowerShell and `cmd` hand the metacharacters through verbatim, so the tool saw the literal pattern and fed it straight into `os.path.exists(...)`.
+- **Fix** — Expand `--zip-file` entries with `glob.glob(pattern)` immediately after argv parsing, in `coverity_metrics/cli/dashboard.py`. Literals (no glob metacharacters) pass through unchanged. Matches are sorted for deterministic ordering; the surrounding argv order is preserved. Patterns that match nothing are left in place so the existing "ZIP file not found" line reports them with the offending pattern rather than silently dropping them. Each expanded glob prints one `[OK] Glob '<pattern>' matched N ZIP(s)` line for transparency. Works identically on Linux (where the shell would have expanded it anyway) and on Windows.
+- **How to recover** — Rerun the affected command on 1.1.6. No CLI or config changes required.
+
+##### 🐞 Multiple ZIPs sharing the same internal instance name silently collapsed into one row
+- **Symptom** — When two or more ZIPs passed to `--zip-file` carried the same first instance name in their metadata (for example every export labelled `Production`, even though the exports came from different Coverity servers), only one of them appeared in `dashboard_aggregated.html`. Per-instance output folders collided, palette colors were assigned to the survivor only, and every summed metric (total defects, licensed users, DB size, commits, …) silently dropped the losers.
+- **Root cause** — The multi-ZIP loading loop in `coverity_metrics/cli/dashboard.py` keyed the loader dict by the raw instance name (`zip_loaders[instance_name] = loader`). Later entries overwrote earlier ones and the `all_instances` list quietly deduped.
+- **Fix** — Extract the loading loop into `_build_zip_loader_map(zip_files, loader_cls=ZipDataLoader, logger=None)`, which runs a two-pass build:
+  - **Pass 1** — collect `(zip_file, raw_name, loader)` tuples.
+  - **Pass 2** — count duplicates and assign a `display_name`. Unique names pass through unchanged; duplicates get the ZIP filename's stem appended in parentheses (e.g. `Production (prod_us)`, `Production (prod_eu)`).
+  - One `[INFO]` line per collision reports the raw name and the ZIP basenames involved.
+  - The disambiguated label is exposed as `loader.display_name` and flows through the dict key + `all_instances` list into per-instance output folders, dashboard titles, and palette colors.
+  - `loader.instance_name` deliberately stays at the raw ZIP-metadata value. `ZipDataLoader` doubles that attribute as the folder prefix inside the archive (`f"{instance_name}/{metric_name}.json"`), so overwriting it with the display name would break every downstream metric read — the aggregation would report `[OK] Aggregated summary across N instances` but every per-instance summary, severity breakdown, user stat, DB stat, commit stat, analysis version, triage state, and trend line would come back empty. Keeping `instance_name` at the raw name lets `ZipDataLoader` find its own contents; the aggregation still keys instances by the display name via the outer `zip_loaders` dict.
+  - Argv order is preserved so the color-palette rotation stays deterministic across runs.
+  - Belt-and-braces: if two ZIPs also share a stem (someone passed the same ZIP twice under different paths), an ordinal `(2)` / `(3)` is appended so display names stay unique.
+- **How to recover** — Regenerate the affected multi-ZIP dashboards on 1.1.6. No CLI, config, or cache-key changes required. Users who were relying on the silent overwrite (unlikely, but conceivable) can either rename the affected exports or accept the new `Production (prod_us)` naming.
+
+##### 🐞 Links from `dashboard_aggregated.html` to per-instance dashboards were broken whenever the instance name contained a space
+- **Symptom** — Clicking a row in the "Defects by Instance" table, an entry in the Jump-to-Instance dropdown, or a Quick Instance Card on the aggregated dashboard landed on a broken browser tab. The address bar showed a `file://` URL like `.../Production%20(NAM)/dashboard.html` but the file didn't exist. The actual per-instance dashboard was one folder over at `.../Production_(NAM)/dashboard.html`.
+- **Root cause** — Two conventions coexisted, incompatibly:
+  - The Python side creates per-instance folders with `.replace(' ', '_')`, so spaces are always squashed to underscores on disk.
+  - `coverity_metrics/templates/dashboard_aggregated.html` emitted hrefs as `{{ inst.name }}/dashboard.html` and `{{ inst.instance_name }}/dashboard.html` — the raw label, spaces preserved. The browser URL-encoded the space to `%20`, which never matches the underscored folder.
+- **Latency** — The bug had been present for any DB-mode user whose `config.json` labelled an instance with a space (`"Production Coverity"`) but nobody appears to have hit it in the wild. The 1.1.6 duplicate-instance-name disambiguation forced the issue by *always* injecting spaces into the display name (`Production (prod_us)`).
+- **Fix** — Apply `.replace(' ', '_')` to every `inst.name` / `inst.instance_name` used as a URL segment inside `dashboard_aggregated.html` — the Jump-to-Instance dropdown, the Quick Instance Cards, the per-instance table row `onclick` handler, and the hyperlink inside that row. Visible labels around the URLs (`<option>` display text, cell labels, tooltips) keep their spaces so users still see the pretty `Production (prod_us)` name. Same convention already in use for project links inside the per-instance `dashboard.html` template at [dashboard.html#L80](coverity_metrics/templates/dashboard.html#L80).
+- **How to recover** — Regenerate the aggregated dashboard on 1.1.6; links now match the folder layout on disk. No CLI or config changes required.
+
+##### 🐞 Per-instance ZIP-mode dashboards showed a "🌐 Back to All Instances" button linking to a file that was never generated
+- **Symptom** — Running `coverity-dashboard --zip-file ...` **without** `--aggregated-view` (and without a config that enables it) still produced a per-instance dashboard with a "🌐 Back to All Instances" call-to-action button at the top pointing at `../dashboard_aggregated.html`. Clicking it landed on a browser error because that file was never created.
+- **Root cause** — The per-instance `dashboard.html` template renders the button under `{% if current_instance and not current_project and has_aggregated_dashboard %}`. Five `generate_html_dashboard(...)` call sites in the ZIP-mode branches of `coverity_metrics/cli/dashboard.py` didn't forward the flag and fell back to the argument's default of `True`, so the button rendered unconditionally. DB-mode already passed `has_aggregated_dashboard=aggregated_view_enabled` at every site — the omission was ZIP-mode only.
+- **Fix** — Forward `has_aggregated_dashboard=zip_aggregated_view_enabled` at every ZIP-mode `generate_html_dashboard(...)` site (multi-ZIP instance-level + per-project, single-ZIP instance-level + sequential per-project + parallel `_render` worker). Now the button appears when the aggregated dashboard was actually generated and disappears when it wasn't. Also verified end-to-end: running the same command with and without `--aggregated-view` produces per-instance dashboards with the button count going from 1 → 0.
+- **Bonus fix in the same template** — the "🌐 All Instances" breadcrumb link at the top of every per-instance / per-project dashboard had the same class of bug. It was rendered whenever `current_instance` was truthy, without consulting `has_aggregated_dashboard`, so ZIP-mode users (and any DB-mode user with `aggregated_view.enabled: false`) saw a top-of-page link into a file that didn't exist. The link segment (`<a href="../dashboard_aggregated.html">🌐 All Instances</a>` + trailing `›` separator) is now wrapped in `{% if has_aggregated_dashboard %}` — the rest of the breadcrumb (`{{ current_instance }} › {{ current_project }}`) still renders unchanged.
+- **How to recover** — Regenerate the affected ZIP-mode dashboards on 1.1.6; no CLI or config changes required.
+
+##### 🐞 `TypeError: '>' not supported between instances of 'NoneType' and 'int'` on dashboard render
+- **Symptom** — `coverity-dashboard` (both DB-mode and ZIP-mode) aborted mid-render with the traceback below, producing no HTML output:
+
+  ```
+  File ".../coverity_metrics/templates/dashboard.html", line 1426, in top-level template code
+      <td class="metric-number {% if row.new_defects > 10 %}metric-increase{% endif %}">
+  TypeError: '>' not supported between instances of 'NoneType' and 'int'
+  ```
+
+- **Root cause** — Three `{% if row.new_defects > 10 %}` (and one `row.total_new_defects > 10`) CSS-class guards in `coverity_metrics/templates/dashboard.html` compared the raw column value against `10` without a null coalesce. The 1.1.5 `_sanitize_for_template` rewrite that converts `numpy.nan` → `None` made this reachable on real data — any `NULL`-bearing aggregate row that survived sanitization now reached the Jinja comparison as literal `None`, and `None > 10` raises `TypeError` in Jinja's Python-mode expression evaluator, aborting the whole `template.render(...)` call before any HTML was written. The neighbouring `{{ row.new_defects or 0 }}` interpolation already handled the display side; only the CSS-class conditional was missing the same guard.
+- **Fix** — Wrap each comparison in `(row.<col> or 0) > 10` so `None` collapses to `0` before the comparison. Three sites patched, all in `dashboard.html`:
+  - `total_new_defects` on the scan-activity table (~line 957).
+  - `new_defects` on the defect-trends table (~line 1050).
+  - `new_defects` on the snapshot-performance table (~line 1426).
+- **How to recover** — Regenerate the affected dashboards with `coverity-dashboard ...` on 1.1.6; no config / CLI-flag / cache-key changes.
+
 ### Version 1.1.5 - 2026-08-31
 
 **Fix: Dashboard tabs stuck on default view when any trend chart contained a NaN value**

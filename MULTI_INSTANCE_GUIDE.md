@@ -164,7 +164,12 @@ Shows combined metrics from all Coverity instances:
 - All projects from all instances
 - Cross-instance performance comparison
 
-Generated automatically as `dashboard_aggregated.html`
+Generated as `dashboard_aggregated.html` when the aggregated view is enabled.
+In database mode it is opted in via `aggregated_view.enabled: true` in
+`config.json` (see the config example above). In ZIP mode it is off by default
+and opts in via either the CLI flag `--aggregated-view` **or** a `--config`
+whose `zip_files_config.aggregated_view.enabled` is `true` — either source
+alone is enough.
 
 #### 2. Per-Instance Views
 Individual dashboard for each Coverity instance:

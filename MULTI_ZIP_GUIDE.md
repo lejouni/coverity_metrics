@@ -69,6 +69,10 @@ coverity-dashboard --zip-file file1.zip file2.zip file3.zip
 coverity-dashboard --zip-file exports/*.zip
 ```
 
+`*` / `?` / `[…]` patterns are expanded inside the tool, so wildcards
+work identically on Linux, macOS, and Windows (PowerShell / `cmd`) —
+no shell expansion required.
+
 ### With Project Filter
 Filter for a specific project across all instances:
 ```bash
@@ -79,6 +83,17 @@ coverity-dashboard --zip-file prod.zip dev.zip staging.zip --project MyApp
 ```bash
 coverity-dashboard --zip-file *.zip --output aggregated_reports --no-browser
 ```
+
+### Opting In to the Aggregated View
+```bash
+coverity-dashboard --zip-file *.zip --aggregated-view --output aggregated_reports --no-browser
+```
+
+The cross-instance `dashboard_aggregated.html` is **off by default** in ZIP mode.
+Enable it either with the CLI flag `--aggregated-view` or by pointing `--config`
+at a JSON file with `"zip_files_config": {"aggregated_view": {"enabled": true}}`.
+Either source alone is enough — no ordering rules. Instance colors on the
+aggregated dashboard are auto-assigned from the built-in palette.
 
 ## What Gets Generated
 
@@ -95,14 +110,27 @@ When you provide multiple ZIP files:
    - `output/InstanceB/dashboard_Project1.html`
    - etc.
 
-3. **Aggregated Dashboard** (coming soon): Combined view across all instances
-   - `output/dashboard_aggregated.html`
+3. **Aggregated Dashboard** (opt-in): Combined view across all instances
+   - `output/dashboard_aggregated.html` — created only when `--aggregated-view`
+     is passed or a `--config` enables it (see above).
+
+## Duplicate Instance Names Across ZIPs
+
+If two or more ZIPs carry the same internal instance name (for example, every
+ZIP is labelled `Production` even though the exports came from different
+Coverity servers), the aggregated dashboard used to silently collapse them
+into a single row because the loader dict was keyed by that name. Duplicates
+are now disambiguated by appending the ZIP filename's stem in parentheses —
+e.g. `Production (prod_us)`, `Production (prod_eu)` — so each ZIP appears as
+its own instance in the aggregated view, its own per-instance output folder,
+and its own palette color. Unique instance names are left untouched.
 
 ## Current Limitations
 
-- Aggregated cross-instance dashboard not yet implemented (generates per-instance dashboards only)
 - Each ZIP must contain data from a single instance
-- Instance names from different ZIPs should be unique (duplicate names will overwrite)
+- The aggregated view is opt-in — the run only produces per-instance
+  dashboards unless you pass `--aggregated-view` or enable it in a config
+  file passed via `--config`.
 
 ## Complete Workflow Example
 

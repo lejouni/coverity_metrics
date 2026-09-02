@@ -15,8 +15,10 @@
             <!-- Breadcrumb Navigation -->
             {% if current_instance %}
             <div style="margin-bottom: 1rem; font-size: 0.9rem;">
+                {% if has_aggregated_dashboard %}
                 <a href="../dashboard_aggregated.html" style="color: #3498db; text-decoration: none;">🌐 All Instances</a>
                 <span style="color: #7f8c8d; margin: 0 0.5rem;">›</span>
+                {% endif %}
                 <span style="color: #2c3e50; font-weight: 600;">{{ current_instance }}</span>
                 {% if current_project %}
                 <span style="color: #7f8c8d; margin: 0 0.5rem;">›</span>
@@ -954,7 +956,7 @@
                         <td class="metric-number">{{ row.scan_count }}</td>
                         <td class="metric-number">{{ row.unique_committers }}</td>
                         <td>{{ "{:,}".format(row.total_files_analyzed|default(0)|int) }}</td>
-                        <td class="metric-number {% if row.total_new_defects > 10 %}metric-increase{% endif %}">
+                        <td class="metric-number {% if (row.total_new_defects or 0) > 10 %}metric-increase{% endif %}">
                             {{ row.total_new_defects|default(0) }}
                         </td>
                         <td class="metric-number metric-decrease">{{ row.total_eliminated_defects|default(0) }}</td>
@@ -1047,7 +1049,7 @@
                     {% for row in defect_trends %}
                     <tr>
                         <td>{{ row.period }}</td>
-                        <td class="metric-number {% if row.new_defects > 10 %}metric-increase{% endif %}">
+                        <td class="metric-number {% if (row.new_defects or 0) > 10 %}metric-increase{% endif %}">
                             {{ row.new_defects or 0 }}
                         </td>
                         <td class="metric-number metric-decrease">{{ row.fixed_defects or 0 }}</td>
@@ -1423,7 +1425,7 @@
                     <tr>
                         <td>{{ row.snapshot_date }}</td>
                         <td>{{ row.snapshot_count }}</td>
-                        <td class="metric-number {% if row.new_defects > 10 %}metric-increase{% endif %}">
+                        <td class="metric-number {% if (row.new_defects or 0) > 10 %}metric-increase{% endif %}">
                             {{ row.new_defects or 0 }}
                         </td>
                         <td class="metric-number metric-decrease">{{ row.eliminated_defects or 0 }}</td>
