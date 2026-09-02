@@ -35,8 +35,8 @@ Analytics**, **Trends & Progress** (with technical-debt estimation),
 **Leaderboards**, **OWASP Top 10 2025**, **CWE Top 25 2025**, and — in
 ZIP mode — **Snapshots**.
 
-Per-release detail lives in [CHANGELOG.md](CHANGELOG.md) and
-[RELEASE_NOTES.md](RELEASE_NOTES.md).
+Per-release detail lives in [CHANGELOG.md](https://github.com/lejouni/coverity_metrics/blob/main/CHANGELOG.md) and
+[RELEASE_NOTES.md](https://github.com/lejouni/coverity_metrics/blob/main/RELEASE_NOTES.md).
 
 ## Quick start
 
@@ -53,7 +53,7 @@ coverity-export --output exports   # Portable ZIP for offline delivery
 No admin / root rights? Use `pip install --user coverity-metrics` or
 `pipx install coverity-metrics`, or grab a standalone binary from the
 [GitHub Releases page](https://github.com/lejouni/coverity_metrics/releases)
-— see [INSTALL.md](INSTALL.md) for details.
+— see [INSTALL.md](https://github.com/lejouni/coverity_metrics/blob/main/INSTALL.md) for details.
 
 ## Installation
 
@@ -78,7 +78,7 @@ pip install -e .
 ### Standalone binaries
 
 Windows and Linux single-file binaries are published on every tagged
-release — see [packaging/README.md](packaging/README.md). They ship
+release — see [packaging/README.md](https://github.com/lejouni/coverity_metrics/blob/main/packaging/README.md). They ship
 their own Python runtime so no Python install is required on the
 target host.
 
@@ -124,7 +124,7 @@ multi-instance aggregation.
 - Add `config.json` to `.gitignore` before your first commit.
 
 Detailed multi-instance setup is in
-[MULTI_INSTANCE_GUIDE.md](MULTI_INSTANCE_GUIDE.md).
+[MULTI_INSTANCE_GUIDE.md](https://github.com/lejouni/coverity_metrics/blob/main/MULTI_INSTANCE_GUIDE.md).
 
 ### Finding the DB credentials in Coverity Connect
 
@@ -193,9 +193,9 @@ coverity-dashboard --output output  --days 365 --no-browser
 `coverity-metrics` still requires `config.json`; env-var mode is
 `coverity-export` / `coverity-dashboard`-only.
 
-Pre-built quickstart scripts under [`scripts/`](scripts/) —
-[`coverity-export.sh`](scripts/coverity-export.sh) (Linux) and
-[`coverity-export.ps1`](scripts/coverity-export.ps1) (Windows) — download the
+Pre-built quickstart scripts under [`scripts/`](https://github.com/lejouni/coverity_metrics/tree/main/scripts) —
+[`coverity-export.sh`](https://github.com/lejouni/coverity_metrics/blob/main/scripts/coverity-export.sh) (Linux) and
+[`coverity-export.ps1`](https://github.com/lejouni/coverity_metrics/blob/main/scripts/coverity-export.ps1) (Windows) — download the
 standalone binary, source these variables from a block at the top of
 the script, and run one export in one shot.
 
@@ -229,8 +229,8 @@ Auto-detects multi-instance from `config.json`.
 | `--version` |  | flag | False | Print version and exit |
 
 Detailed caching / performance tuning is in
-[CACHING_GUIDE.md](CACHING_GUIDE.md); multi-ZIP behaviour is in
-[MULTI_ZIP_GUIDE.md](MULTI_ZIP_GUIDE.md).
+[CACHING_GUIDE.md](https://github.com/lejouni/coverity_metrics/blob/main/CACHING_GUIDE.md); multi-ZIP behaviour is in
+[MULTI_ZIP_GUIDE.md](https://github.com/lejouni/coverity_metrics/blob/main/MULTI_ZIP_GUIDE.md).
 
 ### `coverity-metrics`
 
@@ -281,7 +281,7 @@ coverity-delta --archive-dir archive/ --output delta/latest
 Guardrails, timing tags on Added / Dropped lists, rank movement on
 Defects-by-project, and the full CLI surface are documented in the
 [Trend comparison workflow](#trend-comparison-multi-quarter-trends) below
-and in [EXPORT_QUICKSTART.md](EXPORT_QUICKSTART.md).
+and in [EXPORT_QUICKSTART.md](https://github.com/lejouni/coverity_metrics/blob/main/EXPORT_QUICKSTART.md).
 
 ## Workflows
 
@@ -326,7 +326,7 @@ coverity-dashboard --zip-file exports/*.zip --aggregated-view --no-browser
   same command works on Linux, macOS, and Windows (PowerShell / `cmd`)
   without needing shell-side globbing.
 
-More detail: [MULTI_ZIP_GUIDE.md](MULTI_ZIP_GUIDE.md).
+More detail: [MULTI_ZIP_GUIDE.md](https://github.com/lejouni/coverity_metrics/blob/main/MULTI_ZIP_GUIDE.md).
 
 ### Trend comparison (multi-quarter trends)
 
@@ -354,7 +354,7 @@ activity, Stream activity, and Defects-by-project (with inline SVG
 sparklines and rank movement) — and hard-fails on mismatched `--days`
 or mismatched anonymization mappings across the archive. Full
 guardrail behaviour and CLI flags in
-[EXPORT_QUICKSTART.md](EXPORT_QUICKSTART.md#trend-comparison-coverity-delta).
+[EXPORT_QUICKSTART.md](https://github.com/lejouni/coverity_metrics/blob/main/EXPORT_QUICKSTART.md#trend-comparison-coverity-delta).
 
 ### Anonymized delivery
 
@@ -410,24 +410,24 @@ aggregated = multi.get_aggregated_metrics()
 
 Every metric method returns a `pandas.DataFrame`. Methods that support
 `fetch_all` accept `(limit=N, fetch_all=False)`; setting `fetch_all=True`
-ignores `limit`. See [USAGE_GUIDE.md](USAGE_GUIDE.md) for the full method
+ignores `limit`. See [USAGE_GUIDE.md](https://github.com/lejouni/coverity_metrics/blob/main/USAGE_GUIDE.md) for the full method
 reference and additional examples.
 
 ## Documentation index
 
 | Topic | Guide |
 | --- | --- |
-| Install without admin rights, standalone binaries | [INSTALL.md](INSTALL.md) |
-| Comprehensive CLI + Python usage examples | [USAGE_GUIDE.md](USAGE_GUIDE.md) |
-| Multi-instance setup and behaviour | [MULTI_INSTANCE_GUIDE.md](MULTI_INSTANCE_GUIDE.md) |
-| Multi-ZIP aggregation and duplicate-instance handling | [MULTI_ZIP_GUIDE.md](MULTI_ZIP_GUIDE.md) |
-| Trend comparison workflow, standalone binary run recipe | [EXPORT_QUICKSTART.md](EXPORT_QUICKSTART.md) |
-| Caching, TTLs, resumable operations | [CACHING_GUIDE.md](CACHING_GUIDE.md) |
-| OWASP Top 10 2025 mapping details | [OWASP_TOP10_2025_IMPLEMENTATION.md](OWASP_TOP10_2025_IMPLEMENTATION.md) |
-| CWE Top 25 dashboards | [CWE_TOP25_STATUS_REPORT_SETUP.md](CWE_TOP25_STATUS_REPORT_SETUP.md) |
-| Presentation-ready dashboards | [PRESENTATION_GUIDE.md](PRESENTATION_GUIDE.md) |
-| Cutting a release | [RELEASE_PROCESS.md](RELEASE_PROCESS.md) |
-| Changelog / release notes | [CHANGELOG.md](CHANGELOG.md), [RELEASE_NOTES.md](RELEASE_NOTES.md) |
+| Install without admin rights, standalone binaries | [INSTALL.md](https://github.com/lejouni/coverity_metrics/blob/main/INSTALL.md) |
+| Comprehensive CLI + Python usage examples | [USAGE_GUIDE.md](https://github.com/lejouni/coverity_metrics/blob/main/USAGE_GUIDE.md) |
+| Multi-instance setup and behaviour | [MULTI_INSTANCE_GUIDE.md](https://github.com/lejouni/coverity_metrics/blob/main/MULTI_INSTANCE_GUIDE.md) |
+| Multi-ZIP aggregation and duplicate-instance handling | [MULTI_ZIP_GUIDE.md](https://github.com/lejouni/coverity_metrics/blob/main/MULTI_ZIP_GUIDE.md) |
+| Trend comparison workflow, standalone binary run recipe | [EXPORT_QUICKSTART.md](https://github.com/lejouni/coverity_metrics/blob/main/EXPORT_QUICKSTART.md) |
+| Caching, TTLs, resumable operations | [CACHING_GUIDE.md](https://github.com/lejouni/coverity_metrics/blob/main/CACHING_GUIDE.md) |
+| OWASP Top 10 2025 mapping details | [OWASP_TOP10_2025_IMPLEMENTATION.md](https://github.com/lejouni/coverity_metrics/blob/main/OWASP_TOP10_2025_IMPLEMENTATION.md) |
+| CWE Top 25 dashboards | [CWE_TOP25_STATUS_REPORT_SETUP.md](https://github.com/lejouni/coverity_metrics/blob/main/CWE_TOP25_STATUS_REPORT_SETUP.md) |
+| Presentation-ready dashboards | [PRESENTATION_GUIDE.md](https://github.com/lejouni/coverity_metrics/blob/main/PRESENTATION_GUIDE.md) |
+| Cutting a release | [RELEASE_PROCESS.md](https://github.com/lejouni/coverity_metrics/blob/main/RELEASE_PROCESS.md) |
+| Changelog / release notes | [CHANGELOG.md](https://github.com/lejouni/coverity_metrics/blob/main/CHANGELOG.md), [RELEASE_NOTES.md](https://github.com/lejouni/coverity_metrics/blob/main/RELEASE_NOTES.md) |
 
 ## Security notes
 
@@ -451,4 +451,4 @@ reference and additional examples.
 
 ## License
 
-Provided as-is for use with Coverity installations. See [LICENSE](LICENSE).
+Provided as-is for use with Coverity installations. See [LICENSE](https://github.com/lejouni/coverity_metrics/blob/main/LICENSE).

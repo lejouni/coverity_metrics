@@ -2,6 +2,18 @@
 
 ## Version History
 
+### Version 1.1.7 - YYYY-MM-DD
+
+**Fix: `README.md` links now resolve on the PyPI project page.**
+
+#### Fixed
+
+##### 🐞 Every relative markdown link in `README.md` 404'd on <https://pypi.org/project/coverity-metrics/>
+- **Symptom** — On PyPI, clicking `CHANGELOG.md`, `MULTI_ZIP_GUIDE.md`, `INSTALL.md`, or any of the 28 relative markdown / directory links in the README landed on a PyPI 404 page. The links worked fine on the GitHub project page and in local IDE previews, so the regression only showed up for readers browsing the package on PyPI.
+- **Root cause** — `pyproject.toml` declares `readme = "README.md"`, so the README ships verbatim as the PyPI long description. PyPI resolves relative link targets against its own project URL (`https://pypi.org/project/coverity-metrics/`), where none of the repo's `.md` / `scripts/` / `packaging/` paths exist. GitHub was unaffected because it resolves the same relative paths within the repo itself.
+- **Fix** — Rewrite every relative markdown link in `README.md` to an absolute `https://github.com/lejouni/coverity_metrics/blob/main/<path>` (or `/tree/main/<path>` for the `scripts/` directory link). In-page anchors (`#quick-start`, `#trend-comparison-coverity-delta`, …) are preserved unchanged — they already work on PyPI because they anchor within the same rendered page. 28 links updated; no prose changed.
+- **How to recover** — Consuming a fresh install (`pip install --upgrade coverity-metrics`) or refreshing the PyPI project page after 1.1.7 lands will show working links. No CLI or config changes required.
+
 ### Version 1.1.6 - 2026-09-02
 
 **Feature: opt-in aggregated view from the CLI in ZIP mode, plus a fix for silent overwrites when multiple ZIPs share an instance name. Also: a Jinja `TypeError` on null trend rows.**

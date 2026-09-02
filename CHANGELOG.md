@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.7] - YYYY-MM-DD
+
+### Fixed
+- **Relative links in `README.md` did not resolve on the PyPI project page.**
+  - Root cause: `pyproject.toml` declares `readme = "README.md"`, so the README ships verbatim as the PyPI long description. Relative markdown links such as `[CHANGELOG.md](CHANGELOG.md)` or `[MULTI_ZIP_GUIDE.md](MULTI_ZIP_GUIDE.md)` are resolved by PyPI relative to its own project page, not to the GitHub repo, so every one of them 404'd for anyone reading the package page on <https://pypi.org/project/coverity-metrics/>. GitHub itself was unaffected because it resolves the same relative paths within the repo.
+  - Fix: rewrite every relative markdown link in `README.md` to an absolute `https://github.com/lejouni/coverity_metrics/blob/main/<path>` (or `/tree/main/<path>` for directory links). In-page anchors (`#quick-start`, `#trend-comparison-coverity-delta`, …) are preserved unchanged — they already work on PyPI because they anchor within the same rendered page. 28 links updated; the surrounding prose is untouched.
+  - GitHub still resolves the absolute URLs (they point back at itself), so nothing regresses for readers on the repo page or in local IDE previews.
+
 ## [1.1.6] - 2026-09-02
 
 ### Added
