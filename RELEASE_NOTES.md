@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.1.6 - YYYY-MM-DD
+### Version 1.1.6 - 2026-09-02
 
 **Feature: opt-in aggregated view from the CLI in ZIP mode, plus a fix for silent overwrites when multiple ZIPs share an instance name. Also: a Jinja `TypeError` on null trend rows.**
 
