@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fix: rewrite every relative markdown link in `README.md` to an absolute `https://github.com/lejouni/coverity_metrics/blob/main/<path>` (or `/tree/main/<path>` for directory links). In-page anchors (`#quick-start`, `#trend-comparison-coverity-delta`, …) are preserved unchanged — they already work on PyPI because they anchor within the same rendered page. 28 links updated; the surrounding prose is untouched.
   - GitHub still resolves the absolute URLs (they point back at itself), so nothing regresses for readers on the repo page or in local IDE previews.
 
+### Added
+- **`INSTALL.md` now covers the standalone Linux binary and the "`libz.so.1`: failed to map segment from shared object" startup error on hardened hosts.**
+  - Trigger: the standalone Linux binary is a PyInstaller onefile bundle that extracts its bundled shared libraries (Python runtime, `libz`, etc.) into `/tmp/_MEIxxxxxx/` and `dlopen()`s them from there. On hosts where `/tmp` is mounted with `noexec` (common on corporate / regulated Linux images), `mmap` of the shared object with executable pages fails and the binary aborts on the first launch with `libz.so.1: failed to map segment from shared object`. `ldconfig -p | grep libz.so.1` still reports a system copy — a red herring, since the binary is loading its own bundled copy from `_MEIPASS`, not the system one.
+  - New `INSTALL.md` section documents the standalone-binary distribution channel (Windows `.exe` and Linux binary naming, pointer to `packaging/README.md` for downloads and the command reference) and the noexec-`/tmp` failure mode. Troubleshooting steps, in order: (1) confirm `mount | grep ' /tmp '` shows `noexec`; (2) set `TMPDIR` to an exec-allowed directory such as `$HOME/.cache/coverity-metrics-tmp` — PyInstaller honours `TMPDIR` for the `_MEI` extraction dir, so no rebuild and no admin is required; (3) or, with root, `sudo mount -o remount,exec /tmp`; (4) if `/tmp` is already `exec`, rule out `df -h /tmp` full and SELinux/AppArmor `AVC` denials against `execmem` on tmpfs.
+  - The Windows binary is not affected — Windows has no equivalent of a `noexec` mount for the user-writable temp directory.
+  - No code change and no rebuild of shipped binaries; existing 1.1.6 (and earlier) Linux binaries work once `TMPDIR` is set to an exec-allowed directory.
+
 ## [1.1.6] - 2026-09-02
 
 ### Added

@@ -4,7 +4,7 @@
 
 ### Version 1.1.7 - YYYY-MM-DD
 
-**Fix: `README.md` links now resolve on the PyPI project page.**
+**Fix: `README.md` links now resolve on the PyPI project page. Docs: standalone Linux binary noexec-`/tmp` troubleshooting.**
 
 #### Fixed
 
@@ -13,6 +13,25 @@
 - **Root cause** — `pyproject.toml` declares `readme = "README.md"`, so the README ships verbatim as the PyPI long description. PyPI resolves relative link targets against its own project URL (`https://pypi.org/project/coverity-metrics/`), where none of the repo's `.md` / `scripts/` / `packaging/` paths exist. GitHub was unaffected because it resolves the same relative paths within the repo itself.
 - **Fix** — Rewrite every relative markdown link in `README.md` to an absolute `https://github.com/lejouni/coverity_metrics/blob/main/<path>` (or `/tree/main/<path>` for the `scripts/` directory link). In-page anchors (`#quick-start`, `#trend-comparison-coverity-delta`, …) are preserved unchanged — they already work on PyPI because they anchor within the same rendered page. 28 links updated; no prose changed.
 - **How to recover** — Consuming a fresh install (`pip install --upgrade coverity-metrics`) or refreshing the PyPI project page after 1.1.7 lands will show working links. No CLI or config changes required.
+
+#### Added
+
+##### 📖 `INSTALL.md` now covers the standalone Linux binary and the "`libz.so.1`: failed to map segment from shared object" startup error on hardened hosts
+- **Symptom** — The standalone Linux binary aborts on the very first launch with:
+
+  ```text
+  ./coverity-metrics-linux-vX.Y.Z: error while loading shared libraries: \
+      libz.so.1: failed to map segment from shared object
+  ```
+
+  `ldconfig -p | grep libz.so.1` still reports a system copy in `/lib64/libz.so.1`, which is a red herring.
+- **Root cause** — The Linux binary is a PyInstaller **onefile** bundle. At every launch it extracts its bundled shared libraries (Python runtime, `libz`, etc.) into `/tmp/_MEIxxxxxx/` and `dlopen()`s them from there — it does **not** use the host's system `libz`. On hardened hosts where `/tmp` is mounted with `noexec` (common on corporate / regulated Linux images) the `mmap` of the shared object with executable pages fails, and the binary aborts before it can even print a Python traceback. SELinux / AppArmor denying `execmem` on tmpfs, and a full `/tmp` filesystem, produce the same error.
+- **Fix (documentation only)** — New section in [INSTALL.md](INSTALL.md) covering the standalone-binary distribution channel (Windows `.exe` and Linux binary naming, pointer to `packaging/README.md` for downloads and the full command reference), plus a troubleshooting subsection with the following recovery steps, in order:
+  1. `mount | grep ' /tmp '` — confirm `noexec` is in the option list.
+  2. `TMPDIR="$HOME/.cache/coverity-metrics-tmp" ./coverity-metrics-linux-vX.Y.Z --help` — PyInstaller honours `TMPDIR` for the `_MEI` extraction dir, so no rebuild and no root are required. Persist by exporting `TMPDIR` in `~/.bashrc` / `~/.zshrc` or a wrapper script. `/var/tmp` also usually works if `$HOME` is on a restrictive mount.
+  3. `sudo mount -o remount,exec /tmp` — system-wide remedy, needs root.
+  4. If `/tmp` is already `exec`, rule out `df -h /tmp` full and check `getenforce` / `sudo dmesg | tail` for SELinux/AppArmor `AVC` denials against `execmem` on tmpfs.
+- **How to recover** — No new binary needed. Existing 1.1.6 (and earlier) Linux binaries run once `TMPDIR` is set to an exec-allowed directory, or `/tmp` is remounted `exec`. Windows binaries are not affected — Windows has no equivalent of a `noexec` mount for the user-writable temp directory.
 
 ### Version 1.1.6 - 2026-09-02
 

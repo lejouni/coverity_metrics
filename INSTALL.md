@@ -84,6 +84,79 @@ pipx upgrade coverity-metrics
 `pipx` gives each CLI its own virtual environment, so `coverity-metrics`
 never conflicts with other packages in your Python setup.
 
+### Standalone binary (no Python required on the target host)
+
+Windows and Linux single-file binaries are published on every tagged
+release — see
+[packaging/README.md](https://github.com/lejouni/coverity_metrics/blob/main/packaging/README.md)
+for the download links and the full command reference. They ship their own
+Python runtime, so the target machine does not need a Python install.
+
+- Windows: `coverity-metrics-windows-<version>.exe`
+- Linux:   `coverity-metrics-linux-<version>`
+
+The Linux binary is built as a PyInstaller **onefile** bundle: at every
+launch it extracts its bundled shared libraries (Python runtime, `libz`,
+etc.) into a temporary directory and `dlopen()`s them from there. On
+hardened hosts where `/tmp` is mounted with `noexec` (or SELinux blocks
+executable mappings on tmpfs), this fails at startup — see the
+troubleshooting section below.
+
+#### Troubleshooting: `libz.so.1: failed to map segment from shared object`
+
+Full error, seen on locked-down Linux hosts on the first launch of the
+standalone binary:
+
+```text
+./coverity-metrics-linux-vX.Y.Z: error while loading shared libraries: \
+    libz.so.1: failed to map segment from shared object
+```
+
+This is **not** the system `libz` — the binary carries its own copy
+inside the onefile bundle. The extraction target (`/tmp/_MEIxxxxxx/` by
+default) rejects the `mmap` of the shared object with executable pages.
+
+Confirm the cause, then apply the smallest fix that works:
+
+1. **Check whether `/tmp` is mounted `noexec`** (the most common cause):
+
+   ```bash
+   mount | grep ' /tmp '
+   # look for "noexec" in the options list
+   ```
+
+2. **Point PyInstaller at an exec-allowed directory** (no rebuild, no
+   admin required — usually enough):
+
+   ```bash
+   mkdir -p "$HOME/.cache/coverity-metrics-tmp"
+   TMPDIR="$HOME/.cache/coverity-metrics-tmp" \
+       ./coverity-metrics-linux-vX.Y.Z --help
+   ```
+
+   PyInstaller honours `TMPDIR` for the `_MEI` extraction directory.
+   `/var/tmp` also usually works if `$HOME` is on a restrictive mount.
+   Persist the setting by exporting `TMPDIR` in `~/.bashrc` /
+   `~/.zshrc` or via a wrapper script.
+
+3. **Or remount `/tmp` with `exec`** (system-wide, needs root):
+
+   ```bash
+   sudo mount -o remount,exec /tmp
+   ```
+
+4. **If step 1 shows `/tmp` is already `exec`**, rule out the other
+   two failure modes:
+
+   - **Disk full** — `df -h /tmp` (and `df -h "$TMPDIR"` if you set it).
+   - **SELinux / AppArmor** — `getenforce` and `sudo dmesg | tail`;
+     look for `AVC` denials against `execmem` on tmpfs. The `TMPDIR`
+     workaround in step 2 sidesteps SELinux tmpfs restrictions on most
+     distros; policy exceptions are the alternative.
+
+The Windows binary is not affected — Windows has no equivalent of a
+`noexec` mount option for the user-writable temp directory.
+
 ## Usage
 
 ### Command Line Interface
