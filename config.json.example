@@ -40,7 +40,6 @@
       "color": "#27ae60"
     }
   ],
-  "default_instance": "Production",
   "aggregated_view": {
     "enabled": true,
     "name": "All Instances"

@@ -45,12 +45,13 @@ class MultiInstanceMetrics:
     def _load_config(self):
         """Load configuration from JSON file"""
         try:
-            # Check if config file exists, fall back to example if not
+            # Fall back to config.json.example (the file that ships in the repo)
+            # if the caller-supplied config is missing.
             if not os.path.exists(self.config_file):
-                example_file = 'config.example.json'
+                example_file = 'config.json.example'
                 tqdm.write(f"Warning: {self.config_file} not found, using {example_file}")
                 self.config_file = example_file
-            
+
             with open(self.config_file, 'r') as f:
                 config = json.load(f)
                 

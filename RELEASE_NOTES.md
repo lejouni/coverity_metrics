@@ -4,7 +4,7 @@
 
 ### Version 1.1.7 - YYYY-MM-DD
 
-**Fix: `README.md` links now resolve on the PyPI project page. Docs: standalone Linux binary noexec-`/tmp` troubleshooting.**
+**Fix: `README.md` links now resolve on the PyPI project page. Docs: standalone Linux binary noexec-`/tmp` troubleshooting, and `MULTI_INSTANCE_GUIDE.md` rewritten to match the 1.1.x code. Also: `MultiInstanceMetrics` example-file fallback now points at the file that actually ships.**
 
 #### Fixed
 
@@ -32,6 +32,33 @@
   3. `sudo mount -o remount,exec /tmp` — system-wide remedy, needs root.
   4. If `/tmp` is already `exec`, rule out `df -h /tmp` full and check `getenforce` / `sudo dmesg | tail` for SELinux/AppArmor `AVC` denials against `execmem` on tmpfs.
 - **How to recover** — No new binary needed. Existing 1.1.6 (and earlier) Linux binaries run once `TMPDIR` is set to an exec-allowed directory, or `/tmp` is remounted `exec`. Windows binaries are not affected — Windows has no equivalent of a `noexec` mount for the user-writable temp directory.
+
+#### Changed
+
+##### 📖 `MULTI_INSTANCE_GUIDE.md` rewritten to match the 1.1.x code — the previous copy described the 1.0.x design
+- **Symptom** — Anyone following `MULTI_INSTANCE_GUIDE.md` hit half-a-dozen small paper cuts: `output/dashboard_Production.html` didn't exist, `from multi_instance_metrics import MultiInstanceMetrics` raised `ModuleNotFoundError` from an installed package, `"password": "${COVERITY_PROD_PASSWORD}"` in `config.json` sent the literal `${COVERITY_PROD_PASSWORD}` to pg8000, `python multi_instance_metrics.py` errored because the file lives inside the package with no `__main__`, and the "Migration" section referenced a `db_config.ini` that hasn't shipped in many releases. None of this was a runtime regression — the guide had simply drifted behind the code across the 1.0 → 1.1 transition.
+- **Root cause** — Guide was last written in the 1.0.x era. The 1.0 → 1.1 series moved output to per-instance folders (`output/Production/dashboard.html` + `output/Production/dashboard_MyApp.html`), moved the package to `coverity_metrics/…` with public re-exports from the package root, dropped the never-implemented `default_instance` field, dropped `db_config.ini`, and never added `${…}` interpolation for `config.json`. The guide was never updated to match.
+- **Fix (documentation only)** — Rewrote `MULTI_INSTANCE_GUIDE.md` in one pass:
+  - **Output layout** — new tree showing `output/<Instance>/dashboard.html` + `output/<Instance>/dashboard_<Project>.html` with the space-to-underscore folder rule called out. Per-instance and per-project bullet lists updated to match. Added a one-liner about the 1.1.6 duplicate-instance-name disambiguation for ZIP mode.
+  - **Python API import path** — every `from multi_instance_metrics import …` (three code blocks) is now `from coverity_metrics import MultiInstanceMetrics`, matching the actual re-export in `coverity_metrics/__init__.py`.
+  - **Env-var section** — the fictional `${VAR}` interpolation recipe was replaced with an honest note that `config.json` reads passwords verbatim, plus a pointer at the env-var mode that actually exists (`coverity-export --env`, single instance, `COVERITY_DB_HOST / NAME / USER / PASSWORD` + optional `PORT` / `INSTANCE_NAME`) with cross-references to [EXPORT_QUICKSTART.md](EXPORT_QUICKSTART.md) and [MULTI_ZIP_GUIDE.md](MULTI_ZIP_GUIDE.md).
+  - **Config example JSON** — dropped `default_instance` (no consumer in the code) and added a short callout for the `aggregated_view.enabled` opt-in, including the ZIP-mode variant (`--aggregated-view` / `zip_files_config.aggregated_view.enabled`).
+  - **Migration section** — rewritten as "Growing a single-instance setup into a cluster". Auto-detection is the whole migration story; `config.json` is the authoritative shape for one instance too; `--single-instance-mode` on the CLI forces single-instance mode on a multi-instance config.
+  - **Troubleshooting connectivity check** — `python multi_instance_metrics.py` replaced with `coverity-dashboard --instance Production --no-browser` (and the `python -m coverity_metrics dashboard …` equivalent), plus a `psql` line for the raw connectivity test.
+  - **API reference link** — corrected to `[coverity_metrics/multi_instance_metrics.py](coverity_metrics/multi_instance_metrics.py)`.
+  - **New content** — the previously-undocumented `--instance-only` flag for skipping per-project dashboards.
+- **How to recover** — Pull the 1.1.7 tag (or refresh the file on the GitHub project page) — no CLI, config, or code changes required.
+
+##### 🧹 `config.json.example` — dropped the unused `default_instance` field
+Same reason as the guide: no code path reads it. Removing it stops new users wiring their config around a knob that does nothing.
+
+#### Fixed
+
+##### 🐞 `MultiInstanceMetrics._load_config()` fallback pointed at a non-existent filename
+- **Symptom** — If the caller-supplied `config.json` was missing, `MultiInstanceMetrics(config_file='config.json')` printed `Warning: config.json not found, using config.example.json` and then raised `FileNotFoundError` from the very next `open(...)` call. The fallback message was never actionable.
+- **Root cause** — The shipped example file is `config.json.example` (`.example` suffix at the end, matching how every other tool in this space names it). The fallback string in `coverity_metrics/multi_instance_metrics.py:_load_config()` was `config.example.json` (`.example` in the middle) — a leftover from an older draft. `os.path.exists('config.example.json')` was always false, so `self.config_file` got reassigned to a bogus name that the subsequent `open(...)` couldn't find.
+- **Fix** — Rename the fallback string to `config.json.example` and refresh the surrounding comment to name the actual repo file. Behaviour with a caller-supplied `config.json` present is unchanged.
+- **How to recover** — Ship a valid `config.json` next to your CLI invocation (the recommended path), or upgrade to 1.1.7 to let the example-file fallback actually fire.
 
 ### Version 1.1.6 - 2026-09-02
 

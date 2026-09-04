@@ -71,13 +71,19 @@ Edit `config.json` to define your Coverity instances:
       "color": "#3498db"
     }
   ],
-  "default_instance": "Production",
   "aggregated_view": {
     "enabled": true,
     "name": "All Instances"
   }
 }
 ```
+
+> `aggregated_view.enabled: true` is what opts you in to the cross-instance
+> `dashboard_aggregated.html`. Leaving it out (or setting `false`) still
+> generates per-instance dashboards — you just don't get the combined view.
+> In ZIP mode the flag lives under `zip_files_config.aggregated_view.enabled`
+> and can also be opted in from the CLI with `--aggregated-view`
+> (see [MULTI_ZIP_GUIDE.md](MULTI_ZIP_GUIDE.md)).
 
 ### Configuration Options
 
@@ -149,13 +155,22 @@ coverity-dashboard
 # Output files created:
 output/
 ├── dashboard_aggregated.html          # Combined view of all instances
-├── dashboard_Production.html          # Production instance
-├── dashboard_Development.html         # Development instance
-├── dashboard_QA.html                  # QA instance
-├── dashboard_Production_MyApp.html    # MyApp project in Production
-├── dashboard_Development_MyApp.html   # MyApp project in Development
-└── ... (one per instance + one per project per instance)
+├── Production/
+│   ├── dashboard.html                 # Production instance overview
+│   ├── dashboard_MyApp.html           # MyApp project in Production
+│   └── ...                            # One dashboard_<Project>.html per project
+├── Development/
+│   ├── dashboard.html
+│   ├── dashboard_MyApp.html
+│   └── ...
+└── QA/
+    ├── dashboard.html
+    └── ...
 ```
+
+> Instance names containing spaces are sanitised to underscores in the
+> folder name (`Production NAM` → `Production_NAM/`), but the visible
+> labels inside the HTML preserve the original spelling.
 
 #### 1. Aggregated View
 Shows combined metrics from all Coverity instances:
@@ -175,18 +190,21 @@ alone is enough.
 Individual dashboard for each Coverity instance:
 
 Generated automatically as:
-- `output/dashboard_Production.html`
-- `output/dashboard_Development.html`
-- `output/dashboard_QA.html`
+- `output/Production/dashboard.html`
+- `output/Development/dashboard.html`
+- `output/QA/dashboard.html`
+
+To skip per-project dashboards and generate the instance-level pages only,
+pass `--instance-only` (aka `--no-projects`).
 
 #### 3. Instance + Project Views
 Drill down to specific projects in specific instances:
 
 Generated automatically for each project in each instance:
-- `output/dashboard_Production_MyApp.html`
-- `output/dashboard_Development_MyApp.html`
+- `output/Production/dashboard_MyApp.html`
+- `output/Development/dashboard_MyApp.html`
 
-To generate only for specific project:
+To generate only for a specific project (across every enabled instance):
 ```bash
 coverity-dashboard --project MyApp
 ```
@@ -256,22 +274,30 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO coverity_ro;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO coverity_ro;
 ```
 
-### 3. Environment Variables (Alternative)
+### 3. Environment Variables (single-instance export only)
 
-Use environment variables instead of storing passwords in config:
+`config.json` does **not** currently interpolate `${VAR}` placeholders — the
+instance loader reads `database.password` verbatim. Store passwords in
+`config.json` (with `chmod 600`) or fetch them via your existing secrets
+tooling before invoking the CLI.
 
-```json
-{
-  "database": {
-    "password": "${COVERITY_PROD_PASSWORD}"
-  }
-}
-```
+Env-var driven runs are supported on `coverity-export --env` for a single
+instance (no `config.json` required):
 
 ```bash
-export COVERITY_PROD_PASSWORD="actual_password"
-coverity-dashboard
+export COVERITY_DB_HOST="coverity-prod.company.com"
+export COVERITY_DB_NAME="cim"
+export COVERITY_DB_USER="coverity_ro"
+export COVERITY_DB_PASSWORD="actual_password"
+export COVERITY_DB_PORT="5432"                # optional, default 5432
+export COVERITY_INSTANCE_NAME="Production"    # optional, labels the ZIP
+
+coverity-export --env --output-dir ./exports
 ```
+
+Use the resulting ZIP with `coverity-dashboard --zip-file` for a fully
+offline downstream run — see [EXPORT_QUICKSTART.md](EXPORT_QUICKSTART.md)
+and [MULTI_ZIP_GUIDE.md](MULTI_ZIP_GUIDE.md).
 
 ## Performance Considerations
 
@@ -279,7 +305,7 @@ coverity-dashboard
 For large environments with many instances:
 
 ```python
-from multi_instance_metrics import MultiInstanceMetrics
+from coverity_metrics import MultiInstanceMetrics
 
 # Initialize once, reuse connections
 multi_metrics = MultiInstanceMetrics('config.json')
@@ -323,7 +349,7 @@ echo "Dashboards generated successfully!"
 ### Example 2: Programmatic Access
 
 ```python
-from multi_instance_metrics import MultiInstanceMetrics
+from coverity_metrics import MultiInstanceMetrics
 
 # Initialize
 multi = MultiInstanceMetrics('config.json')
@@ -350,7 +376,7 @@ print(f"Production defects: {prod_summary['total_defects']}")
 
 ```python
 # weekly_report.py
-from multi_instance_metrics import MultiInstanceMetrics
+from coverity_metrics import MultiInstanceMetrics
 import pandas as pd
 from datetime import datetime
 
@@ -384,10 +410,13 @@ df.to_csv(f"weekly_report_{report_data['week']}.csv", index=False)
 ### Connection Issues
 
 ```bash
-# Test connectivity to specific instance
-python multi_instance_metrics.py
+# Test connectivity via the CLI (uses config.json)
+coverity-dashboard --instance Production --no-browser
 
-# Check if instance is reachable
+# Or as a module (equivalent, no PATH entry needed):
+python -m coverity_metrics dashboard --instance Production --no-browser
+
+# Check the raw PostgreSQL connectivity independently
 psql -h coverity-prod.company.com -p 5432 -U coverity_ro -d cim
 ```
 
@@ -405,51 +434,47 @@ For slow dashboards with many instances:
 - Use `--instance` flag to generate specific dashboards
 - Consider caching results for large datasets
 
-## Migration from Single Instance
+## Growing a single-instance setup into a cluster
 
-To migrate from single-instance setup:
+Auto-detection is the whole migration story: the same command
+(`coverity-dashboard`) works for one instance or ten. There is no separate
+single-instance config file to convert away from — `config.json` is the
+authoritative shape.
 
-1. **Backup current config**:
+1. **Start with one entry in `config.json`** and confirm it works:
    ```bash
-   cp db_config.ini db_config.ini.backup
+   coverity-dashboard --no-browser
    ```
+   With a single enabled instance the tool runs in single-instance mode and
+   writes `output/dashboard.html` at the root (no per-instance folder).
 
-2. **Create config.json** with your current instance as the first entry
-
-3. **Test with single instance** (auto-detection recognizes single instance):
-   ```bash
-   # If only one instance in config.json, works same as before
-   coverity-dashboard
-   ```
-
-4. **Add second instance** to config.json - auto-detection automatically switches to multi-instance mode:
+2. **Add a second `instances[]` entry** — auto-detection switches to
+   multi-instance mode as soon as two entries have `"enabled": true`:
    ```json
    {
      "instances": [
-       {
-         "name": "Production",
-         "enabled": true,
-         ...
-       },
-       {
-         "name": "Development",
-         "enabled": true,
-         ...
-       }
-     ]
+       { "name": "Production",  "enabled": true, "database": { ... } },
+       { "name": "Development", "enabled": true, "database": { ... } }
+     ],
+     "aggregated_view": { "enabled": true, "name": "All Instances" }
    }
    ```
 
-5. **Generate multi-instance dashboards** with same command:
+3. **Re-run the same command** — you now get per-instance folders plus, if
+   `aggregated_view.enabled: true`, the cross-instance dashboard:
    ```bash
-   # Now automatically generates aggregated + per-instance dashboards
-   coverity-dashboard
+   coverity-dashboard --no-browser
    ```
 
+Force single-instance behaviour on a multi-instance config with
+`--single-instance-mode` (loads the first enabled instance only).
 
 ## API Reference
 
-See [multi_instance_metrics.py](multi_instance_metrics.py) for complete API documentation.
+See [coverity_metrics/multi_instance_metrics.py](coverity_metrics/multi_instance_metrics.py)
+for the complete API. The public surface is also re-exported from the
+package root, so `from coverity_metrics import MultiInstanceMetrics,
+InstanceConfig` is the recommended import.
 
 Key classes:
 - `MultiInstanceMetrics`: Main manager for multi-instance operations
