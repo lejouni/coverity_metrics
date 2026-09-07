@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.8] - YYYY-MM-DD
+
+### Added
+- **Third Linux binary for glibc 2.28 hosts (`coverity-metrics-linux-glibc2.28-<version>`).**
+  - Trigger: on RHEL/Rocky/Alma 8 (glibc 2.28), RHEL/Rocky/Alma 9 (2.34), Amazon Linux 2023 (2.34), and other enterprise hosts pinned below glibc 2.35, both binaries added in 1.1.7 — `coverity-metrics-linux-<version>` (glibc 2.38 floor) and `coverity-metrics-linux-glibc2.35-<version>` (glibc 2.35 floor) — abort at launch with the same `[PYI-...:ERROR] Failed to load Python shared library '.../libpython3.14.so.1.0': /lib64/libm.so.6: version 'GLIBC_2.XX' not found` pattern. glibc 2.28 is the manylinux_2_28 baseline and the lowest floor still reachable with a stock CPython 3.14 that ships in the manylinux images.
+  - Fix: added a dedicated `build-manylinux` job to `.github/workflows/build-binaries.yml` that runs inside the `quay.io/pypa/manylinux_2_28_x86_64` container (AlmaLinux 8 userland, glibc 2.28) and publishes a new release artifact `coverity-metrics-linux-glibc2.28-<version>`. The job uses the container's pre-built CPython 3.14 at `/opt/python/cp314-cp314/bin/` (NOT `actions/setup-python`, which would install a Python compiled against a newer glibc and defeat the whole point). OpenSSL 3.5.7 and zlib 1.3.2 are still built from source and prepended to `LD_LIBRARY_PATH` the same way the Ubuntu jobs do, so BDBA findings track the modern binary. `packaging/build_binary.sh` is invoked with `PYTHON=python` because `/opt/python/cp314-cp314/bin/` ships `python` / `python3.14` but not `python3`.
+  - Release-page staging updated to `cp artifacts/coverity-metrics-linux-glibc2.28-v*/coverity-metrics release/coverity-metrics-linux-glibc2.28-${GITHUB_REF_NAME}` alongside the existing glob-anchored copies for the 2.38 and 2.35 artifacts. The three globs (`linux-v*`, `linux-glibc2.35-v*`, `linux-glibc2.28-v*`) are mutually exclusive so nothing collides in the release folder. The `release` job now lists `build-manylinux` in `needs:` so a container-build regression fails the whole release rather than silently missing an asset.
+  - Documentation updated in [INSTALL.md](INSTALL.md) — the "Which Linux binary?" callout is now a four-row coverage table with the exact `ldd --version` boundaries and an example `GLIBC_2.XX not found` line pointing readers at the next-older variant — and in [packaging/README.md](packaging/README.md) — the download list, "Notes" block, and the "Neither variant runs on RHEL/Rocky 9 …" caveat all reflect the third artifact.
+  - RHEL 7 (glibc 2.17) and older remain uncovered by any standalone binary — a manylinux2014 (glibc 2.17) build would need a separately pre-built CPython 3.14 outside the standard manylinux images, so those users still need `pip install coverity-metrics` from PyPI.
+
 ## [1.1.7] - 2026-09-07
 
 ### Fixed

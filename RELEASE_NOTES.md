@@ -2,6 +2,27 @@
 
 ## Version History
 
+### Version 1.1.8 - YYYY-MM-DD
+
+**Feature: third Linux binary (`coverity-metrics-linux-glibc2.28-<version>`) built inside `quay.io/pypa/manylinux_2_28_x86_64` so RHEL/Rocky/Alma 8, RHEL/Rocky/Alma 9, Amazon Linux 2023, and other enterprise hosts pinned below glibc 2.35 finally have a standalone binary that loads.**
+
+#### Added
+
+##### 🐧 Third Linux binary for glibc 2.28 hosts (`coverity-metrics-linux-glibc2.28-<version>`)
+- **Symptom** — On RHEL/Rocky/Alma 8 (glibc 2.28), RHEL/Rocky/Alma 9 (2.34), Amazon Linux 2023 (2.34), and other enterprise Linux hosts pinned below glibc 2.35, both binaries added in 1.1.7 still failed to load. The primary `coverity-metrics-linux-<version>` aborts with `GLIBC_2.38 not found`; the `coverity-metrics-linux-glibc2.35-<version>` fallback added in 1.1.7 aborts with `GLIBC_2.35 not found` on 2.34-and-below hosts. `TMPDIR` workarounds do not help — the failure is a symbol-level glibc mismatch in the bundled `libpython3.14.so.1.0`, not an extraction / `noexec` issue.
+- **Root cause** — Both existing binaries are produced by GitHub-hosted Ubuntu runners (26.04 and 22.04). The runners' `libc` versions dictate the highest glibc symbol version the bundled CPython can require. Ubuntu 22.04 (the previous floor) is glibc 2.35, which is above the 2.34 of RHEL 9 and the 2.28 of RHEL 8, so the fallback still failed on the very hosts it was meant to cover.
+- **Fix** — Added a dedicated `build-manylinux` job to `.github/workflows/build-binaries.yml` that runs inside `quay.io/pypa/manylinux_2_28_x86_64` (AlmaLinux 8 userland, glibc 2.28) and publishes a new release asset, `coverity-metrics-linux-glibc2.28-<version>`. The job uses the container's pre-built CPython 3.14 at `/opt/python/cp314-cp314/bin/` — NOT `actions/setup-python`, which would install a Python compiled against a newer glibc and defeat the whole point. OpenSSL 3.5.7 and zlib 1.3.2 are still built from source and prepended to `LD_LIBRARY_PATH` the same way the Ubuntu jobs do, so BDBA findings track the modern binary. `packaging/build_binary.sh` is invoked with `PYTHON=python` because `/opt/python/cp314-cp314/bin/` ships `python` / `python3.14` but not `python3`. The `release` job now depends on `build-manylinux` too, so a container-build regression fails the whole release rather than silently missing an asset. Release-page globbing was extended with a third mutually-exclusive `coverity-metrics-linux-glibc2.28-v*` pattern so all three Linux binaries stage cleanly side-by-side.
+- **How to recover** — Check your host's glibc with `ldd --version | head -n1` and download the matching binary from the release page:
+
+  | glibc on host | Binary to download |
+  | ------------- | ------------------ |
+  | `2.38` or newer (Ubuntu 24.04+, Debian trixie+, Fedora 39+) | `coverity-metrics-linux-<version>` |
+  | `2.35` – `2.37` (Ubuntu 22.04, Debian 12, Fedora 36–38) | `coverity-metrics-linux-glibc2.35-<version>` |
+  | `2.28` – `2.34` (RHEL/Rocky/Alma 8 → 2.28, RHEL/Rocky/Alma 9 → 2.34, Amazon Linux 2023 → 2.34) | `coverity-metrics-linux-glibc2.28-<version>` |
+  | Below `2.28` (RHEL 7 → 2.17) | Not covered by any binary — install with `pip install coverity-metrics` on a host with Python 3.10+. |
+
+  [INSTALL.md](INSTALL.md) and [packaging/README.md](packaging/README.md) carry the same table for reference next to the download instructions.
+
 ### Version 1.1.7 - 2026-09-07
 
 **Fix: `README.md` links now resolve on the PyPI project page. Feature: second Linux binary (`coverity-metrics-linux-glibc2.35-<version>`) for hosts on glibc 2.35 – 2.37 (Ubuntu 22.04, Debian 12, Fedora 36+) so the primary Ubuntu 26.04-based binary's `GLIBC_2.38 not found` failure has a drop-in workaround. Docs: standalone Linux binary noexec-`/tmp` troubleshooting, and `MULTI_INSTANCE_GUIDE.md` rewritten to match the 1.1.x code. Also: `MultiInstanceMetrics` example-file fallback now points at the file that actually ships.**

@@ -13,10 +13,13 @@ templates, CSS) is bundled with [PyInstaller](https://pyinstaller.org/).
      `coverity-metrics-linux-<version>`
    - Linux (glibc >= 2.35, e.g. Ubuntu 22.04+, Debian 12+, Fedora 36+):
      `coverity-metrics-linux-glibc2.35-<version>`
+   - Linux (glibc >= 2.28, e.g. RHEL/Rocky/Alma 8+, RHEL/Rocky/Alma 9,
+     Amazon Linux 2023, older enterprise hosts):
+     `coverity-metrics-linux-glibc2.28-<version>`
 
-   Check your host's glibc first: `ldd --version | head -n1`. If the modern
-   binary fails at launch with `GLIBC_2.38 not found`, use the
-   `-glibc2.35-` variant.
+   Check your host's glibc first: `ldd --version | head -n1`. If a binary
+   fails at launch with `GLIBC_2.XX not found`, drop down to the
+   next-older-glibc variant in the list.
 2. Place your `config.json` next to the binary (start from
    [`config.json.example`](../config.json.example)).
 3. Run any subcommand:
@@ -33,13 +36,17 @@ templates, CSS) is bundled with [PyInstaller](https://pyinstaller.org/).
 Subcommands: `dashboard`, `export`, `report` (see `--help` on each).
 
 ### Notes
-- **Linux glibc**: two variants ship on each release. The primary
+- **Linux glibc**: three variants ship on each release. The primary
   `coverity-metrics-linux-<version>` is built on Ubuntu 26.04 (glibc 2.38)
   for the newest security posture. The
   `coverity-metrics-linux-glibc2.35-<version>` variant is built on
-  Ubuntu 22.04 (glibc 2.35) for older hosts. Neither variant runs on
-  RHEL/Rocky 9 (glibc 2.34) or RHEL 8 (glibc 2.28) — use the wheel +
-  `pip` on those systems.
+  Ubuntu 22.04 (glibc 2.35). The
+  `coverity-metrics-linux-glibc2.28-<version>` variant is built inside the
+  `quay.io/pypa/manylinux_2_28_x86_64` container (AlmaLinux 8, glibc 2.28)
+  and covers RHEL/Rocky/Alma 8+, RHEL/Rocky/Alma 9, and Amazon Linux 2023.
+  All three bundle the same OpenSSL 3.5.7 and zlib 1.3.2 built from source.
+  RHEL 7 (glibc 2.17) and older are not covered by any binary — use the
+  wheel + `pip` on those systems.
 - **Windows SmartScreen**: the binary is unsigned, so first-run may show a
   warning. Click "More info" → "Run anyway".
 - **Cold start**: onefile binaries extract to a temp directory on first run;

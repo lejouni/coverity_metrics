@@ -182,6 +182,127 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  build-manylinux:
+    # Third Linux variant, built inside the manylinux_2_28 container so the
+    # bundled libpython3.14.so.1.0 only requires glibc symbols up to 2.28.
+    # Covers RHEL/Rocky/Alma/CentOS 8, older long-lived enterprise hosts, and
+    # anything newer. Cannot be folded into the matrix build above because
+    # manylinux images ship their own /opt/python/cp314-cp314/ interpreter and
+    # actions/setup-python would install a Python built against a newer glibc,
+    # defeating the whole point.
+    name: Build linux-glibc2.28 (manylinux_2_28)
+    runs-on: ubuntu-latest
+    container:
+      image: quay.io/pypa/manylinux_2_28_x86_64
+    env:
+      OPENSSL_VER: "3.5.7"
+      ZLIB_VER: "1.3.2"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Enable Python 3.14 from manylinux image
+        shell: bash
+        run: |
+          # Pre-built CPython 3.14 shipped inside the manylinux_2_28 image, linked
+          # against glibc 2.28 — do NOT swap for actions/setup-python.
+          echo "/opt/python/cp314-cp314/bin" >> "$GITHUB_PATH"
+          /opt/python/cp314-cp314/bin/python --version
+          /opt/python/cp314-cp314/bin/python -c "import sysconfig; print('SOABI:', sysconfig.get_config_var('SOABI'))"
+
+      - name: Install project + build deps
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .[build]
+
+      - name: Diagnostic - identify libcrypto/libz sources
+        shell: bash
+        run: |
+          echo "::group::glibc version inside the container"
+          ldd --version | head -n1
+          echo "::endgroup::"
+
+          echo "::group::_ssl.so shared-library dependencies"
+          ldd "$(python -c 'import _ssl; print(_ssl.__file__)')" || true
+          echo "::endgroup::"
+
+          echo "::group::zlib.so shared-library dependencies"
+          ldd "$(python -c 'import zlib; print(zlib.__file__)')" || true
+          echo "::endgroup::"
+
+          echo "::group::OpenSSL / zlib versions Python is using at runtime"
+          python -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)"
+          python -c "import zlib; print('zlib   :', zlib.ZLIB_VERSION)"
+          echo "::endgroup::"
+
+      - name: Build newer OpenSSL for bundling
+        # Same rationale as the matrix build: prepend our own OpenSSL 3.5.x
+        # onto LD_LIBRARY_PATH so PyInstaller's ldd walk resolves to the
+        # freshly-built copy instead of the (older) one shipped in the
+        # manylinux_2_28 image, closing the BDBA delta without source changes.
+        shell: bash
+        run: |
+          curl -fsSL "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VER}/openssl-${OPENSSL_VER}.tar.gz" -o openssl.tar.gz
+          tar xzf openssl.tar.gz
+          pushd "openssl-${OPENSSL_VER}"
+          ./Configure --prefix="$HOME/openssl-new" \
+                      --openssldir="$HOME/openssl-new/ssl" \
+                      shared no-tests linux-x86_64 > /dev/null
+          make -j"$(nproc)" > /tmp/openssl-build.log 2>&1 || (tail -80 /tmp/openssl-build.log; exit 1)
+          make install_sw > /tmp/openssl-install.log 2>&1 || (tail -80 /tmp/openssl-install.log; exit 1)
+          popd
+          rm -rf "openssl-${OPENSSL_VER}" openssl.tar.gz
+
+          echo "LD_LIBRARY_PATH=$HOME/openssl-new/lib64:$HOME/openssl-new/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+
+          LD_LIBRARY_PATH="$HOME/openssl-new/lib64:$HOME/openssl-new/lib:${LD_LIBRARY_PATH:-}" \
+            python -c "import ssl; v = ssl.OPENSSL_VERSION; print('Python now sees:', v); assert '${OPENSSL_VER}' in v, f'Expected ${OPENSSL_VER} in {v}'"
+          LD_LIBRARY_PATH="$HOME/openssl-new/lib64:$HOME/openssl-new/lib:${LD_LIBRARY_PATH:-}" \
+            ldd "$(python -c 'import _ssl; print(_ssl.__file__)')" | grep -E 'lib(ssl|crypto)'
+
+      - name: Build newer zlib for bundling
+        shell: bash
+        run: |
+          curl -fsSL "https://zlib.net/zlib-${ZLIB_VER}.tar.gz" -o zlib.tar.gz
+          tar xzf zlib.tar.gz
+          pushd "zlib-${ZLIB_VER}"
+          ./configure --prefix="$HOME/zlib-new" --libdir="$HOME/zlib-new/lib" > /dev/null
+          make -j"$(nproc)" > /tmp/zlib-build.log 2>&1 || (tail -80 /tmp/zlib-build.log; exit 1)
+          make install > /tmp/zlib-install.log 2>&1 || (tail -80 /tmp/zlib-install.log; exit 1)
+          popd
+          rm -rf "zlib-${ZLIB_VER}" zlib.tar.gz
+
+          echo "LD_LIBRARY_PATH=$HOME/zlib-new/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+
+          LD_LIBRARY_PATH="$HOME/zlib-new/lib:${LD_LIBRARY_PATH:-}" \
+            ldd "$(python -c 'import zlib; print(zlib.__file__)')" | grep libz
+
+      - name: Build binary
+        shell: bash
+        env:
+          # /opt/python/cp314-cp314/bin/ ships `python` / `python3.14` but not `python3`.
+          PYTHON: python
+        run: bash packaging/build_binary.sh
+
+      - name: Determine artifact name
+        id: name
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="${GITHUB_SHA::7}"
+          fi
+          echo "artifact=coverity-metrics-linux-glibc2.28-${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ steps.name.outputs.artifact }}
+          path: dist/coverity-metrics
+          if-no-files-found: error
+          retention-days: 30
+
   publish-pypi:
     name: Build sdist/wheel and publish to PyPI
     if: startsWith(github.ref, 'refs/tags/v')
@@ -237,7 +358,7 @@ jobs:
 
   release:
     name: Attach binaries to release
-    needs: [build, publish-pypi]
+    needs: [build, build-manylinux, publish-pypi]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -254,12 +375,14 @@ jobs:
           # Rename OS-specific binaries into predictable filenames for the release page.
           # `linux-v*` glob is deliberately anchored on the `-v` prefix of the tag
           # version so it matches only the modern-glibc artifact folder and never
-          # the `linux-glibc2.35-v*` legacy one.
+          # the `linux-glibc2.35-v*` / `linux-glibc2.28-v*` variants.
           cp artifacts/coverity-metrics-windows-*/coverity-metrics.exe release/coverity-metrics-windows-${GITHUB_REF_NAME}.exe
           cp artifacts/coverity-metrics-linux-v*/coverity-metrics       release/coverity-metrics-linux-${GITHUB_REF_NAME}
           cp artifacts/coverity-metrics-linux-glibc2.35-v*/coverity-metrics release/coverity-metrics-linux-glibc2.35-${GITHUB_REF_NAME}
+          cp artifacts/coverity-metrics-linux-glibc2.28-v*/coverity-metrics release/coverity-metrics-linux-glibc2.28-${GITHUB_REF_NAME}
           chmod +x release/coverity-metrics-linux-${GITHUB_REF_NAME} \
-                   release/coverity-metrics-linux-glibc2.35-${GITHUB_REF_NAME}
+                   release/coverity-metrics-linux-glibc2.35-${GITHUB_REF_NAME} \
+                   release/coverity-metrics-linux-glibc2.28-${GITHUB_REF_NAME}
           cp config.json.example release/
           cp README.md release/
           ls -la release/

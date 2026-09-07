@@ -95,33 +95,39 @@ Python runtime, so the target machine does not need a Python install.
 - Windows: `coverity-metrics-windows-<version>.exe`
 - Linux (modern glibc, >= 2.38):   `coverity-metrics-linux-<version>`
 - Linux (legacy glibc, >= 2.35):   `coverity-metrics-linux-glibc2.35-<version>`
+- Linux (enterprise / RHEL 8, >= 2.28):   `coverity-metrics-linux-glibc2.28-<version>`
 
-**Which Linux binary?** The primary `coverity-metrics-linux-<version>` is
-built on Ubuntu 26.04 and links against glibc 2.38, so it runs on Ubuntu
-24.04+, Debian trixie+, Fedora 39+ and any newer host. On systems that
-predate glibc 2.38 (Ubuntu 22.04, Debian 12, RHEL/Rocky/Alma 9, older
-long-lived RHEL/Rocky/Alma hosts), the primary binary aborts at launch
-with:
-
-```text
-[PYI-...:ERROR] Failed to load Python shared library '.../libpython3.14.so.1.0': \
-    /lib64/libm.so.6: version `GLIBC_2.38' not found (required by \
-    .../libpython3.14.so.1.0)
-```
-
-Use the `coverity-metrics-linux-glibc2.35-<version>` binary instead — it's
-built on Ubuntu 22.04 against glibc 2.35 and covers Ubuntu 22.04+,
-Debian 12+, Fedora 36+ and other 2.35-or-newer glibc hosts. Confirm your
-host's glibc first:
+**Which Linux binary?** All three ship the same features and use the same
+CPython 3.14 runtime; they differ only in the minimum host glibc they
+require. Check your host's glibc first:
 
 ```bash
 ldd --version | head -n1
-# e.g. "ldd (Ubuntu GLIBC 2.35-0ubuntu3) 2.35"  → use the -glibc2.35- binary
+# e.g. "ldd (GNU libc) 2.28"  → use the -glibc2.28- binary
 ```
 
-RHEL/Rocky/Alma 9 (glibc 2.34) and RHEL 8 (glibc 2.28) are still below the
-2.35 floor of the legacy binary — install via `pip` / `pipx` on those
-hosts, or open an issue asking for a manylinux_2_28 build.
+- glibc **>= 2.38** (Ubuntu 24.04+, Debian trixie+, Fedora 39+) → use the
+  primary `coverity-metrics-linux-<version>`. Built on Ubuntu 26.04.
+- glibc **2.35 – 2.37** (Ubuntu 22.04, Debian 12, Fedora 36–38) → use
+  `coverity-metrics-linux-glibc2.35-<version>`. Built on Ubuntu 22.04.
+- glibc **2.28 – 2.34** (RHEL/Rocky/Alma 8 → 2.28, RHEL/Rocky/Alma 9 →
+  2.34, Amazon Linux 2023 → 2.34, older enterprise hosts) → use
+  `coverity-metrics-linux-glibc2.28-<version>`. Built inside the
+  `quay.io/pypa/manylinux_2_28_x86_64` container so the bundled
+  `libpython3.14.so.1.0` only requires symbols available in glibc 2.28.
+- glibc **< 2.28** (RHEL 7 → 2.17) → the standalone binary cannot help;
+  install via `pip` / `pipx` on a host where Python 3.10+ is available,
+  or open an issue.
+
+If a binary is a mismatch you'll see it at launch:
+
+```text
+[PYI-...:ERROR] Failed to load Python shared library '.../libpython3.14.so.1.0': \
+    /lib64/libm.so.6: version `GLIBC_2.XX' not found (required by \
+    .../libpython3.14.so.1.0)
+```
+
+Move down to the next-older-glibc binary in the list above.
 
 The Linux binary is built as a PyInstaller **onefile** bundle: at every
 launch it extracts its bundled shared libraries (Python runtime, `libz`,
