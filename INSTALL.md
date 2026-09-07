@@ -112,6 +112,139 @@ Notes:
   under the hood plus keeps the entry-point commands on your `PATH`
   globally.
 
+### Air-gapped install (no internet on the target machine)
+
+If the machine you'll actually run `coverity-metrics` on has no PyPI
+access — common on locked-down corporate hosts, DMZ analysis boxes, or
+customer sites — build a self-contained "wheelhouse" bundle on any
+internet-connected machine first, then transfer it. `pip` can install
+straight from a directory of wheels with no network calls.
+
+**Step 1 (on an internet-connected machine): download every wheel.**
+Choose one of the flavors below depending on whether the connected
+machine and the target machine share their OS + Python:
+
+```bash
+# Flavor A — connected machine is the SAME OS + Python as the target.
+#            Simplest; pip downloads for the current interpreter.
+mkdir -p wheelhouse
+python -m pip download \
+    --dest wheelhouse \
+    --only-binary=:all: \
+    coverity-metrics pip setuptools wheel
+```
+
+```bash
+# Flavor B — connected machine differs from the target (e.g. building a
+#            Linux bundle from Windows, or a RHEL 8 bundle from macOS).
+#            Pin the target platform + Python explicitly.
+mkdir -p wheelhouse
+python -m pip download \
+    --dest wheelhouse \
+    --only-binary=:all: \
+    --python-version 3.11 \
+    --platform manylinux2014_x86_64 \
+    --implementation cp \
+    --abi cp311 \
+    coverity-metrics pip setuptools wheel
+```
+
+Standard `--platform` tags for the target machine:
+
+| Target                  | `--platform` tag                                 |
+| ----------------------- | ------------------------------------------------ |
+| Linux 64-bit (RHEL 8+)  | `manylinux2014_x86_64`                           |
+| Linux 64-bit (newer)    | `manylinux_2_28_x86_64` or `manylinux_2_34_x86_64` |
+| Windows 64-bit          | `win_amd64`                                      |
+| macOS Apple Silicon     | `macosx_11_0_arm64`                              |
+| macOS Intel             | `macosx_10_9_x86_64`                             |
+
+Match `--python-version` (`3.11`, `3.12`, `3.13`, `3.14`) and `--abi`
+(`cp311`, `cp312`, `cp313`, `cp314`) to whatever Python the target
+machine has installed. Including `pip setuptools wheel` in the download
+list bootstraps a clean venv on the target even if its `pip` is too old
+to install the wheelhouse (rare but possible on locked-down images).
+
+**Step 2: bundle the wheelhouse for transfer.**
+
+```bash
+# Linux / macOS
+tar czf coverity-metrics-airgapped-<version>.tar.gz wheelhouse/
+```
+
+```powershell
+# Windows PowerShell
+Compress-Archive -Path wheelhouse -DestinationPath coverity-metrics-airgapped-<version>.zip
+```
+
+Copy the archive to the target machine (USB stick, artifact proxy, S3
+presigned URL, whatever your organisation allows).
+
+**Step 3 (on the air-gapped target machine): install from the bundle.**
+A venv is strongly recommended so the offline install can't collide with
+the system Python:
+
+```bash
+# Linux / macOS
+tar xzf coverity-metrics-airgapped-<version>.tar.gz
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --no-index --find-links wheelhouse --upgrade pip setuptools wheel
+pip install --no-index --find-links wheelhouse coverity-metrics
+coverity-dashboard --help
+```
+
+```powershell
+# Windows PowerShell
+Expand-Archive -Path .\coverity-metrics-airgapped-<version>.zip -DestinationPath .
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install --no-index --find-links wheelhouse --upgrade pip setuptools wheel
+pip install --no-index --find-links wheelhouse coverity-metrics
+coverity-dashboard --help
+```
+
+`--no-index` disables PyPI lookups outright; `--find-links wheelhouse`
+points `pip` at the local wheel directory. If the install succeeds the
+target host has never made a network request during the process.
+
+**Troubleshooting:**
+
+- `ERROR: Could not find a version that satisfies the requirement <pkg>`
+  during **download** — the `--platform` / `--python-version` / `--abi`
+  triple you passed doesn't have a wheel for one of the transitive deps
+  on PyPI. Common cause: mixing `--platform manylinux_2_34_x86_64` with
+  `--python-version 3.11` when the pandas 3.x wheel matrix on PyPI only
+  publishes `manylinux_2_28_x86_64` for that Python. Try
+  `manylinux2014_x86_64` as the widest-compat Linux tag, or bump the
+  target Python.
+- `ERROR: Could not find a version that satisfies the requirement <pkg>`
+  during **install** on the target — usually the wheelhouse doesn't
+  actually contain a wheel matching the target's interpreter. Run
+  `python -c "import sysconfig; print(sysconfig.get_platform(),
+  sysconfig.get_python_version())"` on the target and re-download on the
+  connected machine with matching tags.
+- `error: subprocess-exited-with-error` while installing pandas/numpy —
+  a source distribution slipped into the wheelhouse and pip tried to
+  compile it. Re-run step 1 with `--only-binary=:all:` (this is why the
+  recipe above includes that flag — do not drop it).
+- Corporate proxies that MITM `pip download` — set `PIP_CERT` to the
+  proxy's root CA bundle, or use `--trusted-host pypi.org
+  --trusted-host files.pythonhosted.org`. This is a step-1 concern only;
+  step 3 has no network calls to intercept.
+
+**Notes:**
+
+- The bundle is a plain wheelhouse — it also works with `pipx` on the
+  target: `pipx install --pip-args="--no-index --find-links wheelhouse"
+  coverity-metrics`.
+- To upgrade later, rebuild the bundle for the new version on the
+  connected machine and repeat step 3 with `pip install --no-index
+  --find-links wheelhouse --upgrade coverity-metrics`.
+- Storage footprint is dominated by pandas + numpy wheels (~50–70 MB
+  compiled per platform). A single-platform bundle typically lands under
+  100 MB compressed.
+
 ### Installing without admin or root rights
 
 If you don't have permission to install into the system Python (typical on
