@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.9] - YYYY-MM-DD
+
+### Fixed
+- **1.1.8 release shipped without the `coverity-metrics-linux-glibc2.28-<version>` binary because the new `build-manylinux` job died at the diagnostic step with `exit code 141`.**
+  - Root cause: the `build-manylinux` job runs under GitHub Actions' default bash flags (`bash --noprofile --norc -e -o pipefail {0}`). Its diagnostic step contained `ldd --version | head -n1`, which on AlmaLinux 8's `ldd` emits more than one pipe-buffer's worth of text. When `head` exits after the first line, `ldd`'s next `write()` gets SIGPIPE and — because `pipefail` is on — the whole pipeline is reported as exit 141 (128 + SIGPIPE 13), failing the step. The same code passes on the Ubuntu 22.04 / 26.04 matrix jobs only by coincidence: Ubuntu's shorter `ldd --version` output fits in the pipe buffer before `head` closes, so no SIGPIPE ever fires. As a result, the `release` job's `needs: [build, build-manylinux, publish-pypi]` never fired for v1.1.8, and none of the three Linux binaries were attached to the 1.1.8 release page. `publish-pypi` is independent of `build-manylinux`, so the PyPI wheel for 1.1.8 published normally and the tag was left intact — the missing artefacts are what motivated cutting 1.1.9.
+  - Fix: override the diagnostic step's shell to `bash -e {0}` (drops `-o pipefail`) so a SIGPIPE inside an informational pipeline no longer fails the step. The other `ldd "$(python -c '…')"` invocations already carried `|| true`; they're now purely defensive rather than load-bearing.
+  - Also switched the Enable-Python step to create a venv at `$HOME/venv` and prepend `$HOME/venv/bin` to `$GITHUB_PATH` before the `pip install .[build]` step. `/opt/python/cp314-cp314/lib/python3.14/site-packages/` is root-writable inside the manylinux image and GitHub Actions runs the container as root, so the previous "install straight into the interpreter's site-packages" path *should* have worked — but writing to `/opt` under container root is fragile enough on locked-down runners that a self-owned venv is the right default. The venv references the same `/opt/python/cp314-cp314/` interpreter, so the glibc 2.28 floor is preserved and `packaging/build_binary.sh` still picks up the manylinux CPython via `PYTHON=python`.
+  - Net effect for users: 1.1.9 is the first release with all three Linux binaries actually published — `coverity-metrics-linux-<version>` (glibc 2.38), `coverity-metrics-linux-glibc2.35-<version>` (glibc 2.35), and `coverity-metrics-linux-glibc2.28-<version>` (glibc 2.28) — even though the third variant was designed in 1.1.8. No source, CLI, config, or dependency changes; the `pip install coverity-metrics` install path is unaffected.
+
 ## [1.1.8] - 2026-09-07
 
 ### Added

@@ -2,6 +2,19 @@
 
 ## Version History
 
+### Version 1.1.9 - YYYY-MM-DD
+
+**CI fix: the `coverity-metrics-linux-glibc2.28-<version>` binary that was designed in 1.1.8 was never actually attached to the 1.1.8 release page — the `build-manylinux` job failed at its diagnostic step with `exit code 141`. 1.1.9 fixes the CI regression so all three Linux binaries publish. No source, CLI, config, or dependency changes.**
+
+#### Fixed
+
+##### 🐞 1.1.8 release shipped without any Linux binaries because `build-manylinux` died at exit 141
+- **Symptom** — Following the 1.1.8 tag, the GitHub Release page for 1.1.8 was missing every Linux binary (`coverity-metrics-linux-v1.1.8`, `coverity-metrics-linux-glibc2.35-v1.1.8`, and the new `coverity-metrics-linux-glibc2.28-v1.1.8`). Only the Windows `.exe` and the auxiliary files (`README.md`, `config.json.example`) were attached. The `release` workflow job never fired because it lists `build-manylinux` in `needs:`, and `build-manylinux` failed at its diagnostic step with `exit code 141`. The `publish-pypi` job is independent, so PyPI 1.1.8 published normally and the tag itself was left intact.
+- **Root cause** — GitHub Actions' default bash for `run: |` blocks is `bash --noprofile --norc -e -o pipefail {0}`. The `build-manylinux` diagnostic step contained `ldd --version | head -n1`. On AlmaLinux 8 (the `quay.io/pypa/manylinux_2_28_x86_64` base image), `ldd --version` emits more than one pipe-buffer's worth of text; when `head` exits after the first line, `ldd`'s next `write()` gets `SIGPIPE`, and `pipefail` promotes that to a pipeline exit of `128 + 13 = 141`, failing the whole step. The same pipeline passes on the Ubuntu 22.04 / 26.04 matrix jobs only because Ubuntu's shorter `ldd --version` output fits in the pipe buffer before `head` closes and no `SIGPIPE` is ever raised.
+- **Fix** — Override the diagnostic step's shell to `bash -e {0}` — drops `-o pipefail` for this one informational step so a `SIGPIPE` inside a pipeline that already prints its data no longer fails the whole step. The other `ldd "$(python -c '…')"` invocations in the same step already carried `|| true`; they're now purely defensive rather than load-bearing.
+- **Also** — Switched the Enable-Python step in `build-manylinux` to create a venv at `$HOME/venv` and prepend `$HOME/venv/bin` to `$GITHUB_PATH` before the `pip install .[build]` step. Writing to `/opt/python/cp314-cp314/lib/python3.14/site-packages/` under container root *should* work, but a self-owned venv sidesteps any `/opt` permission oddity on locked-down runners and is the more portable default. The venv still references the same `/opt/python/cp314-cp314/` interpreter, so the glibc 2.28 floor is preserved and `packaging/build_binary.sh` still picks up the manylinux CPython via `PYTHON=python`.
+- **How to recover** — Upgrade to 1.1.9. It's the first release where all three Linux binaries — `coverity-metrics-linux-<version>` (glibc 2.38), `coverity-metrics-linux-glibc2.35-<version>` (glibc 2.35), and `coverity-metrics-linux-glibc2.28-<version>` (glibc 2.28) — are actually published, even though the third variant was designed in 1.1.8. The coverage matrix and download instructions in [INSTALL.md](INSTALL.md) and [packaging/README.md](packaging/README.md) already point at these filenames; no doc changes were needed for 1.1.9.
+
 ### Version 1.1.8 - 2026-09-07
 
 **Feature: third Linux binary (`coverity-metrics-linux-glibc2.28-<version>`) built inside `quay.io/pypa/manylinux_2_28_x86_64` so RHEL/Rocky/Alma 8, RHEL/Rocky/Alma 9, Amazon Linux 2023, and other enterprise hosts pinned below glibc 2.35 finally have a standalone binary that loads.**
