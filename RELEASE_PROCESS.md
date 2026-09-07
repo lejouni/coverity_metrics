@@ -1,5 +1,32 @@
 # Release Process
 
+> **⚠️ This document is out of date.** Its per-flag examples describe an
+> older `release.ps1` API (`-Repository`, `-TwineUsername`,
+> `-CreateGitHubRelease`, `-Offline`, `-FindLinks`, `-NoUpload`, …) that
+> the current script no longer exposes. The modern flow is:
+>
+> 1. Run `./release.ps1 -NewVersion X.Y.Z` (or `-Part patch|minor|major`).
+> 2. The script bumps `coverity_metrics/__version__.py`, dates the pending
+>    `## [X.Y.Z] - YYYY-MM-DD` entries in `CHANGELOG.md` and
+>    `RELEASE_NOTES.md`, commits with `Release vX.Y.Z`, and pushes the
+>    branch.
+> 3. **New in 1.1.10**: the script then triggers a `workflow_dispatch` of
+>    `.github/workflows/build-binaries.yml` on the just-pushed SHA and
+>    waits (`gh run watch --exit-status`) for every binary — Windows,
+>    linux (glibc 2.38), linux-glibc2.35, and linux-glibc2.28 — to build
+>    green. Pass `-SkipPreflightCI` to fall back to the legacy "tag and
+>    hope" flow. Requires the [GitHub CLI](https://cli.github.com/)
+>    (`gh`) installed and authenticated.
+> 4. Only after preflight is green does the script `git tag -a vX.Y.Z` +
+>    `git push origin vX.Y.Z`, which triggers the tag-scoped
+>    `publish-pypi` (now `needs: [build, build-manylinux]`) and `release`
+>    jobs — PyPI publish and GitHub Release attachment.
+>
+> For the current parameter list use `Get-Help ./release.ps1 -Full` on
+> the machine you cut releases from. The prose below is retained for
+> historical reference only; the accurate source of truth is the script
+> itself and `CHANGELOG.md`.
+
 This document describes how to create and publish releases for the coverity-metrics package.
 
 ## Prerequisites

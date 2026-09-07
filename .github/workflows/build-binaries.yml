@@ -248,6 +248,12 @@ jobs:
         # manylinux_2_28 image, closing the BDBA delta without source changes.
         shell: bash
         run: |
+          # OpenSSL 3.5 Configure needs IPC::Cmd (and Pod::Html for the docs
+          # path, though we pass no-tests / skip docs). manylinux_2_28's base
+          # perl install ships neither — dnf-install them or Configure aborts
+          # with "Can't locate IPC/Cmd.pm in @INC" before make ever runs.
+          dnf install -y perl-IPC-Cmd perl-Pod-Html perl-Digest-SHA >/dev/null
+
           curl -fsSL "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VER}/openssl-${OPENSSL_VER}.tar.gz" -o openssl.tar.gz
           tar xzf openssl.tar.gz
           pushd "openssl-${OPENSSL_VER}"
@@ -311,6 +317,11 @@ jobs:
 
   publish-pypi:
     name: Build sdist/wheel and publish to PyPI
+    # Gate PyPI publish on every binary-producing job. If any of the matrix
+    # builds (Windows, ubuntu-26.04 linux, ubuntu-22.04 linux-glibc2.35) or
+    # the container `build-manylinux` job fails, PyPI publish is skipped —
+    # keeping wheel + binaries in lockstep so no release ever ships partial.
+    needs: [build, build-manylinux]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment:

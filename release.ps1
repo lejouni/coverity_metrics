@@ -38,6 +38,13 @@
 .PARAMETER SkipTag
   Skip creating and pushing the tag. The GitHub Actions release workflow will NOT be triggered.
 
+.PARAMETER SkipPreflightCI
+  Skip the pre-tag CI validation run. By default, before creating the tag the script triggers a
+  workflow_dispatch of build-binaries.yml on the just-pushed commit and waits for every build job
+  (Windows, ubuntu-26.04 linux, ubuntu-22.04 linux-glibc2.35, manylinux_2_28 linux-glibc2.28) to
+  succeed. Only then are the tag and PyPI publish allowed to proceed. Pass this switch to fall
+  back to the legacy "tag and hope" flow.
+
 .PARAMETER AllowDirty
   Allow running with unrelated uncommitted changes in the working tree.
   By default the script aborts if the working tree is dirty before it starts.
@@ -71,6 +78,7 @@ param(
 
   [switch]$SkipCommit,
   [switch]$SkipTag,
+  [switch]$SkipPreflightCI,
   [switch]$AllowDirty
 )
 
@@ -295,6 +303,60 @@ if (-not $SkipCommit) {
   Invoke-Step -Command "git push $Remote $Branch"
 } else {
   Write-Host "Skipping commit/push of branch (SkipCommit set)." -ForegroundColor Yellow
+}
+
+# Preflight: run build-binaries.yml against the just-pushed commit and refuse
+# to create the tag if any binary build fails. Keeps tags, PyPI, and the GitHub
+# Release page in lockstep — no half-released artefacts.
+if (-not $SkipTag -and -not $SkipPreflightCI) {
+  # gh CLI is the only reasonable way to trigger + poll a workflow from PS.
+  $ghAvailable = $null -ne (Get-Command gh -ErrorAction SilentlyContinue)
+  if (-not $ghAvailable) {
+    throw @"
+Preflight CI check requires the GitHub CLI ('gh') to be installed and authenticated.
+Install from https://cli.github.com/ and run 'gh auth login', then re-run this script.
+To skip the preflight and fall back to the legacy 'tag and hope' flow, pass -SkipPreflightCI.
+"@
+  }
+
+  $sha = if ($DryRun) { '<HEAD>' } else { (& git rev-parse HEAD).Trim() }
+  Write-Host "" -ForegroundColor Cyan
+  Write-Host "Preflight: dispatching build-binaries.yml against $Branch@$sha and waiting for green ..." -ForegroundColor Cyan
+
+  if ($DryRun) {
+    Write-Host "[DRY-RUN] gh workflow run build-binaries.yml --ref $Branch" -ForegroundColor Yellow
+    Write-Host "[DRY-RUN] gh run watch <newest-run> --exit-status" -ForegroundColor Yellow
+  } else {
+    # Snapshot the most recent run id BEFORE dispatch so we can tell which one is ours.
+    $before = & gh run list --workflow=build-binaries.yml --branch=$Branch --limit=1 --json databaseId --jq '.[0].databaseId' 2>$null
+    & gh workflow run build-binaries.yml --ref $Branch
+    if ($LASTEXITCODE -ne 0) { throw "gh workflow run failed with exit code $LASTEXITCODE" }
+
+    # Poll until GH surfaces a new run whose head_sha matches our commit.
+    $runId = $null
+    $deadline = (Get-Date).AddSeconds(60)
+    while ((Get-Date) -lt $deadline) {
+      Start-Sleep -Seconds 3
+      $candidate = & gh run list --workflow=build-binaries.yml --branch=$Branch --limit=5 --json 'databaseId,headSha' --jq "[.[] | select(.headSha==`"$sha`")][0].databaseId" 2>$null
+      if ($candidate -and $candidate -ne $before) {
+        $runId = $candidate
+        break
+      }
+    }
+    if (-not $runId) {
+      throw "Could not find the preflight run for $Branch@$sha within 60s. Check 'gh run list --workflow=build-binaries.yml' and re-run with -SkipPreflightCI if the run actually started."
+    }
+    Write-Host "Watching run $runId ..." -ForegroundColor Cyan
+    & gh run watch $runId --exit-status
+    if ($LASTEXITCODE -ne 0) {
+      throw "Preflight build-binaries run $runId failed. Tag NOT created; nothing pushed to PyPI or GitHub Release. Fix the failure and re-run this script."
+    }
+    Write-Host "Preflight run $runId completed successfully. Proceeding to tag." -ForegroundColor Green
+  }
+} elseif ($SkipTag) {
+  # No tag → nothing to gate. Silent.
+} else {
+  Write-Host "Skipping preflight CI validation (SkipPreflightCI set). Tag will be created without verifying binaries build." -ForegroundColor Yellow
 }
 
 if (-not $SkipTag) {

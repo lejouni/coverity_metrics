@@ -2,6 +2,41 @@
 
 ## Version History
 
+### Version 1.1.10 - YYYY-MM-DD
+
+**Release flow hardened: `release.ps1` now runs a preflight `workflow_dispatch` build and refuses to create the tag if any binary fails, and `publish-pypi` now declares `needs: [build, build-manylinux]` so PyPI is never published when a binary build is red. Together these guarantee tags, PyPI wheels, and the GitHub Release page stay in lockstep — no more half-released 1.1.8/1.1.9-style outcomes. Also: the actual `coverity-metrics-linux-glibc2.28-<version>` binary finally ships (OpenSSL `Configure` needed `perl-IPC-Cmd` in the manylinux_2_28 image). No source, CLI, config, or dependency changes.**
+
+#### Changed
+
+##### 🔒 Release flow refuses to tag / publish until every binary is built
+- **Symptom** — The 1.1.8 and 1.1.9 releases both landed on PyPI without the matching Linux binaries on the GitHub Release page, because `publish-pypi` ran independently of `build-manylinux` (no `needs:` link) and the release-script tagged locally before knowing whether the workflow would succeed. Users pulling the tag from GitHub Releases got a Windows exe and nothing else; users pulling from PyPI got a working wheel but no drop-in binary.
+- **Root cause** — Two independent gaps:
+  1. In `.github/workflows/build-binaries.yml`, `publish-pypi` had `if: startsWith(github.ref, 'refs/tags/v')` but *no* `needs:` line, so it ran in parallel to every build job. A tag push published to PyPI even if binaries failed later in the same run.
+  2. In `release.ps1`, `git tag` + `git push` ran immediately after the version-bump commit was pushed. The tag existed on origin before the release workflow finished, so a failed `build-manylinux` couldn't roll the tag back.
+- **Fix** — Coordinated changes on both sides:
+  - **Workflow gate**: `publish-pypi` now declares `needs: [build, build-manylinux]`. If any of the Windows / Ubuntu 26.04 linux / Ubuntu 22.04 linux-glibc2.35 matrix legs — or the container-based `build-manylinux` job producing linux-glibc2.28 — fails, PyPI publish is skipped, and the `release` job (which already required both) is skipped too. Nothing on PyPI or the GitHub Release page ships partial.
+  - **Client-side preflight**: `release.ps1` now runs, in order, `git push $Branch` → `gh workflow run build-binaries.yml --ref $Branch` → `gh run watch --exit-status <newest-run>`. Only if the preflight run finishes green does the script proceed to `git tag` and `git push $Remote $tag`. If preflight fails, the script aborts with a clear error, nothing is tagged, and the release workflow never fires. A new `-SkipPreflightCI` switch is provided for exceptional cases; `-DryRun` narrates every preflight step without side effects.
+- **How to recover** — Upgrade `release.ps1` (comes with 1.1.10) and make sure the [GitHub CLI](https://cli.github.com/) is installed and authenticated (`gh auth login`) on the machine you cut releases from. Every future `./release.ps1 -NewVersion X.Y.Z` will refuse to tag until all four binary artefacts have built successfully on the just-pushed commit. No workflow YAML on the consumer side changes; existing CI checkouts pick up the workflow gate automatically on next tag push.
+
+#### Fixed
+
+##### 🐞 1.1.9 release page missing every Linux binary — OpenSSL `Configure` aborted with `Can't locate IPC/Cmd.pm`
+- **Symptom** — Following the 1.1.9 tag, the GitHub Release page for 1.1.9 was again missing every Linux binary (`coverity-metrics-linux-v1.1.9`, `coverity-metrics-linux-glibc2.35-v1.1.9`, and `coverity-metrics-linux-glibc2.28-v1.1.9`). Only the Windows `.exe` and the auxiliary files (`README.md`, `config.json.example`) were attached. The `build-manylinux` job cleared the diagnostic step that was patched in 1.1.9 but died at the very next step:
+
+  ```text
+  Can't locate IPC/Cmd.pm in @INC (you may need to install the IPC::Cmd module) \
+      (@INC contains: … /usr/lib64/perl5 /usr/share/perl5 …) \
+      at /__w/coverity_metrics/coverity_metrics/openssl-3.5.7/util/perl/OpenSSL/config.pm line 19.
+  BEGIN failed--compilation aborted at ./Configure line 23.
+  Error: Process completed with exit code 2.
+  ```
+
+  Same failure mode as 1.1.8: the `release` job's `needs: [build, build-manylinux, publish-pypi]` never fires when `build-manylinux` fails, so *all three* Linux artefacts were dropped. `publish-pypi` is independent, so the PyPI wheel for 1.1.9 published normally and the tag itself was left intact.
+- **Root cause** — OpenSSL 3.5's `./Configure` script does `use IPC::Cmd qw/can_run/;` in `util/perl/OpenSSL/config.pm`. The `quay.io/pypa/manylinux_2_28_x86_64` image ships a minimal Perl 5.26 install (enough to bootstrap Python builds) but *without* `perl-IPC-Cmd`. AlmaLinux 8 packages it separately from the core Perl RPM, and manylinux's slimmed base image doesn't pull it in. Configure aborts before `make` ever runs, so all the "prepend `LD_LIBRARY_PATH`" plumbing further down is untouched. This is the second install-time regression the `build-manylinux` job has hit (the first was the `pipefail`-vs-`SIGPIPE` diagnostic step patched in 1.1.9), and both trace back to the same principle: manylinux_2_28 is **not** a full CentOS 8 userland — assume nothing beyond the pre-built CPython 3.14 at `/opt/python/cp314-cp314/`.
+- **Fix** — Prepend `dnf install -y perl-IPC-Cmd perl-Pod-Html perl-Digest-SHA` to the `Build newer OpenSSL for bundling` step in `.github/workflows/build-binaries.yml`. `IPC::Cmd` is what actually blocks the build; `Pod::Html` is a defensive install in case a later OpenSSL patchlevel starts pulling it in from `Configure` too (the docs path isn't invoked because we already pass `no-tests`, but the module import at parse time doesn't care about that), and `Digest::SHA` is what `openssl-verify`-style test targets historically wanted — cheap to install, and it stops the next unrelated Perl module error surfacing at the same point. The Ubuntu 26.04 / 22.04 matrix builds and the Windows build are unaffected — they use `apt`-installed Perl on the runner, which already carries `IPC::Cmd` in `libperl5.**`.
+- **How to recover** — Upgrade to 1.1.10. It's the first release since the `linux-glibc2.28` variant was designed (1.1.8) where the binary actually ships. Filename / path conventions are unchanged; the coverage matrix in [INSTALL.md](INSTALL.md) and [packaging/README.md](packaging/README.md) is already correct for these artefacts.
+- **Testing note left for future container-only regressions** — the workflow's `workflow_dispatch:` trigger only invokes `build` + `build-manylinux` (the `release` and `publish-pypi` jobs are gated on `startsWith(github.ref, 'refs/tags/v')`), so it's safe to iterate on manylinux fixes via manual dispatch before cutting a fresh tag. This is what should be used from now on rather than tagging blind.
+
 ### Version 1.1.9 - 2026-09-07
 
 **CI fix: the `coverity-metrics-linux-glibc2.28-<version>` binary that was designed in 1.1.8 was never actually attached to the 1.1.8 release page — the `build-manylinux` job failed at its diagnostic step with `exit code 141`. 1.1.9 fixes the CI regression so all three Linux binaries publish. No source, CLI, config, or dependency changes.**
