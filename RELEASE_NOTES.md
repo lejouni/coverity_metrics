@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.1.10 - YYYY-MM-DD
+### Version 1.1.10 - 2026-09-07
 
 **Release flow hardened: `release.ps1` now runs a preflight `workflow_dispatch` build and refuses to create the tag if any binary fails, and `publish-pypi` now declares `needs: [build, build-manylinux]` so PyPI is never published when a binary build is red. Together these guarantee tags, PyPI wheels, and the GitHub Release page stay in lockstep — no more half-released 1.1.8/1.1.9-style outcomes. Also: the actual `coverity-metrics-linux-glibc2.28-<version>` binary finally ships (OpenSSL `Configure` needed `perl-IPC-Cmd` in the manylinux_2_28 image). No source, CLI, config, or dependency changes.**
 

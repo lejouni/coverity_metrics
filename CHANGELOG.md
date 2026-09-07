@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.10] - YYYY-MM-DD
+## [1.1.10] - 2026-09-07
 
 ### Changed
 - **Release flow now refuses to tag, publish to PyPI, or attach anything to the GitHub Release page until every binary build succeeds.** The prior "tag → workflow → build + publish" order let PyPI ship 1.1.8 and 1.1.9 while `build-manylinux` failed on those same tags, so the release page ended up half-empty and the PyPI version couldn't be un-published. Two coordinated fixes:
