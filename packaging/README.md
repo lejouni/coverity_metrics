@@ -44,9 +44,15 @@ Subcommands: `dashboard`, `export`, `report` (see `--help` on each).
   `coverity-metrics-linux-glibc2.28-<version>` variant is built inside the
   `quay.io/pypa/manylinux_2_28_x86_64` container (AlmaLinux 8, glibc 2.28)
   and covers RHEL/Rocky/Alma 8+, RHEL/Rocky/Alma 9, and Amazon Linux 2023.
-  All three bundle the same OpenSSL 3.5.7 and zlib 1.3.2 built from source.
-  RHEL 7 (glibc 2.17) and older are not covered by any binary — use the
-  wheel + `pip` on those systems.
+  The 2.38 and 2.35 variants source-build OpenSSL 3.5.7 + zlib 1.3.2 and
+  prepend them to `LD_LIBRARY_PATH` so PyInstaller bundles the fresh
+  versions. The `-glibc2.28-` variant instead bundles the OpenSSL 1.1.x
+  that manylinux_2_28's CPython 3.14 was built against (matching
+  AlmaLinux 8's system version) — its `_ssl.so`'s `libssl.so.1.1` SONAME
+  can't be redirected to a `libssl.so.3` at load time, so freshening
+  OpenSSL for that variant would require rebuilding CPython from source
+  and is not attempted today. RHEL 7 (glibc 2.17) and older are not
+  covered by any binary — use the wheel + `pip` on those systems.
 - **Windows SmartScreen**: the binary is unsigned, so first-run may show a
   warning. Click "More info" → "Run anyway".
 - **Cold start**: onefile binaries extract to a temp directory on first run;

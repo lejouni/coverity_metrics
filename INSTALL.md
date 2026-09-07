@@ -115,6 +115,14 @@ ldd --version | head -n1
   `coverity-metrics-linux-glibc2.28-<version>`. Built inside the
   `quay.io/pypa/manylinux_2_28_x86_64` container so the bundled
   `libpython3.14.so.1.0` only requires symbols available in glibc 2.28.
+  **Tradeoff**: this variant bundles the OpenSSL 1.1.x that the
+  manylinux_2_28 image's CPython 3.14 was built against — the same
+  version AlmaLinux 8 ships — instead of the source-built OpenSSL 3.5.x
+  used by the other two Linux binaries. That's a structural limitation
+  (`_ssl.so`'s `libssl.so.1.1` SONAME can't be redirected to a
+  `libssl.so.3` at load time), not a bug. If modern OpenSSL matters more
+  than a standalone binary on RHEL 8, install via
+  `pip install coverity-metrics` from PyPI on that host instead.
 - glibc **< 2.28** (RHEL 7 → 2.17) → the standalone binary cannot help;
   install via `pip` / `pipx` on a host where Python 3.10+ is available,
   or open an issue.

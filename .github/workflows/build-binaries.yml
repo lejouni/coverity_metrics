@@ -194,9 +194,6 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: quay.io/pypa/manylinux_2_28_x86_64
-    env:
-      OPENSSL_VER: "3.5.7"
-      ZLIB_VER: "1.3.2"
     steps:
       - uses: actions/checkout@v5
 
@@ -241,55 +238,25 @@ jobs:
           python -c "import zlib; print('zlib   :', zlib.ZLIB_VERSION)"
           echo "::endgroup::"
 
-      - name: Build newer OpenSSL for bundling
-        # Same rationale as the matrix build: prepend our own OpenSSL 3.5.x
-        # onto LD_LIBRARY_PATH so PyInstaller's ldd walk resolves to the
-        # freshly-built copy instead of the (older) one shipped in the
-        # manylinux_2_28 image, closing the BDBA delta without source changes.
+      - name: Report bundled OpenSSL / zlib
+        # We intentionally do NOT source-build a newer OpenSSL / zlib for this
+        # variant like the Ubuntu jobs do. manylinux_2_28's CPython 3.14 is
+        # linked against libssl.so.1.1 / libcrypto.so.1.1 (system OpenSSL 1.1.1
+        # on AlmaLinux 8), so a locally-built OpenSSL 3.5.x with SONAME
+        # libssl.so.3 is never a candidate for ld.so — LD_LIBRARY_PATH does
+        # not, and cannot, override across a SONAME major version bump. The
+        # glibc-2.28 binary therefore ships with whatever OpenSSL manylinux
+        # built the image's CPython 3.14 against; document it explicitly here
+        # so future BDBA scans have a trail. Users who need modern OpenSSL on
+        # RHEL/Rocky/Alma 8 hosts should install from PyPI instead.
         shell: bash
         run: |
-          # OpenSSL 3.5's Configure + Makefile.in use IPC::Cmd, Pod::Html,
-          # Time::Piece, Digest::SHA and other stdlib-ish Perl modules that the
-          # minimal Perl install in manylinux_2_28 does not carry. `perl-core`
-          # is the AlmaLinux 8 metapackage that pulls the full standard perl
-          # distribution in one shot, so we don't have to track each module
-          # OpenSSL might add across patchlevels.
-          dnf install -y perl-core >/dev/null
-
-          curl -fsSL "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VER}/openssl-${OPENSSL_VER}.tar.gz" -o openssl.tar.gz
-          tar xzf openssl.tar.gz
-          pushd "openssl-${OPENSSL_VER}"
-          ./Configure --prefix="$HOME/openssl-new" \
-                      --openssldir="$HOME/openssl-new/ssl" \
-                      shared no-tests linux-x86_64 > /dev/null
-          make -j"$(nproc)" > /tmp/openssl-build.log 2>&1 || (tail -80 /tmp/openssl-build.log; exit 1)
-          make install_sw > /tmp/openssl-install.log 2>&1 || (tail -80 /tmp/openssl-install.log; exit 1)
-          popd
-          rm -rf "openssl-${OPENSSL_VER}" openssl.tar.gz
-
-          echo "LD_LIBRARY_PATH=$HOME/openssl-new/lib64:$HOME/openssl-new/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
-
-          LD_LIBRARY_PATH="$HOME/openssl-new/lib64:$HOME/openssl-new/lib:${LD_LIBRARY_PATH:-}" \
-            python -c "import ssl; v = ssl.OPENSSL_VERSION; print('Python now sees:', v); assert '${OPENSSL_VER}' in v, f'Expected ${OPENSSL_VER} in {v}'"
-          LD_LIBRARY_PATH="$HOME/openssl-new/lib64:$HOME/openssl-new/lib:${LD_LIBRARY_PATH:-}" \
-            ldd "$(python -c 'import _ssl; print(_ssl.__file__)')" | grep -E 'lib(ssl|crypto)'
-
-      - name: Build newer zlib for bundling
-        shell: bash
-        run: |
-          curl -fsSL "https://zlib.net/zlib-${ZLIB_VER}.tar.gz" -o zlib.tar.gz
-          tar xzf zlib.tar.gz
-          pushd "zlib-${ZLIB_VER}"
-          ./configure --prefix="$HOME/zlib-new" --libdir="$HOME/zlib-new/lib" > /dev/null
-          make -j"$(nproc)" > /tmp/zlib-build.log 2>&1 || (tail -80 /tmp/zlib-build.log; exit 1)
-          make install > /tmp/zlib-install.log 2>&1 || (tail -80 /tmp/zlib-install.log; exit 1)
-          popd
-          rm -rf "zlib-${ZLIB_VER}" zlib.tar.gz
-
-          echo "LD_LIBRARY_PATH=$HOME/zlib-new/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
-
-          LD_LIBRARY_PATH="$HOME/zlib-new/lib:${LD_LIBRARY_PATH:-}" \
-            ldd "$(python -c 'import zlib; print(zlib.__file__)')" | grep libz
+          echo "::group::OpenSSL / zlib bundled with the manylinux Python"
+          python -c "import ssl; print('OpenSSL   :', ssl.OPENSSL_VERSION)"
+          python -c "import zlib; print('zlib      :', zlib.ZLIB_VERSION)"
+          echo "_ssl.so   : $(python -c 'import _ssl; print(_ssl.__file__)')"
+          ldd "$(python -c 'import _ssl; print(_ssl.__file__)')" | grep -Ei 'lib(ssl|crypto|z)' || true
+          echo "::endgroup::"
 
       - name: Build binary
         shell: bash
