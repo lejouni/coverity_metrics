@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.1.7 - YYYY-MM-DD
+### Version 1.1.7 - 2026-09-07
 
 **Fix: `README.md` links now resolve on the PyPI project page. Feature: second Linux binary (`coverity-metrics-linux-glibc2.35-<version>`) for hosts on glibc 2.35 – 2.37 (Ubuntu 22.04, Debian 12, Fedora 36+) so the primary Ubuntu 26.04-based binary's `GLIBC_2.38 not found` failure has a drop-in workaround. Docs: standalone Linux binary noexec-`/tmp` troubleshooting, and `MULTI_INSTANCE_GUIDE.md` rewritten to match the 1.1.x code. Also: `MultiInstanceMetrics` example-file fallback now points at the file that actually ships.**
 
