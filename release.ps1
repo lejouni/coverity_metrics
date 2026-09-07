@@ -346,7 +346,12 @@ this is what let 1.1.8 / 1.1.9 ship half-broken), pass -SkipPreflightCI.
     }
 
     # Snapshot the most recent run id BEFORE dispatch so we can tell which one is ours.
-    $before = & gh run list --workflow=build-binaries.yml --branch=$Branch --limit=1 --json databaseId --jq '.[0].databaseId' 2>$null
+    # NB: filter on the PowerShell side rather than passing $sha into a `--jq` expression —
+    # PS's native-command arg passer strips escaped quotes, so `--jq '... =="$sha" ...'`
+    # arrives at gh.exe with a truncated jq string and fails to parse.
+    $beforeJson = & gh run list --workflow=build-binaries.yml --branch=$Branch --limit=1 --json 'databaseId' 2>$null
+    $before = if ($beforeJson) { ($beforeJson | ConvertFrom-Json | Select-Object -First 1).databaseId } else { $null }
+
     $dispatchOut = & gh workflow run build-binaries.yml --ref $Branch 2>&1
     if ($LASTEXITCODE -ne 0) {
       if ($dispatchOut -match '403|admin rights') {
@@ -369,10 +374,13 @@ preflight and, if green, create + push the tag).
     $deadline = (Get-Date).AddSeconds(60)
     while ((Get-Date) -lt $deadline) {
       Start-Sleep -Seconds 3
-      $candidate = & gh run list --workflow=build-binaries.yml --branch=$Branch --limit=5 --json 'databaseId,headSha' --jq "[.[] | select(.headSha==`"$sha`")][0].databaseId" 2>$null
-      if ($candidate -and $candidate -ne $before) {
-        $runId = $candidate
-        break
+      $listJson = & gh run list --workflow=build-binaries.yml --branch=$Branch --limit=5 --json 'databaseId,headSha' 2>$null
+      if ($listJson) {
+        $match = $listJson | ConvertFrom-Json | Where-Object { $_.headSha -eq $sha } | Select-Object -First 1
+        if ($match -and $match.databaseId -ne $before) {
+          $runId = $match.databaseId
+          break
+        }
       }
     }
     if (-not $runId) {
