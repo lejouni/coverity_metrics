@@ -327,10 +327,42 @@ To skip the preflight and fall back to the legacy 'tag and hope' flow, pass -Ski
     Write-Host "[DRY-RUN] gh workflow run build-binaries.yml --ref $Branch" -ForegroundColor Yellow
     Write-Host "[DRY-RUN] gh run watch <newest-run> --exit-status" -ForegroundColor Yellow
   } else {
+    # Fail fast if the token can't hit the dispatch endpoint. GitHub returns
+    # HTTP 403 "Must have admin rights to Repository" when the token lacks
+    # the `workflow` OAuth scope (classic PAT) or `actions:write` (fine-grained).
+    # This is a common trip because `gh auth login`'s default scope set does
+    # not include `workflow`.
+    $scopeCheck = & gh auth status 2>&1 | Out-String
+    if ($scopeCheck -notmatch '(?ims)Token scopes:.*\bworkflow\b') {
+      throw @"
+GitHub CLI is authenticated but the current token is missing the 'workflow' scope,
+which is required to trigger workflow_dispatch runs. Fix with one command:
+
+    gh auth refresh -h github.com -s workflow
+
+Then re-run this script. To bypass the preflight entirely (not recommended —
+this is what let 1.1.8 / 1.1.9 ship half-broken), pass -SkipPreflightCI.
+"@
+    }
+
     # Snapshot the most recent run id BEFORE dispatch so we can tell which one is ours.
     $before = & gh run list --workflow=build-binaries.yml --branch=$Branch --limit=1 --json databaseId --jq '.[0].databaseId' 2>$null
-    & gh workflow run build-binaries.yml --ref $Branch
-    if ($LASTEXITCODE -ne 0) { throw "gh workflow run failed with exit code $LASTEXITCODE" }
+    $dispatchOut = & gh workflow run build-binaries.yml --ref $Branch 2>&1
+    if ($LASTEXITCODE -ne 0) {
+      if ($dispatchOut -match '403|admin rights') {
+        throw @"
+gh workflow run failed with HTTP 403 (Must have admin rights to Repository).
+The token is authenticated but lacks the 'workflow' scope. Fix with:
+
+    gh auth refresh -h github.com -s workflow
+
+Then re-run this script (safe — the version-bump commit is already pushed,
+so re-invoking `./release.ps1 -NewVersion $nextVersion` will just retry the
+preflight and, if green, create + push the tag).
+"@
+      }
+      throw "gh workflow run failed with exit code $LASTEXITCODE`n$dispatchOut"
+    }
 
     # Poll until GH surfaces a new run whose head_sha matches our commit.
     $runId = $null
