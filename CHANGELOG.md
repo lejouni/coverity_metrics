@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.9] - YYYY-MM-DD
+## [1.1.9] - 2026-09-07
 
 ### Fixed
 - **1.1.8 release shipped without the `coverity-metrics-linux-glibc2.28-<version>` binary because the new `build-manylinux` job died at the diagnostic step with `exit code 141`.**

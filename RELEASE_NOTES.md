@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.1.9 - YYYY-MM-DD
+### Version 1.1.9 - 2026-09-07
 
 **CI fix: the `coverity-metrics-linux-glibc2.28-<version>` binary that was designed in 1.1.8 was never actually attached to the 1.1.8 release page — the `build-manylinux` job failed at its diagnostic step with `exit code 141`. 1.1.9 fixes the CI regression so all three Linux binaries publish. No source, CLI, config, or dependency changes.**
 
