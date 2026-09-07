@@ -2,7 +2,7 @@
 
 ## Version History
 
-### Version 1.1.8 - YYYY-MM-DD
+### Version 1.1.8 - 2026-09-07
 
 **Feature: third Linux binary (`coverity-metrics-linux-glibc2.28-<version>`) built inside `quay.io/pypa/manylinux_2_28_x86_64` so RHEL/Rocky/Alma 8, RHEL/Rocky/Alma 9, Amazon Linux 2023, and other enterprise hosts pinned below glibc 2.35 finally have a standalone binary that loads.**
 
