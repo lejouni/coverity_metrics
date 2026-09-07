@@ -205,9 +205,12 @@ jobs:
         run: |
           # Pre-built CPython 3.14 shipped inside the manylinux_2_28 image, linked
           # against glibc 2.28 — do NOT swap for actions/setup-python.
-          echo "/opt/python/cp314-cp314/bin" >> "$GITHUB_PATH"
+          # Put the venv's bin/ ahead of /opt/python/cp314-cp314/bin/ on PATH so
+          # `python` / `pip` transparently target the venv for every later step.
           /opt/python/cp314-cp314/bin/python --version
-          /opt/python/cp314-cp314/bin/python -c "import sysconfig; print('SOABI:', sysconfig.get_config_var('SOABI'))"
+          /opt/python/cp314-cp314/bin/python -m venv "$HOME/venv"
+          echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+          "$HOME/venv/bin/python" -c "import sysconfig; print('SOABI:', sysconfig.get_config_var('SOABI'))"
 
       - name: Install project + build deps
         shell: bash
@@ -216,7 +219,10 @@ jobs:
           python -m pip install .[build]
 
       - name: Diagnostic - identify libcrypto/libz sources
-        shell: bash
+        # Diagnostics are informational; drop `-o pipefail` so the `| head -n1`
+        # SIGPIPE dance on AlmaLinux 8's ldd does not fail the whole step
+        # (exit 141 = 128 + SIGPIPE 13 under the default pipefail shell).
+        shell: bash -e {0}
         run: |
           echo "::group::glibc version inside the container"
           ldd --version | head -n1
