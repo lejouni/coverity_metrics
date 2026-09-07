@@ -248,11 +248,13 @@ jobs:
         # manylinux_2_28 image, closing the BDBA delta without source changes.
         shell: bash
         run: |
-          # OpenSSL 3.5 Configure needs IPC::Cmd (and Pod::Html for the docs
-          # path, though we pass no-tests / skip docs). manylinux_2_28's base
-          # perl install ships neither — dnf-install them or Configure aborts
-          # with "Can't locate IPC/Cmd.pm in @INC" before make ever runs.
-          dnf install -y perl-IPC-Cmd perl-Pod-Html perl-Digest-SHA >/dev/null
+          # OpenSSL 3.5's Configure + Makefile.in use IPC::Cmd, Pod::Html,
+          # Time::Piece, Digest::SHA and other stdlib-ish Perl modules that the
+          # minimal Perl install in manylinux_2_28 does not carry. `perl-core`
+          # is the AlmaLinux 8 metapackage that pulls the full standard perl
+          # distribution in one shot, so we don't have to track each module
+          # OpenSSL might add across patchlevels.
+          dnf install -y perl-core >/dev/null
 
           curl -fsSL "https://github.com/openssl/openssl/releases/download/openssl-${OPENSSL_VER}/openssl-${OPENSSL_VER}.tar.gz" -o openssl.tar.gz
           tar xzf openssl.tar.gz
