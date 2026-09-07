@@ -4,7 +4,7 @@
 
 ### Version 1.1.7 - YYYY-MM-DD
 
-**Fix: `README.md` links now resolve on the PyPI project page. Docs: standalone Linux binary noexec-`/tmp` troubleshooting, and `MULTI_INSTANCE_GUIDE.md` rewritten to match the 1.1.x code. Also: `MultiInstanceMetrics` example-file fallback now points at the file that actually ships.**
+**Fix: `README.md` links now resolve on the PyPI project page. Feature: second Linux binary (`coverity-metrics-linux-glibc2.35-<version>`) for hosts on glibc 2.35 – 2.37 (Ubuntu 22.04, Debian 12, Fedora 36+) so the primary Ubuntu 26.04-based binary's `GLIBC_2.38 not found` failure has a drop-in workaround. Docs: standalone Linux binary noexec-`/tmp` troubleshooting, and `MULTI_INSTANCE_GUIDE.md` rewritten to match the 1.1.x code. Also: `MultiInstanceMetrics` example-file fallback now points at the file that actually ships.**
 
 #### Fixed
 
@@ -16,7 +16,24 @@
 
 #### Added
 
-##### 📖 `INSTALL.md` now covers the standalone Linux binary and the "`libz.so.1`: failed to map segment from shared object" startup error on hardened hosts
+##### � Second Linux binary for older glibc hosts (`coverity-metrics-linux-glibc2.35-<version>`)
+- **Symptom** — On RHEL/Rocky/Alma 9-era or Ubuntu 22.04-era hosts, the primary `coverity-metrics-linux-<version>` binary aborts at launch:
+
+  ```text
+  [PYI-...:ERROR] Failed to load Python shared library '.../libpython3.14.so.1.0': \
+      /lib64/libm.so.6: version `GLIBC_2.38' not found (required by \
+      .../libpython3.14.so.1.0)
+  ```
+
+  Setting `TMPDIR` does not help — the failure is a symbol-level glibc mismatch, not an extraction / `noexec` issue.
+- **Root cause** — The primary binary is built on Ubuntu 26.04 so PyInstaller picks up the runner's OpenSSL 3.5.x for `libcrypto.so.3` / `libssl.so.3` bundling. That same runner ships glibc 2.38, and the bundled `libpython3.14.so.1.0` links against symbols introduced in glibc 2.38. Any host below 2.38 refuses to load it: Ubuntu 22.04 → 2.35, Debian 12 → 2.36, RHEL/Rocky 9 → 2.34, RHEL 8 → 2.28.
+- **Fix** — Added a second matrix entry to `.github/workflows/build-binaries.yml` that runs on `ubuntu-22.04` and publishes a second release artifact, `coverity-metrics-linux-glibc2.35-<version>`. The runner's glibc 2.35 caps the symbol requirements on the bundled `libpython3.14.so.1.0`, so this binary runs on Ubuntu 22.04+, Debian 12+, Fedora 36+ and any newer host. The OpenSSL 3.5.7 / zlib 1.3.2 source-build steps are still applied on this runner too (their `if:` guards were widened from `matrix.artifact_os == 'linux'` to `runner.os == 'Linux'`), so both binaries carry the same modern OpenSSL / zlib. The original `coverity-metrics-linux-<version>` ships unchanged. Release-page globbing was tightened so `coverity-metrics-linux-v*` matches only the modern-glibc artifact folder and a second `coverity-metrics-linux-glibc2.35-v*` copy line stages the legacy binary next to it; both are `chmod +x`-ed and attached to the release with self-documenting filenames.
+- **How to recover** — Check your host's glibc with `ldd --version | head -n1` (or read the "Which Linux binary?" callout added to [INSTALL.md](INSTALL.md)):
+  - `2.38` or newer → keep using `coverity-metrics-linux-<version>` (Ubuntu 24.04+, Debian trixie+, Fedora 39+).
+  - `2.35` – `2.37` → download `coverity-metrics-linux-glibc2.35-<version>` from the release page instead.
+  - Below `2.35` (RHEL/Rocky 9 → 2.34, RHEL 8 → 2.28) → neither binary covers you; install via `pip` / `pipx` from PyPI, or open an issue asking for a manylinux_2_28 build.
+
+##### �📖 `INSTALL.md` now covers the standalone Linux binary and the "`libz.so.1`: failed to map segment from shared object" startup error on hardened hosts
 - **Symptom** — The standalone Linux binary aborts on the very first launch with:
 
   ```text

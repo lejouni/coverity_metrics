@@ -9,7 +9,14 @@ templates, CSS) is bundled with [PyInstaller](https://pyinstaller.org/).
 1. Download the binary for your OS from the
    [Releases page](https://github.com/lejouni/coverity_metrics/releases):
    - Windows: `coverity-metrics-windows-<version>.exe`
-   - Linux: `coverity-metrics-linux-<version>`
+   - Linux (glibc >= 2.38, e.g. Ubuntu 24.04+, Debian trixie+, Fedora 39+):
+     `coverity-metrics-linux-<version>`
+   - Linux (glibc >= 2.35, e.g. Ubuntu 22.04+, Debian 12+, Fedora 36+):
+     `coverity-metrics-linux-glibc2.35-<version>`
+
+   Check your host's glibc first: `ldd --version | head -n1`. If the modern
+   binary fails at launch with `GLIBC_2.38 not found`, use the
+   `-glibc2.35-` variant.
 2. Place your `config.json` next to the binary (start from
    [`config.json.example`](../config.json.example)).
 3. Run any subcommand:
@@ -26,8 +33,13 @@ templates, CSS) is bundled with [PyInstaller](https://pyinstaller.org/).
 Subcommands: `dashboard`, `export`, `report` (see `--help` on each).
 
 ### Notes
-- **Linux glibc**: binaries are built on `ubuntu-latest` (glibc 2.39). They
-  won't run on RHEL 8 / Ubuntu 20.04. Use the wheel + `pip` on older systems.
+- **Linux glibc**: two variants ship on each release. The primary
+  `coverity-metrics-linux-<version>` is built on Ubuntu 26.04 (glibc 2.38)
+  for the newest security posture. The
+  `coverity-metrics-linux-glibc2.35-<version>` variant is built on
+  Ubuntu 22.04 (glibc 2.35) for older hosts. Neither variant runs on
+  RHEL/Rocky 9 (glibc 2.34) or RHEL 8 (glibc 2.28) — use the wheel +
+  `pip` on those systems.
 - **Windows SmartScreen**: the binary is unsigned, so first-run may show a
   warning. Click "More info" → "Run anyway".
 - **Cold start**: onefile binaries extract to a temp directory on first run;

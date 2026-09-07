@@ -24,8 +24,25 @@ jobs:
           # Pinned to ubuntu-26.04 (preview) so PyInstaller picks up the runner's
           # OpenSSL 3.5.x for the bundled libcrypto.so.3 / libssl.so.3, instead of
           # Ubuntu 24.04's 3.0.13. Revert to ubuntu-latest once it flips to 26.04.
+          # Produces a binary that requires glibc >= 2.38 (Ubuntu 24.04+, Debian
+          # trixie+, Fedora 39+). RHEL/Rocky/Alma 9 (glibc 2.34), RHEL 8 (2.28)
+          # and Ubuntu 22.04 hosts must use the `linux-glibc2.35` binary below.
           - os: ubuntu-26.04
             artifact_os: linux
+            binary_name: coverity-metrics
+            build_cmd: bash packaging/build_binary.sh
+          # Legacy-glibc Linux build. ubuntu-22.04 ships glibc 2.35, so the
+          # bundled libpython3.14.so.1.0 links only against symbols available in
+          # glibc <= 2.35. Runs on Ubuntu 22.04+, Debian 12 (glibc 2.36), Fedora
+          # 36+, and any newer host — but NOT on RHEL/Rocky 9 (glibc 2.34) or
+          # RHEL/Rocky 8 (glibc 2.28); those need a manylinux_2_28 container
+          # build we haven't set up yet. OpenSSL 3.5.7 and zlib 1.3.2 are still
+          # built from source on this runner, so BDBA findings track the modern
+          # binary. Artifact suffix `-glibc2.35-` keeps the release-page filename
+          # self-documenting and prevents the `linux-v*` glob below from
+          # accidentally grabbing both binaries into the same release file.
+          - os: ubuntu-22.04
+            artifact_os: linux-glibc2.35
             binary_name: coverity-metrics
             build_cmd: bash packaging/build_binary.sh
 
@@ -44,7 +61,7 @@ jobs:
           python -m pip install .[build]
 
       - name: Diagnostic - identify libcrypto/libz sources (Linux only)
-        if: matrix.artifact_os == 'linux'
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           echo "::group::CPython _ssl module location"
@@ -86,7 +103,7 @@ jobs:
         # Stay within the 3.5 line so ABI is compatible with the _ssl.so that
         # CPython was compiled against; bump OPENSSL_VER whenever a newer 3.5.x
         # patch ships (check https://openssl-library.org/source/).
-        if: matrix.artifact_os == 'linux'
+        if: runner.os == 'Linux'
         shell: bash
         env:
           OPENSSL_VER: "3.5.7"
@@ -121,7 +138,7 @@ jobs:
         # PyInstaller bundle the pristine copy — same ABI (soname stays libz.so.1),
         # no dfsg patches. Bump ZLIB_VER when upstream releases a newer patch
         # (https://zlib.net/).
-        if: matrix.artifact_os == 'linux'
+        if: runner.os == 'Linux'
         shell: bash
         env:
           ZLIB_VER: "1.3.2"
@@ -235,9 +252,14 @@ jobs:
         run: |
           mkdir -p release
           # Rename OS-specific binaries into predictable filenames for the release page.
+          # `linux-v*` glob is deliberately anchored on the `-v` prefix of the tag
+          # version so it matches only the modern-glibc artifact folder and never
+          # the `linux-glibc2.35-v*` legacy one.
           cp artifacts/coverity-metrics-windows-*/coverity-metrics.exe release/coverity-metrics-windows-${GITHUB_REF_NAME}.exe
-          cp artifacts/coverity-metrics-linux-*/coverity-metrics       release/coverity-metrics-linux-${GITHUB_REF_NAME}
-          chmod +x release/coverity-metrics-linux-${GITHUB_REF_NAME}
+          cp artifacts/coverity-metrics-linux-v*/coverity-metrics       release/coverity-metrics-linux-${GITHUB_REF_NAME}
+          cp artifacts/coverity-metrics-linux-glibc2.35-v*/coverity-metrics release/coverity-metrics-linux-glibc2.35-${GITHUB_REF_NAME}
+          chmod +x release/coverity-metrics-linux-${GITHUB_REF_NAME} \
+                   release/coverity-metrics-linux-glibc2.35-${GITHUB_REF_NAME}
           cp config.json.example release/
           cp README.md release/
           ls -la release/
