@@ -8,10 +8,18 @@ on:
 
 permissions:
   contents: write
+  # `find-preflight-run` reads workflow runs + artifacts via `gh run list` and
+  # the `actions/download-artifact` cross-run API.
+  actions: read
 
 jobs:
   build:
     name: Build ${{ matrix.os }}
+    # Only runs on manual dispatch (release.ps1 preflight) so tag push doesn't
+    # rebuild the same binaries the preflight already produced. The tag-scoped
+    # `release` job pulls those artifacts from the preflight run by run-id via
+    # `find-preflight-run` below.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -188,13 +196,49 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  find-preflight-run:
+    name: Locate preflight build for this tag's SHA
+    # Only runs on tag push. Finds the most recent successful workflow_dispatch
+    # `build` run for the exact commit the tag points at, and hands its run-id
+    # to `release` so we can download the already-built artifacts instead of
+    # re-running the whole matrix. Fails loudly if no such run exists — that
+    # means someone pushed a tag without running `release.ps1`'s preflight
+    # (or the preflight artifacts have aged out past the 30-day retention).
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ steps.lookup.outputs.run_id }}
+    steps:
+      - name: Find latest successful build-binaries run for this commit
+        id: lookup
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="${{ github.sha }}"
+          echo "Looking for a green build-binaries.yml run against $sha ..."
+          run_id=$(gh run list \
+            --repo="${{ github.repository }}" \
+            --workflow=build-binaries.yml \
+            --status=success \
+            --limit=30 \
+            --json databaseId,headSha \
+            --jq "[.[] | select(.headSha==\"$sha\")][0].databaseId")
+          if [[ -z "${run_id:-}" || "$run_id" == "null" ]]; then
+            echo "::error::No successful build-binaries.yml run found for SHA $sha."
+            echo "::error::Cut releases via ./release.ps1 which runs the preflight, or manually dispatch the workflow against this commit before tagging."
+            exit 1
+          fi
+          echo "Using preflight run $run_id"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
   publish-pypi:
     name: Build sdist/wheel and publish to PyPI
-    # Gate PyPI publish on every binary-producing matrix leg (Windows, ubuntu-26.04
-    # linux, ubuntu-22.04 linux-glibc2.35). If any leg fails, PyPI publish is
-    # skipped, keeping wheel + binaries in lockstep so no release ever ships
-    # partial.
-    needs: [build]
+    # Runs on tag push only. Doesn't rebuild the binaries — those come from
+    # the preflight run via `release` below. Requires `find-preflight-run` so
+    # a stale-tag push (no matching preflight artifacts) skips PyPI publish.
+    needs: [find-preflight-run]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment:
@@ -248,15 +292,19 @@ jobs:
 
   release:
     name: Attach binaries to release
-    needs: [build, publish-pypi]
+    needs: [find-preflight-run, publish-pypi]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
-      - name: Download all artifacts
+      - name: Download preflight artifacts
+        # Cross-run download from the preflight `build` run whose id was
+        # resolved above. Skips the tag-triggered rebuild entirely.
         uses: actions/download-artifact@v5
         with:
+          run-id: ${{ needs.find-preflight-run.outputs.run_id }}
+          github-token: ${{ github.token }}
           path: artifacts
 
       - name: Stage release files
