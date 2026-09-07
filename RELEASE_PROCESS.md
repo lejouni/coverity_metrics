@@ -13,10 +13,10 @@
 > 3. **New in 1.1.10**: the script then triggers a `workflow_dispatch` of
 >    `.github/workflows/build-binaries.yml` on the just-pushed SHA and
 >    waits (`gh run watch --exit-status`) for every binary — Windows,
->    linux (glibc 2.38), linux-glibc2.35, and linux-glibc2.28 — to build
->    green. Pass `-SkipPreflightCI` to fall back to the legacy "tag and
->    hope" flow. Requires the [GitHub CLI](https://cli.github.com/)
->    (`gh`) installed and authenticated.
+>    linux (glibc 2.38), linux-glibc2.35 — to build green. Pass
+>    `-SkipPreflightCI` to fall back to the legacy "tag and hope" flow.
+>    Requires the [GitHub CLI](https://cli.github.com/) (`gh`) installed
+>    and authenticated.
 > 4. Only after preflight is green does the script `git tag -a vX.Y.Z` +
 >    `git push origin vX.Y.Z`, which triggers the tag-scoped
 >    `publish-pypi` (now `needs: [build, build-manylinux]`) and `release`

@@ -32,6 +32,86 @@ pip install dist/coverity_metrics-1.0.0-py3-none-any.whl
 pip install coverity-metrics
 ```
 
+### Into a Python virtual environment (recommended for keeping installs isolated)
+
+A virtual environment gives `coverity-metrics` its own site-packages tree
+so it can't collide with other Python tools on your machine, and lets you
+delete the whole install by removing one folder. Works identically on
+Linux, macOS, and Windows and needs no admin rights.
+
+**Linux / macOS (bash / zsh):**
+
+```bash
+# 1. Create the venv (any directory name works; ".venv" is convention).
+python3 -m venv .venv
+
+# 2. Activate it for the current shell.
+source .venv/bin/activate
+
+# 3. Install coverity-metrics from PyPI (or from a local wheel / source).
+pip install --upgrade pip
+pip install coverity-metrics
+
+# 4. Use the CLIs — no PATH tweaking needed while the venv is active.
+coverity-dashboard --help
+coverity-export --help
+coverity-report --help
+coverity-delta --help
+
+# 5. When you're done, deactivate. To re-use it later, just re-activate.
+deactivate
+```
+
+**Windows (PowerShell):**
+
+```powershell
+# 1. Create the venv. Prefer the Python launcher to pick a specific version:
+#    `py -3.14 -m venv .venv` targets Python 3.14; `python -m venv .venv`
+#    uses whichever `python` is first on PATH.
+py -3.14 -m venv .venv
+
+# 2. Activate. If PowerShell refuses with an ExecutionPolicy error, run
+#    `Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned`
+#    once for this shell (no admin required).
+.\.venv\Scripts\Activate.ps1
+
+# 3. Install.
+python -m pip install --upgrade pip
+pip install coverity-metrics
+
+# 4. Use.
+coverity-dashboard --help
+
+# 5. Done.
+deactivate
+```
+
+**Windows (cmd.exe):**
+
+```cmd
+py -3.14 -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install --upgrade pip
+pip install coverity-metrics
+coverity-dashboard --help
+deactivate
+```
+
+Notes:
+
+- Requires Python 3.10+ (matching the `pyproject.toml` `requires-python`).
+  Newer Python is fine; the packaged wheels are `py3-none-any`.
+- The venv folder is entirely self-contained — delete `.venv` to wipe the
+  install, no other cleanup needed.
+- To pin an exact version: `pip install coverity-metrics==1.1.10`.
+- To install from a local wheel or source checkout instead of PyPI, use
+  `pip install path/to/coverity_metrics-*.whl` or `pip install .` after
+  activating the venv.
+- If you'd rather have every Python CLI in its own venv without managing
+  them by hand, jump to Option 2 (`pipx`) below — it does the same thing
+  under the hood plus keeps the entry-point commands on your `PATH`
+  globally.
+
 ### Installing without admin or root rights
 
 If you don't have permission to install into the system Python (typical on
@@ -95,37 +175,31 @@ Python runtime, so the target machine does not need a Python install.
 - Windows: `coverity-metrics-windows-<version>.exe`
 - Linux (modern glibc, >= 2.38):   `coverity-metrics-linux-<version>`
 - Linux (legacy glibc, >= 2.35):   `coverity-metrics-linux-glibc2.35-<version>`
-- Linux (enterprise / RHEL 8, >= 2.28):   `coverity-metrics-linux-glibc2.28-<version>`
 
-**Which Linux binary?** All three ship the same features and use the same
+**Which Linux binary?** Both ship the same features and use the same
 CPython 3.14 runtime; they differ only in the minimum host glibc they
 require. Check your host's glibc first:
 
 ```bash
 ldd --version | head -n1
-# e.g. "ldd (GNU libc) 2.28"  → use the -glibc2.28- binary
+# e.g. "ldd (Ubuntu GLIBC 2.35-0ubuntu3) 2.35"  → use the -glibc2.35- binary
 ```
 
 - glibc **>= 2.38** (Ubuntu 24.04+, Debian trixie+, Fedora 39+) → use the
   primary `coverity-metrics-linux-<version>`. Built on Ubuntu 26.04.
 - glibc **2.35 – 2.37** (Ubuntu 22.04, Debian 12, Fedora 36–38) → use
   `coverity-metrics-linux-glibc2.35-<version>`. Built on Ubuntu 22.04.
-- glibc **2.28 – 2.34** (RHEL/Rocky/Alma 8 → 2.28, RHEL/Rocky/Alma 9 →
-  2.34, Amazon Linux 2023 → 2.34, older enterprise hosts) → use
-  `coverity-metrics-linux-glibc2.28-<version>`. Built inside the
-  `quay.io/pypa/manylinux_2_28_x86_64` container so the bundled
-  `libpython3.14.so.1.0` only requires symbols available in glibc 2.28.
-  **Tradeoff**: this variant bundles the OpenSSL 1.1.x that the
-  manylinux_2_28 image's CPython 3.14 was built against — the same
-  version AlmaLinux 8 ships — instead of the source-built OpenSSL 3.5.x
-  used by the other two Linux binaries. That's a structural limitation
-  (`_ssl.so`'s `libssl.so.1.1` SONAME can't be redirected to a
-  `libssl.so.3` at load time), not a bug. If modern OpenSSL matters more
-  than a standalone binary on RHEL 8, install via
-  `pip install coverity-metrics` from PyPI on that host instead.
-- glibc **< 2.28** (RHEL 7 → 2.17) → the standalone binary cannot help;
-  install via `pip` / `pipx` on a host where Python 3.10+ is available,
-  or open an issue.
+- glibc **< 2.35** (RHEL/Rocky/Alma 9 → 2.34, RHEL/Rocky/Alma 8 → 2.28,
+  Amazon Linux 2023 → 2.34, RHEL 7 → 2.17, other enterprise hosts) →
+  the standalone binary cannot help. Install via
+  `pip install coverity-metrics` from PyPI on a host with Python 3.10+
+  (see the "Into a Python virtual environment" section above). A
+  `manylinux_2_28`-based third variant was attempted in 1.1.8–1.1.10
+  but reverted: the image's CPython 3.14 is linked against
+  `libssl.so.1.1` and no amount of `LD_LIBRARY_PATH` gymnastics can
+  retarget that at a fresh `libssl.so.3`, so the produced binary
+  would have carried OpenSSL 1.1.1k (EOL) baked in. `pip install` is
+  the maintained path for those hosts.
 
 If a binary is a mismatch you'll see it at launch:
 
@@ -135,7 +209,8 @@ If a binary is a mismatch you'll see it at launch:
     .../libpython3.14.so.1.0)
 ```
 
-Move down to the next-older-glibc binary in the list above.
+Move down to the next-older-glibc binary in the list above (or, if
+already on the `-glibc2.35-` binary, fall back to `pip install`).
 
 The Linux binary is built as a PyInstaller **onefile** bundle: at every
 launch it extracts its bundled shared libraries (Python runtime, `libz`,

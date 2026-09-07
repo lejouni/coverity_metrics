@@ -25,8 +25,10 @@ jobs:
           # OpenSSL 3.5.x for the bundled libcrypto.so.3 / libssl.so.3, instead of
           # Ubuntu 24.04's 3.0.13. Revert to ubuntu-latest once it flips to 26.04.
           # Produces a binary that requires glibc >= 2.38 (Ubuntu 24.04+, Debian
-          # trixie+, Fedora 39+). RHEL/Rocky/Alma 9 (glibc 2.34), RHEL 8 (2.28)
-          # and Ubuntu 22.04 hosts must use the `linux-glibc2.35` binary below.
+          # trixie+, Fedora 39+). Ubuntu 22.04 (glibc 2.35) hosts should use the
+          # `linux-glibc2.35` binary below. RHEL/Rocky/Alma 9 (glibc 2.34) and
+          # RHEL/Rocky/Alma 8 (glibc 2.28) aren't covered by any standalone
+          # binary — install via `pip install coverity-metrics` from PyPI.
           - os: ubuntu-26.04
             artifact_os: linux
             binary_name: coverity-metrics
@@ -34,11 +36,15 @@ jobs:
           # Legacy-glibc Linux build. ubuntu-22.04 ships glibc 2.35, so the
           # bundled libpython3.14.so.1.0 links only against symbols available in
           # glibc <= 2.35. Runs on Ubuntu 22.04+, Debian 12 (glibc 2.36), Fedora
-          # 36+, and any newer host — but NOT on RHEL/Rocky 9 (glibc 2.34) or
-          # RHEL/Rocky 8 (glibc 2.28); those need a manylinux_2_28 container
-          # build we haven't set up yet. OpenSSL 3.5.7 and zlib 1.3.2 are still
-          # built from source on this runner, so BDBA findings track the modern
-          # binary. Artifact suffix `-glibc2.35-` keeps the release-page filename
+          # 36+, and any newer host — but NOT on RHEL/Rocky/Alma 9 (glibc 2.34)
+          # or RHEL/Rocky/Alma 8 (glibc 2.28). Those enterprise hosts must
+          # `pip install coverity-metrics` from PyPI — an earlier attempt at a
+          # `manylinux_2_28`-based third variant was reverted in 1.1.10 because
+          # the image's CPython 3.14 is linked against `libssl.so.1.1` and no
+          # amount of `LD_LIBRARY_PATH` gymnastics can retarget that at a fresh
+          # `libssl.so.3`. OpenSSL 3.5.7 and zlib 1.3.2 are still built from
+          # source on this runner, so BDBA findings track the modern binary.
+          # Artifact suffix `-glibc2.35-` keeps the release-page filename
           # self-documenting and prevents the `linux-v*` glob below from
           # accidentally grabbing both binaries into the same release file.
           - os: ubuntu-22.04
@@ -182,115 +188,13 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  build-manylinux:
-    # Third Linux variant, built inside the manylinux_2_28 container so the
-    # bundled libpython3.14.so.1.0 only requires glibc symbols up to 2.28.
-    # Covers RHEL/Rocky/Alma/CentOS 8, older long-lived enterprise hosts, and
-    # anything newer. Cannot be folded into the matrix build above because
-    # manylinux images ship their own /opt/python/cp314-cp314/ interpreter and
-    # actions/setup-python would install a Python built against a newer glibc,
-    # defeating the whole point.
-    name: Build linux-glibc2.28 (manylinux_2_28)
-    runs-on: ubuntu-latest
-    container:
-      image: quay.io/pypa/manylinux_2_28_x86_64
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Enable Python 3.14 from manylinux image
-        shell: bash
-        run: |
-          # Pre-built CPython 3.14 shipped inside the manylinux_2_28 image, linked
-          # against glibc 2.28 — do NOT swap for actions/setup-python.
-          # Put the venv's bin/ ahead of /opt/python/cp314-cp314/bin/ on PATH so
-          # `python` / `pip` transparently target the venv for every later step.
-          /opt/python/cp314-cp314/bin/python --version
-          /opt/python/cp314-cp314/bin/python -m venv "$HOME/venv"
-          echo "$HOME/venv/bin" >> "$GITHUB_PATH"
-          "$HOME/venv/bin/python" -c "import sysconfig; print('SOABI:', sysconfig.get_config_var('SOABI'))"
-
-      - name: Install project + build deps
-        shell: bash
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install .[build]
-
-      - name: Diagnostic - identify libcrypto/libz sources
-        # Diagnostics are informational; drop `-o pipefail` so the `| head -n1`
-        # SIGPIPE dance on AlmaLinux 8's ldd does not fail the whole step
-        # (exit 141 = 128 + SIGPIPE 13 under the default pipefail shell).
-        shell: bash -e {0}
-        run: |
-          echo "::group::glibc version inside the container"
-          ldd --version | head -n1
-          echo "::endgroup::"
-
-          echo "::group::_ssl.so shared-library dependencies"
-          ldd "$(python -c 'import _ssl; print(_ssl.__file__)')" || true
-          echo "::endgroup::"
-
-          echo "::group::zlib.so shared-library dependencies"
-          ldd "$(python -c 'import zlib; print(zlib.__file__)')" || true
-          echo "::endgroup::"
-
-          echo "::group::OpenSSL / zlib versions Python is using at runtime"
-          python -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)"
-          python -c "import zlib; print('zlib   :', zlib.ZLIB_VERSION)"
-          echo "::endgroup::"
-
-      - name: Report bundled OpenSSL / zlib
-        # We intentionally do NOT source-build a newer OpenSSL / zlib for this
-        # variant like the Ubuntu jobs do. manylinux_2_28's CPython 3.14 is
-        # linked against libssl.so.1.1 / libcrypto.so.1.1 (system OpenSSL 1.1.1
-        # on AlmaLinux 8), so a locally-built OpenSSL 3.5.x with SONAME
-        # libssl.so.3 is never a candidate for ld.so — LD_LIBRARY_PATH does
-        # not, and cannot, override across a SONAME major version bump. The
-        # glibc-2.28 binary therefore ships with whatever OpenSSL manylinux
-        # built the image's CPython 3.14 against; document it explicitly here
-        # so future BDBA scans have a trail. Users who need modern OpenSSL on
-        # RHEL/Rocky/Alma 8 hosts should install from PyPI instead.
-        shell: bash
-        run: |
-          echo "::group::OpenSSL / zlib bundled with the manylinux Python"
-          python -c "import ssl; print('OpenSSL   :', ssl.OPENSSL_VERSION)"
-          python -c "import zlib; print('zlib      :', zlib.ZLIB_VERSION)"
-          echo "_ssl.so   : $(python -c 'import _ssl; print(_ssl.__file__)')"
-          ldd "$(python -c 'import _ssl; print(_ssl.__file__)')" | grep -Ei 'lib(ssl|crypto|z)' || true
-          echo "::endgroup::"
-
-      - name: Build binary
-        shell: bash
-        env:
-          # /opt/python/cp314-cp314/bin/ ships `python` / `python3.14` but not `python3`.
-          PYTHON: python
-        run: bash packaging/build_binary.sh
-
-      - name: Determine artifact name
-        id: name
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            version="${GITHUB_REF_NAME}"
-          else
-            version="${GITHUB_SHA::7}"
-          fi
-          echo "artifact=coverity-metrics-linux-glibc2.28-${version}" >> "$GITHUB_OUTPUT"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v5
-        with:
-          name: ${{ steps.name.outputs.artifact }}
-          path: dist/coverity-metrics
-          if-no-files-found: error
-          retention-days: 30
-
   publish-pypi:
     name: Build sdist/wheel and publish to PyPI
-    # Gate PyPI publish on every binary-producing job. If any of the matrix
-    # builds (Windows, ubuntu-26.04 linux, ubuntu-22.04 linux-glibc2.35) or
-    # the container `build-manylinux` job fails, PyPI publish is skipped —
-    # keeping wheel + binaries in lockstep so no release ever ships partial.
-    needs: [build, build-manylinux]
+    # Gate PyPI publish on every binary-producing matrix leg (Windows, ubuntu-26.04
+    # linux, ubuntu-22.04 linux-glibc2.35). If any leg fails, PyPI publish is
+    # skipped, keeping wheel + binaries in lockstep so no release ever ships
+    # partial.
+    needs: [build]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment:
@@ -344,7 +248,7 @@ jobs:
 
   release:
     name: Attach binaries to release
-    needs: [build, build-manylinux, publish-pypi]
+    needs: [build, publish-pypi]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -361,14 +265,12 @@ jobs:
           # Rename OS-specific binaries into predictable filenames for the release page.
           # `linux-v*` glob is deliberately anchored on the `-v` prefix of the tag
           # version so it matches only the modern-glibc artifact folder and never
-          # the `linux-glibc2.35-v*` / `linux-glibc2.28-v*` variants.
+          # the `linux-glibc2.35-v*` variant.
           cp artifacts/coverity-metrics-windows-*/coverity-metrics.exe release/coverity-metrics-windows-${GITHUB_REF_NAME}.exe
           cp artifacts/coverity-metrics-linux-v*/coverity-metrics       release/coverity-metrics-linux-${GITHUB_REF_NAME}
           cp artifacts/coverity-metrics-linux-glibc2.35-v*/coverity-metrics release/coverity-metrics-linux-glibc2.35-${GITHUB_REF_NAME}
-          cp artifacts/coverity-metrics-linux-glibc2.28-v*/coverity-metrics release/coverity-metrics-linux-glibc2.28-${GITHUB_REF_NAME}
           chmod +x release/coverity-metrics-linux-${GITHUB_REF_NAME} \
-                   release/coverity-metrics-linux-glibc2.35-${GITHUB_REF_NAME} \
-                   release/coverity-metrics-linux-glibc2.28-${GITHUB_REF_NAME}
+                   release/coverity-metrics-linux-glibc2.35-${GITHUB_REF_NAME}
           cp config.json.example release/
           cp README.md release/
           ls -la release/

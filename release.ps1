@@ -41,9 +41,9 @@
 .PARAMETER SkipPreflightCI
   Skip the pre-tag CI validation run. By default, before creating the tag the script triggers a
   workflow_dispatch of build-binaries.yml on the just-pushed commit and waits for every build job
-  (Windows, ubuntu-26.04 linux, ubuntu-22.04 linux-glibc2.35, manylinux_2_28 linux-glibc2.28) to
-  succeed. Only then are the tag and PyPI publish allowed to proceed. Pass this switch to fall
-  back to the legacy "tag and hope" flow.
+  (Windows, ubuntu-26.04 linux, ubuntu-22.04 linux-glibc2.35) to succeed. Only then are the tag
+  and PyPI publish allowed to proceed. Pass this switch to fall back to the legacy "tag and hope"
+  flow.
 
 .PARAMETER AllowDirty
   Allow running with unrelated uncommitted changes in the working tree.
