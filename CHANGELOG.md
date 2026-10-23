@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **CWE Top 25 tab: "Total Defects" summary didn't match the defect count in the table beneath it (e.g. a weakness showing 38 total defects but only 3 rows in its breakdown table).** `CoverityMetrics.get_cwe_top25_metrics()` counted `COUNT(DISTINCT sd.id)` — one row per `stream_defect` occurrence — while `get_cwe_top25_details()` (which powers the per-weakness breakdown table) deduplicates to one row per `sd.merged_defect_id`. A defect present on multiple streams within the same project inflated the header total without adding rows to the table. Changed the summary query to `COUNT(DISTINCT sd.merged_defect_id)` with `sd.merged_defect_id IS NOT NULL`, matching the pattern already used by the OWASP Top 10 2025 metrics (`get_owasp_top10_metrics()`). Both numbers now count the same unique defects.
+- **CWE Top 25 table: clicking a column header to sort silently did nothing.** The table's hidden, expandable defect-detail rows (`<tr data-detail-row>`, one `colspan="9"` cell) sit directly inside `<tbody>` next to the normal data rows. The shared `sortTable()` helper indexed every `<tr>` in the body by `cells[columnIndex]`, which threw for any column past index 0 on a detail row (it has no cell there) and aborted the sort. `sortTable()` and `detectColumnType()` now exclude `[data-detail-row]` rows from the sort/type-detection set and re-attach each detail row immediately after its owner row once sorting finishes, so expand/collapse keeps working regardless of sort order.
+
 ## [1.1.10] - 2026-09-07
 
 ### Added

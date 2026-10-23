@@ -2148,7 +2148,7 @@
                     <!-- Expandable defect details row (only for FAILED entries) -->
                     {% if item.status == 'FAILED' and cwe_top25_details and item.cwe_id in cwe_top25_details %}
                     {% set details = cwe_top25_details[item.cwe_id] %}
-                    <tr id="cwe-{{ item.cwe_id }}-details" style="display: none; background-color: rgba(0,0,0,0.02);">
+                    <tr id="cwe-{{ item.cwe_id }}-details" data-detail-row="1" style="display: none; background-color: rgba(0,0,0,0.02);">
                         <td colspan="9" style="padding: 1.5rem;">
                             
                             <!-- All Defects -->
@@ -2819,7 +2819,22 @@
         function sortTable(columnIndex, tableId, dataType) {
             const table = document.getElementById(tableId);
             const tbody = table.querySelector('tbody');
-            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const allRows = Array.from(tbody.querySelectorAll('tr'));
+            
+            // Some tables (e.g. CWE Top 25) glue a hidden, colspan-only detail
+            // row under the row it expands. Keep each pair together instead of
+            // sorting the detail row by its single cell (which has no column
+            // at most indexes and would throw / scramble the pairing).
+            const detailRowByOwner = new Map();
+            const rows = [];
+            allRows.forEach(row => {
+                if (row.hasAttribute('data-detail-row')) {
+                    const owner = row.previousElementSibling;
+                    if (owner) detailRowByOwner.set(owner, row);
+                } else {
+                    rows.push(row);
+                }
+            });
             
             // Initialize sort direction for this column
             const sortKey = tableId + '-' + columnIndex;
@@ -2853,13 +2868,17 @@
                 }
             });
             
-            // Re-append sorted rows
-            rows.forEach(row => tbody.appendChild(row));
+            // Re-append sorted rows, keeping any glued detail row with its owner
+            rows.forEach(row => {
+                tbody.appendChild(row);
+                const detail = detailRowByOwner.get(row);
+                if (detail) tbody.appendChild(detail);
+            });
         }
 
         // Detect data type of a column from its first non-empty data rows.
         function detectColumnType(table, colIndex) {
-            const rows = table.querySelectorAll('tbody tr');
+            const rows = Array.from(table.querySelectorAll('tbody tr')).filter(row => !row.hasAttribute('data-detail-row'));
             for (let i = 0; i < Math.min(rows.length, 5); i++) {
                 const cell = rows[i].cells[colIndex];
                 if (!cell) continue;

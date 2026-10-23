@@ -2,6 +2,22 @@
 
 ## Version History
 
+### Unreleased
+
+#### Fixed
+
+##### 🛡️ CWE Top 25 tab: summary total didn't match the breakdown table
+- **Symptom** — On the CWE Top 25 tab, a weakness (e.g. "Improper Input Validation") could show a "Total Defects" count much higher than the number of rows in its own breakdown table below (e.g. 38 vs. 3).
+- **Root cause** — The summary query in `get_cwe_top25_metrics()` counted `COUNT(DISTINCT sd.id)`, i.e. one count per `stream_defect` row, which double-counts a defect that appears on more than one stream in the project. `get_cwe_top25_details()`, which renders the breakdown table, already deduplicated by `sd.merged_defect_id` (one row per unique defect).
+- **Fix** — Summary query now counts `COUNT(DISTINCT sd.merged_defect_id)` with `sd.merged_defect_id IS NOT NULL`, the same approach already used for OWASP Top 10 2025 metrics. The header total and the table row count agree.
+- **How to recover** — Regenerate the dashboard; no cache or config changes required.
+
+##### 🔀 CWE Top 25 table: column sorting silently did nothing
+- **Symptom** — Clicking a column header (Rank, Total, High, Med, Low, Unsp, …) on the CWE Top 25 table had no visible effect; rows stayed in their original order.
+- **Root cause** — Each FAILED row can have a hidden expandable detail row right below it in the same `<tbody>`, holding the defect list in a single `colspan="9"` cell. The shared sort helper sorted every `<tr>` in the table body by `cells[columnIndex]`, which has no such cell on a detail row for any column past the first — throwing a JavaScript error and aborting the sort before it reordered anything.
+- **Fix** — Detail rows are now marked with `data-detail-row` and excluded from sorting/type-detection; after sorting the real data rows, each detail row is reattached directly under its owner row so expand/collapse still works no matter which column the table is sorted by.
+- **How to recover** — Regenerate the dashboard; no cache or config changes required.
+
 ### Version 1.1.10 - 2026-09-07
 
 **Two coordinated release-flow gates plus a rebuild-elimination step: `release.ps1` runs a preflight `workflow_dispatch` build and refuses to create the tag if any binary fails; the tag-triggered path now downloads those pre-built artifacts via `actions/download-artifact` cross-run instead of rebuilding, so tag push time drops from ~15 min to ~2 min; and `publish-pypi` cannot fire without a successful preflight run for the exact commit SHA. Together these guarantee tags, PyPI wheels, and the GitHub Release page stay in lockstep — no more half-released 1.1.8/1.1.9-style outcomes, and no wasted CI. The 1.1.8–1.1.10 attempts to ship a third `-glibc2.28-` Linux binary from a `manylinux_2_28` container are reverted; RHEL/Rocky/Alma 8+9 and Amazon Linux 2023 users install via `pip install coverity-metrics` from PyPI instead. Docs: `INSTALL.md` now has an explicit `python -m venv` install recipe and a full air-gapped install walkthrough (wheelhouse build → transfer → `--no-index` install) for hosts with no PyPI access. No source, CLI, config, or dependency changes to the package itself.**

@@ -3764,7 +3764,7 @@ class CoverityMetrics:
             SELECT 
                 cp.cwe,
                 de.name as severity,
-                COUNT(DISTINCT sd.id) as defect_count
+                COUNT(DISTINCT sd.merged_defect_id) as defect_count
             FROM stream_defect sd
             JOIN stream_element se ON sd.stream_element_id = se.id
             JOIN stream s ON se.stream_id = s.id
@@ -3779,6 +3779,7 @@ class CoverityMetrics:
                 AND cp.cwe IS NOT NULL
                 AND {self._ACTIVE_COND_SQL}
                 AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
+                AND sd.merged_defect_id IS NOT NULL
             GROUP BY cp.cwe, de.name
             ORDER BY cp.cwe, de.name
         """
