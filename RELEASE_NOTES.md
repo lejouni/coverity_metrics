@@ -34,13 +34,19 @@
 - **Symptom** — On the CWE Top 25 tab, a weakness (e.g. "Improper Input Validation") could show a "Total Defects" count much higher than the number of rows in its own breakdown table below (e.g. 38 vs. 3).
 - **Root cause** — The summary query in `get_cwe_top25_metrics()` counted `COUNT(DISTINCT sd.id)`, i.e. one count per `stream_defect` row, which double-counts a defect that appears on more than one stream in the project. `get_cwe_top25_details()`, which renders the breakdown table, already deduplicated by `sd.merged_defect_id` (one row per unique defect).
 - **Fix** — Summary query now counts `COUNT(DISTINCT sd.merged_defect_id)` with `sd.merged_defect_id IS NOT NULL`, the same approach already used for OWASP Top 10 2025 metrics. The header total and the table row count agree.
-- **How to recover** — Regenerate the dashboard; no cache or config changes required.
+- **How to recover** — Regenerate the dashboard from a live DB connection (`coverity-dashboard` without `--zip-file`), or re-run `coverity-export` and regenerate from the fresh ZIP. A dashboard rendered from an **existing** ZIP export still shows the old numbers — `cwe_top25_metrics.json` inside the ZIP was computed at export time and isn't recalculated by `coverity-dashboard --zip-file`.
+
+##### 🛡️ CWE Top 25 totals could still over-count after the fix above
+- **Symptom** — Same mismatch as above could persist for a defect whose severity differs between streams/snapshots (e.g. `Major` in one stream, `Moderate` in another for the same logical defect).
+- **Root cause** — The first fix grouped `COUNT(DISTINCT sd.merged_defect_id)` by `(cwe, severity)` and summed the groups into `total_defects`. A merged defect recorded under more than one severity value was still counted once per severity bucket it appeared in.
+- **Fix** — Rewrote the query around a `defect_severity` CTE that dedupes to exactly one row per `(cwe, merged_defect_id)` first — picking a severity the same way `get_cwe_top25_details()` does (`DISTINCT ON ... ORDER BY de.name DESC`) — then aggregates from that already-deduped set, so `total_defects` is always exactly the number of distinct defects.
+- **How to recover** — Same as above: regenerate from a live DB connection or a freshly re-exported ZIP.
 
 ##### 🔀 CWE Top 25 table: column sorting silently did nothing
 - **Symptom** — Clicking a column header (Rank, Total, High, Med, Low, Unsp, …) on the CWE Top 25 table had no visible effect; rows stayed in their original order.
 - **Root cause** — Each FAILED row can have a hidden expandable detail row right below it in the same `<tbody>`, holding the defect list in a single `colspan="9"` cell. The shared sort helper sorted every `<tr>` in the table body by `cells[columnIndex]`, which has no such cell on a detail row for any column past the first — throwing a JavaScript error and aborting the sort before it reordered anything.
 - **Fix** — Detail rows are now marked with `data-detail-row` and excluded from sorting/type-detection; after sorting the real data rows, each detail row is reattached directly under its owner row so expand/collapse still works no matter which column the table is sorted by.
-- **How to recover** — Regenerate the dashboard; no cache or config changes required.
+- **How to recover** — Regenerate the dashboard HTML with the updated template (this fix is in the Jinja/JS template, not cached data, so a fresh `coverity-dashboard` run — ZIP-based or live — picks it up as soon as the installed package is upgraded).
 
 ##### 📦 Release workflow: GitHub Release step failed to find the Linux binaries
 - **Symptom** — `build-binaries.yml`'s `Stage release files` step failed with `cp: cannot stat 'artifacts/coverity-metrics-linux-v*/coverity-metrics': No such file or directory`, so the tag push never reached `Create / update GitHub Release` and no binaries were attached.

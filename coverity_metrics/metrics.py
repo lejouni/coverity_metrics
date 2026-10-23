@@ -3760,28 +3760,39 @@ class CoverityMetrics:
         # Build set of Top 25 CWE IDs for filtering
         top25_cwe_ids = {data['cwe_id'] for data in CWE_TOP_25_2025.values()}
         
+        # One row per (cwe, merged_defect_id), severity picked the same way
+        # get_cwe_top25_details() picks it (DISTINCT ON ... ORDER BY de.name DESC).
+        # Grouping by raw severity directly (without this per-defect dedup first)
+        # would double-count a defect across severity buckets if its severity
+        # differs between streams/snapshots, so total_defects could still
+        # exceed the unique-defect count shown in the details table below it.
         query = f"""
-            SELECT 
-                cp.cwe,
-                de.name as severity,
-                COUNT(DISTINCT sd.merged_defect_id) as defect_count
-            FROM stream_defect sd
-            JOIN stream_element se ON sd.stream_element_id = se.id
-            JOIN stream s ON se.stream_id = s.id
-            JOIN project_stream ps ON s.id = ps.stream_id
-            JOIN project p ON ps.project_id = p.id
-            JOIN defect_triage dt ON sd.defect_triage_id = dt.id
-            LEFT JOIN checker_properties cp ON sd.checker_properties_id = cp.id
-            LEFT JOIN dynamic_enum de ON dt.current_severity_id = de.id
-            LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
-            {self._ACTIVE_JOIN_SQL}
-            WHERE p.name = ANY(%s)
-                AND cp.cwe IS NOT NULL
-                AND {self._ACTIVE_COND_SQL}
-                AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
-                AND sd.merged_defect_id IS NOT NULL
-            GROUP BY cp.cwe, de.name
-            ORDER BY cp.cwe, de.name
+            WITH defect_severity AS (
+                SELECT DISTINCT ON (cp.cwe, sd.merged_defect_id)
+                    cp.cwe,
+                    sd.merged_defect_id,
+                    de.name as severity
+                FROM stream_defect sd
+                JOIN stream_element se ON sd.stream_element_id = se.id
+                JOIN stream s ON se.stream_id = s.id
+                JOIN project_stream ps ON s.id = ps.stream_id
+                JOIN project p ON ps.project_id = p.id
+                JOIN defect_triage dt ON sd.defect_triage_id = dt.id
+                LEFT JOIN checker_properties cp ON sd.checker_properties_id = cp.id
+                LEFT JOIN dynamic_enum de ON dt.current_severity_id = de.id
+                LEFT JOIN dynamic_enum de_cls ON dt.current_classification_id = de_cls.id AND de_cls.dtype = 'Cls'
+                {self._ACTIVE_JOIN_SQL}
+                WHERE p.name = ANY(%s)
+                    AND cp.cwe IS NOT NULL
+                    AND {self._ACTIVE_COND_SQL}
+                    AND (de_cls.name NOT IN ('False Positive', 'Intentional') OR de_cls.name IS NULL)
+                    AND sd.merged_defect_id IS NOT NULL
+                ORDER BY cp.cwe, sd.merged_defect_id, de.name DESC
+            )
+            SELECT cwe, severity, COUNT(*) as defect_count
+            FROM defect_severity
+            GROUP BY cwe, severity
+            ORDER BY cwe, severity
         """
         
         results = self.db.execute_query_dict(query, (self._project_names,))
